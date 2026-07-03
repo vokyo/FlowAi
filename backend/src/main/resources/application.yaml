@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: backend
+  ai:
+    model:
+      chat: none
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/flowai
+    username: flowai
+    password: flowai_dev_password
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+  flyway:
+    enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

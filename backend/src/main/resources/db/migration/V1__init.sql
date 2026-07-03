@@ -1,0 +1,1 @@
+-- Initial migration placeholder. Real tables will be added in Phase 1.
