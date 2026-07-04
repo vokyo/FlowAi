@@ -1,25 +1,11 @@
 spring:
-  application:
-    name: backend
   ai:
     model:
       chat: none
+    openai:
+      api-key: ${OPENAI_API_KEY:}
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/flowai
-    username: flowai
-    password: flowai_dev_password
-
-  jpa:
-    hibernate:
-      ddl-auto: validate
-    open-in-view: false
-
-  flyway:
-    enabled: true
-
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/flowai}
+    username: ${SPRING_DATASOURCE_USERNAME:flowai}
+    password: ${SPRING_DATASOURCE_PASSWORD:flowai_dev_password}
