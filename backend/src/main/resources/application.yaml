@@ -9,3 +9,23 @@ spring:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/flowai}
     username: ${SPRING_DATASOURCE_USERNAME:flowai}
     password: ${SPRING_DATASOURCE_PASSWORD:flowai_dev_password}
+app:
+  security:
+    jwt:
+      secret: ${JWT_SECRET:dev-secret-must-be-long-enough-for-hmac-sha256}
+      access-token-ttl: 15m
+      refresh-token-ttl: 7d
+
+
+jpa:
+  hibernate:
+    ddl-auto: validate
+
+flyway:
+  enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
