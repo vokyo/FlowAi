@@ -2,31 +2,32 @@
 
 [中文 README](./README.zh-CN.md)
 
-FlowAI is a Linear-inspired, AI-assisted task management MVP built as a portfolio project for software engineering, full-stack, and backend internship applications in Auckland.
+FlowAI is a workspace-first, AI-assisted task management MVP inspired by Linear and project issue trackers. It is built as a portfolio project for software engineering, full-stack, and backend internship applications in Auckland.
 
-The goal is not to clone Linear completely. The goal is to build a focused, production-shaped MVP that demonstrates backend engineering, database design, frontend interaction, Docker-based local development, automated testing, and clear technical communication.
+The goal is not to clone Linear completely. The goal is to build a focused, production-shaped MVP that demonstrates backend engineering, database design, frontend integration, Docker-based local development, automated testing, and clear technical communication.
 
 ## Current Status
 
-FlowAI is currently in **Phase 0: project positioning and engineering setup**.
+FlowAI has completed **Phase 0: engineering setup** and the main implementation work for **Phase 1: authentication and workspace access**.
 
 Implemented now:
 
 - Monorepo structure with `backend/`, `frontend/`, and `docs/`.
-- Spring Boot backend skeleton with PostgreSQL, Flyway, Spring Security, Actuator, JPA, Validation, and Testcontainers dependencies.
+- Spring Boot backend with PostgreSQL, Flyway, Spring Security, JWT resource server, Actuator, JPA, Validation, and Testcontainers.
 - PostgreSQL development database through Docker Compose.
-- Vite React TypeScript frontend skeleton.
-- Tailwind CSS, shadcn/ui, React Router, and TanStack Query wired into the frontend.
-- Public backend health check endpoint available through Spring Boot Actuator.
+- Flyway migrations for users, workspaces, workspace memberships, and refresh tokens.
+- Registration, login, token refresh, and `/api/me` session context.
+- Workspace-first model: a user can belong to workspaces through memberships; Phase 1 creates a default workspace during registration.
+- Protected frontend routes for `/app`.
+- Frontend login, registration, token storage, automatic access-token refresh, and current session loading.
+- Vite React TypeScript frontend with Tailwind CSS, shadcn/ui, React Router, and TanStack Query.
 
-Not implemented yet:
+Planned next:
 
-- User registration and login.
-- JWT authentication.
-- Organization, workspace, member, project, and issue domain models.
+- Project, project membership or invitation, issue, comment, and activity models.
 - Linear-style issue list and kanban board.
 - AI-assisted issue breakdown and summary features.
-- Production deployment configuration.
+- Analytics and deployment hardening.
 
 ## Tech Stack
 
@@ -38,7 +39,8 @@ Not implemented yet:
 | API | Spring Web, Spring Validation |
 | Persistence | Spring Data JPA, Hibernate, PostgreSQL |
 | Migration | Flyway |
-| Security foundation | Spring Security |
+| Security | Spring Security, JWT resource server, BCrypt |
+| Tokens | Access tokens plus refresh-token rotation |
 | Health checks | Spring Boot Actuator |
 | Testing foundation | JUnit 5, Testcontainers |
 | Local infrastructure | Docker Compose, PostgreSQL 17 Alpine |
@@ -50,12 +52,10 @@ Not implemented yet:
 
 | Area | Technology or Capability |
 | --- | --- |
-| Authentication | Spring Security with JWT |
 | Forms | React Hook Form, Zod |
-| Multi-tenancy | Organization and workspace isolation |
-| Task management | Projects, issues, workflow states, labels, comments, activity events |
+| Project management | Projects, project members, invitations, issues, comments, activity events |
 | Board interaction | dnd-kit |
-| AI features | Spring AI |
+| AI features | Spring AI powered issue breakdown and summaries |
 | Analytics | Recharts |
 | Deployment | Full Docker Compose application stack |
 
@@ -69,7 +69,7 @@ flowchart LR
     Backend --> Flyway["Flyway migrations"]
 ```
 
-During Phase 0, Docker Compose starts PostgreSQL only. The backend and frontend are run locally for development.
+During the current development phase, Docker Compose starts PostgreSQL only. The backend and frontend run locally for faster iteration.
 
 ## Getting Started
 
@@ -79,7 +79,19 @@ During Phase 0, Docker Compose starts PostgreSQL only. The backend and frontend 
 - Node.js and npm
 - Docker Desktop
 
-### 1. Start PostgreSQL
+### 1. Configure Environment Variables
+
+Create a local `.env` from the example file:
+
+```bash
+cp .env.example .env
+```
+
+Then fill in local values as needed. Do not commit `.env`.
+
+Current backend startup may require `OPENAI_API_KEY` because the OpenAI Spring AI starter is already present, even though AI product features are planned for a later phase.
+
+### 2. Start PostgreSQL
 
 From the repository root:
 
@@ -95,14 +107,13 @@ PostgreSQL will be available at:
 - User: `flowai`
 - Password: `flowai_dev_password`
 
-### 2. Start the backend
+### 3. Start the Backend
 
 ```bash
 cd backend
+set -a; source ../.env; set +a
 ./mvnw spring-boot:run
 ```
-
-The backend uses the database configured in `backend/src/main/resources/application.yaml`.
 
 Health check:
 
@@ -116,17 +127,34 @@ Expected response:
 {"status":"UP"}
 ```
 
-### 3. Start the frontend
+### 4. Start the Frontend
 
 ```bash
 cd frontend
 npm run dev
 ```
 
-The frontend development server is provided by Vite. The terminal output will show the local URL, usually:
+The Vite development URL is usually:
 
 ```text
 http://localhost:5173/
+```
+
+## Phase 1 APIs
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/auth/register` | Create user, default workspace, owner membership, and tokens |
+| `POST` | `/api/auth/login` | Authenticate with email and password |
+| `POST` | `/api/auth/refresh` | Rotate refresh token and issue a new access token |
+| `GET` | `/api/me` | Return current session: user plus workspace |
+| `GET` | `/api/workspaces/current` | Return current workspace from JWT context |
+| `GET` | `/api/workspaces/current/members` | Return members of the current workspace |
+
+Authenticated requests use:
+
+```http
+Authorization: Bearer <access-token>
 ```
 
 ## Verification
@@ -135,6 +163,7 @@ Backend:
 
 ```bash
 cd backend
+set -a; source ../.env; set +a
 ./mvnw test
 ```
 
@@ -146,33 +175,37 @@ npm run build
 npm run lint
 ```
 
-Phase 0 acceptance checks:
+Phase 1 acceptance checks:
 
-- `docker compose up -d postgres` starts PostgreSQL.
-- Backend health check returns `UP`.
-- Frontend home page is accessible in the browser.
-- README explains the project positioning, stack, architecture, and startup commands.
+- A new user can register.
+- Registration creates a default workspace and `OWNER` membership.
+- Login returns access and refresh tokens.
+- `/api/me` returns `user` and `workspace`.
+- `/app` is protected from unauthenticated access.
+- The frontend stores tokens, attaches `Authorization`, refreshes expired access tokens, and signs out when refresh fails.
 
 ## Demo Account
 
-Demo account placeholder:
+There is no committed seeded demo account yet.
 
-- Email: `demo@flowai.local`
-- Password: `flowai-demo-password`
-
-Authentication is planned for Phase 1. The demo account will become active after registration, login, JWT authentication, and seed data are implemented.
+Use the registration page to create a local account. A seeded demo account can be added later when Phase 2 or deployment setup needs repeatable demos.
 
 ## Roadmap
 
 | Phase | Focus | Status |
 | --- | --- | --- |
-| Phase 0 | Project positioning and engineering setup | In progress |
-| Phase 1 | Authentication, organizations, workspaces, roles, JWT | Planned |
-| Phase 2 | Core task management: projects, issues, comments, activities | Planned |
+| Phase 0 | Project positioning and engineering setup | Completed |
+| Phase 1 | Authentication, workspace membership, JWT, protected app shell | Completed locally |
+| Phase 2 | Projects, project members or invitations, issues, comments, activities | Planned |
 | Phase 3 | Linear-style application experience and kanban board | Planned |
 | Phase 4 | AI issue breakdown, summaries, and analytics | Planned |
-| Phase 5 | Tests, Dockerized full stack, deployment, interview materials | Planned |
+| Phase 5 | Tests, full Docker Compose, deployment, interview materials | Planned |
 
 ## Project Notes
 
 FlowAI is intentionally being built in small, interview-friendly phases. Each phase should leave the project runnable and explainable, so the repository can show both engineering progress and decision-making process.
+
+More detail:
+
+- [MVP Roadmap](./docs/mvp-roadmap.en.md)
+- [Phase 1 Design Notes](./docs/phase-1-auth-workspace.en.md)

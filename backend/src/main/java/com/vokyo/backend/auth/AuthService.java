@@ -32,7 +32,9 @@ import static org.springframework.http.HttpStatus.FORBIDDEN;
 @Service
 public class AuthService {
 
+    private static final int WORKSPACE_SLUG_MAX_LENGTH = 120;
     private static final int SLUG_RANDOM_SUFFIX_LENGTH = 8;
+    private static final int SLUG_SEPARATOR_LENGTH = 1;
 
     private final UserRepository userRepository;
     private final WorkspaceRepository workspaceRepository;
@@ -145,14 +147,21 @@ public class AuthService {
     }
 
     private String generateUniqueWorkspaceSlug(String workspaceName) {
-        String baseSlug = slugify(workspaceName);
+        String baseSlug = truncateSlug(slugify(workspaceName), WORKSPACE_SLUG_MAX_LENGTH);
         String slug = baseSlug;
 
         while (workspaceRepository.existsBySlug(slug)) {
-            slug = baseSlug + "-" + UUID.randomUUID()
+            String suffix = UUID.randomUUID()
                     .toString()
                     .replace("-", "")
                     .substring(0, SLUG_RANDOM_SUFFIX_LENGTH);
+
+            String baseWithSuffixRoom = truncateSlug(
+                    baseSlug,
+                    WORKSPACE_SLUG_MAX_LENGTH - SLUG_SEPARATOR_LENGTH - SLUG_RANDOM_SUFFIX_LENGTH
+            );
+
+            slug = baseWithSuffixRoom + "-" + suffix;
         }
 
         return slug;
@@ -170,6 +179,14 @@ public class AuthService {
         }
 
         return slug;
+    }
+
+    private String truncateSlug(String slug, int maxLength) {
+        if (slug.length() <= maxLength) {
+            return slug;
+        }
+
+        return slug.substring(0, maxLength).replaceAll("-$", "");
     }
 
     private String normalizeEmail(String email) {

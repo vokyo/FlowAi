@@ -1,3 +1,11 @@
+import {
+  clearAuthTokens,
+  getAccessToken,
+  getRefreshToken,
+  saveAuthTokens,
+  type AuthTokens,
+} from '@/auth/token-storage'
+
 type AccessTokenProvider = () => string | null
 type UnauthorizedHandler = () => void
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
@@ -14,6 +22,7 @@ type ApiRequestWithoutBody = Omit<ApiRequestOptions, 'method' | 'body'>
 
 let accessTokenProvider: AccessTokenProvider | undefined
 let unauthorizedHandler: UnauthorizedHandler | undefined
+let refreshTokenPromise: Promise<boolean> | undefined
 
 export class ApiError extends Error {
   readonly status: number
@@ -46,6 +55,7 @@ export function clearUnauthorizedHandler() {
 export async function apiRequest<T>(
   path: string,
   options: ApiRequestOptions = {},
+  hasRetried = false,
 ): Promise<T> {
   const { method = 'GET', body, headers, auth = true, ...requestInit } = options
   const requestHeaders = createHeaders(headers, body, auth)
@@ -58,6 +68,13 @@ export async function apiRequest<T>(
   })
 
   const payload = await readPayload(response)
+
+  if (response.status === 401 && auth && !hasRetried) {
+    const refreshed = await refreshAuthTokens()
+    if (refreshed) {
+      return apiRequest<T>(path, options, true)
+    }
+  }
 
   if (response.status === 401) {
     unauthorizedHandler?.()
@@ -103,12 +120,60 @@ function createHeaders(
     requestHeaders.set('Content-Type', 'application/json')
   }
 
-  const accessToken = accessTokenProvider?.()
+  const accessToken = accessTokenProvider?.() ?? getAccessToken()
   if (auth && accessToken) {
     requestHeaders.set('Authorization', `Bearer ${accessToken}`)
   }
 
   return requestHeaders
+}
+
+async function refreshAuthTokens() {
+  refreshTokenPromise ??= refreshAuthTokensOnce().finally(() => {
+    refreshTokenPromise = undefined
+  })
+
+  return refreshTokenPromise
+}
+
+async function refreshAuthTokensOnce() {
+  const refreshToken = getRefreshToken()
+  if (!refreshToken) {
+    return false
+  }
+
+  const response = await fetch(toApiUrl('/auth/refresh'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ refreshToken }),
+  })
+
+  if (!response.ok) {
+    clearAuthTokens()
+    return false
+  }
+
+  const payload = await readPayload(response)
+  if (!isAuthTokens(payload)) {
+    clearAuthTokens()
+    return false
+  }
+
+  saveAuthTokens(payload)
+  return true
+}
+
+function isAuthTokens(payload: unknown): payload is AuthTokens {
+  return (
+    payload !== null &&
+    typeof payload === 'object' &&
+    'accessToken' in payload &&
+    typeof payload.accessToken === 'string' &&
+    'refreshToken' in payload &&
+    typeof payload.refreshToken === 'string'
+  )
 }
 
 function toApiUrl(path: string) {

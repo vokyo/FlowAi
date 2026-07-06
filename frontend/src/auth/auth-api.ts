@@ -32,11 +32,9 @@ export type RegisterRequest = {
   workspaceName: string
 }
 
-export type CurrentUserResponse = {
-  id: string
-  email: string
-  displayName: string
-  currentWorkspaceId?: string
+export type CurrentSessionResponse = {
+  user: AuthUser
+  workspace: AuthWorkspace
 }
 
 export function login(request: LoginRequest) {
@@ -47,6 +45,6 @@ export function register(request: RegisterRequest) {
   return api.post<AuthResponse>('/auth/register', request, { auth: false })
 }
 
-export function getCurrentUser() {
-  return api.get<CurrentUserResponse>('/me')
+export function getCurrentSession() {
+  return api.get<CurrentSessionResponse>('/me')
 }

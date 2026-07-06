@@ -7,6 +7,9 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
 
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/flowai}
@@ -22,8 +25,7 @@ app:
 
 
 
-flyway:
-  enabled: true
+
 
 management:
   endpoints:

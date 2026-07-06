@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { LogOut } from 'lucide-react'
 import { ApiError } from '@/api/client'
-import { getCurrentUser } from '@/auth/auth-api'
+import { getCurrentSession } from '@/auth/auth-api'
 import { Button } from '@/components/ui/button'
 
 type AppPageProps = {
@@ -9,20 +9,22 @@ type AppPageProps = {
 }
 
 export function AppPage({ onSignOut }: AppPageProps) {
-  const currentUserQuery = useQuery({
-    queryKey: ['current-user'],
-    queryFn: getCurrentUser,
+  const currentSessionQuery = useQuery({
+    queryKey: ['current-session'],
+    queryFn: getCurrentSession,
     retry: false,
   })
 
-  const currentUser = currentUserQuery.data
+  const currentSession = currentSessionQuery.data
+  const currentUser = currentSession?.user
+  const currentWorkspace = currentSession?.workspace
 
   return (
     <main className="app-shell">
       <aside className="app-sidebar">
         <div>
           <p className="app-logo">FlowAI</p>
-          <p className="app-muted">Workspace</p>
+          <p className="app-muted">{currentWorkspace?.name ?? 'Workspace'}</p>
         </div>
         <Button type="button" variant="outline" onClick={onSignOut}>
           <LogOut aria-hidden="true" />
@@ -39,15 +41,15 @@ export function AppPage({ onSignOut }: AppPageProps) {
           </div>
         </div>
         <div className="app-content">
-          {currentUserQuery.isLoading ? (
+          {currentSessionQuery.isLoading ? (
             <p className="app-state">Loading your workspace.</p>
           ) : null}
-          {currentUserQuery.isError ? (
+          {currentSessionQuery.isError ? (
             <p className="app-error">
-              {getErrorMessage(currentUserQuery.error)}
+              {getErrorMessage(currentSessionQuery.error)}
             </p>
           ) : null}
-          {currentUser ? (
+          {currentUser && currentWorkspace ? (
             <dl className="app-details">
               <div>
                 <dt>Email</dt>
@@ -59,7 +61,15 @@ export function AppPage({ onSignOut }: AppPageProps) {
               </div>
               <div>
                 <dt>Workspace ID</dt>
-                <dd>{currentUser.currentWorkspaceId ?? 'Pending backend'}</dd>
+                <dd>{currentWorkspace.id}</dd>
+              </div>
+              <div>
+                <dt>Workspace</dt>
+                <dd>{currentWorkspace.name}</dd>
+              </div>
+              <div>
+                <dt>Role</dt>
+                <dd>{currentWorkspace.role ?? 'MEMBER'}</dd>
               </div>
             </dl>
           ) : null}
