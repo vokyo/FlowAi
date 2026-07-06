@@ -4,6 +4,9 @@ spring:
       chat: none
     openai:
       api-key: ${OPENAI_API_KEY:}
+  jpa:
+    hibernate:
+      ddl-auto: validate
 
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/flowai}
@@ -17,9 +20,7 @@ app:
       refresh-token-ttl: 7d
 
 
-jpa:
-  hibernate:
-    ddl-auto: validate
+
 
 flyway:
   enabled: true
