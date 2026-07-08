@@ -51,6 +51,7 @@ import {
 } from '@/work/work-api'
 
 const ISSUE_STATUSES = ['TODO', 'IN_PROGRESS', 'DONE', 'ARCHIVED'] as const
+const CREATABLE_ISSUE_STATUSES = ['TODO', 'IN_PROGRESS', 'DONE'] as const
 const ISSUE_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const
 const EMPTY_PROJECTS: Project[] = []
 const EMPTY_ISSUES: IssueSummary[] = []
@@ -290,7 +291,7 @@ export function AppPage({ onSignOut }: AppPageProps) {
     createIssueMutation.reset()
     setIssueTitle('')
     setIssueDescription('')
-    setIssueStatus(status)
+    setIssueStatus(getCreatableIssueStatus(status))
     setIssuePriority('')
     setActiveCreateDialog('issue')
   }
@@ -809,6 +810,8 @@ function IssueStatusSection({
   onIssueSelect: (issueId: string) => void
   onOpenCreateIssue: (status?: IssueStatus) => void
 }) {
+  const canCreateIssueInStatus = group.status !== 'ARCHIVED'
+
   return (
     <section className="status-section">
       <div className="status-section-header">
@@ -818,16 +821,18 @@ function IssueStatusSection({
         </span>
         <span className="status-section-actions">
           <small>{group.issues.length}</small>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            onClick={() => onOpenCreateIssue(group.status)}
-            aria-label={`Create issue in ${group.label}`}
-            title="Create issue"
-          >
-            <Plus aria-hidden="true" />
-          </Button>
+          {canCreateIssueInStatus ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => onOpenCreateIssue(group.status)}
+              aria-label={`Create issue in ${group.label}`}
+              title="Create issue"
+            >
+              <Plus aria-hidden="true" />
+            </Button>
+          ) : null}
         </span>
       </div>
       {group.issues.length === 0 ? (
@@ -1465,7 +1470,7 @@ function CreateIssueDialog({
               disabled={!selectedProject}
               aria-label="Status"
             >
-              {ISSUE_STATUSES.map((status) => (
+              {CREATABLE_ISSUE_STATUSES.map((status) => (
                 <option key={status} value={status}>
                   {STATUS_LABELS[status]}
                 </option>
@@ -1671,6 +1676,14 @@ function getStatusOptions(currentStatus: IssueStatus) {
   const options = new Set<IssueStatus>(ISSUE_STATUSES)
   options.add(currentStatus)
   return Array.from(options)
+}
+
+function getCreatableIssueStatus(status: IssueStatus): IssueStatus {
+  if (status === 'TODO' || status === 'IN_PROGRESS' || status === 'DONE') {
+    return status
+  }
+
+  return 'TODO'
 }
 
 function projectPath(workspaceId: string, projectId: string) {

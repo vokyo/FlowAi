@@ -221,6 +221,26 @@ class ProjectIssueWorkflowIntegrationTests {
     }
 
     @Test
+    void createIssueRejectsArchivedStatus() throws Exception {
+        AuthSession session = register("issue-archived-create+" + uniqueId() + "@example.com");
+        String projectId = createProject(session, "Archived Create Project").get("id").asText();
+
+        postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Should not start archived",
+                  "status": "ARCHIVED"
+                }
+                """.formatted(projectId),
+                session.accessToken()
+        ).andExpect(status().isBadRequest());
+
+        assertThat(issueRepository.findAll()).isEmpty();
+    }
+
+    @Test
     void patchIssueUpdatesStatusPriorityAndRecordsStatusActivity() throws Exception {
         AuthSession session = register("patch-status+" + uniqueId() + "@example.com");
         String projectId = createProject(session, "Patch Project").get("id").asText();

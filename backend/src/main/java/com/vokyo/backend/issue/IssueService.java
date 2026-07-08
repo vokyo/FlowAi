@@ -24,7 +24,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 import jakarta.persistence.criteria.Predicate;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class IssueService {
@@ -64,18 +66,21 @@ public class IssueService {
         requireProject(projectId, context.workspace().getId());
         String normalizedQuery = normalizeOptionalText(query);
 
-        return issueRepository.findAll(
-                        issueListSpecification(
-                                context.workspace().getId(),
-                                projectId,
-                                status,
-                                priority,
-                                normalizedQuery
-                        ),
-                        Sort.by(Sort.Direction.DESC, "createdAt")
-                )
+        List<Issue> issues = issueRepository.findAll(
+                issueListSpecification(
+                        context.workspace().getId(),
+                        projectId,
+                        status,
+                        priority,
+                        normalizedQuery
+                ),
+                Sort.by(Sort.Direction.DESC, "createdAt")
+        );
+        Map<UUID, Long> commentCounts = loadCommentCounts(issues);
+
+        return issues
                 .stream()
-                .map(this::toSummaryResponse)
+                .map(issue -> toSummaryResponse(issue, commentCounts.getOrDefault(issue.getId(), 0L)))
                 .toList();
     }
 
@@ -83,6 +88,10 @@ public class IssueService {
     public IssueSummaryResponse createIssue(Jwt jwt, CreateIssueRequest request) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Project project = requireProject(request.projectId(), context.workspace().getId());
+        if (request.status() == IssueStatus.ARCHIVED) {
+            throw badRequest("Issue cannot be created as archived");
+        }
+
         Issue issue = issueRepository.save(new Issue(
                 context.workspace(),
                 project,
@@ -94,7 +103,7 @@ public class IssueService {
         ));
 
         activityService.recordIssueCreated(issue, context.user());
-        return toSummaryResponse(issue);
+        return toSummaryResponse(issue, 0L);
     }
 
     @Transactional(readOnly = true)
@@ -176,7 +185,25 @@ public class IssueService {
         };
     }
 
-    private IssueSummaryResponse toSummaryResponse(Issue issue) {
+    private Map<UUID, Long> loadCommentCounts(List<Issue> issues) {
+        if (issues.isEmpty()) {
+            return Map.of();
+        }
+
+        List<UUID> issueIds = issues.stream()
+                .map(Issue::getId)
+                .toList();
+
+        return issueCommentRepository.countByIssueIds(issueIds)
+                .stream()
+                .collect(Collectors.toMap(
+                        IssueCommentRepository.IssueCommentCount::getIssueId,
+                        IssueCommentRepository.IssueCommentCount::getCommentCount,
+                        Long::sum
+                ));
+    }
+
+    private IssueSummaryResponse toSummaryResponse(Issue issue, long commentCount) {
         return new IssueSummaryResponse(
                 issue.getId(),
                 issue.getProject().getId(),
@@ -187,7 +214,7 @@ public class IssueService {
                 toUserResponse(issue.getCreatedByUser()),
                 issue.getCreatedAt(),
                 issue.getUpdatedAt(),
-                issueCommentRepository.countByIssue_Id(issue.getId())
+                commentCount
         );
     }
 
