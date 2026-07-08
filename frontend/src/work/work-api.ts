@@ -19,6 +19,8 @@ export type IssueSummary = {
   description?: string | null
   status: IssueStatus
   priority?: IssuePriority | null
+  creator?: AuthUser | null
+  reporter?: AuthUser | null
   createdAt: string
   updatedAt: string
   commentCount?: number | null
@@ -60,10 +62,19 @@ export type CreateIssueRequest = {
   projectId: string
   title: string
   description?: string
+  status?: IssueStatus
+  priority?: IssuePriority | null
 }
 
 export type CreateCommentRequest = {
   body: string
+}
+
+export type UpdateIssueRequest = {
+  title?: string
+  description?: string | null
+  status?: IssueStatus
+  priority?: IssuePriority | null
 }
 
 export function listProjects() {
@@ -80,6 +91,10 @@ export function listIssues(projectId: string) {
 
 export function createIssue(request: CreateIssueRequest) {
   return api.post<IssueSummary>('/issues', request)
+}
+
+export function updateIssue(issueId: string, request: UpdateIssueRequest) {
+  return api.patch<IssueDetail>(`/issues/${issueId}`, request)
 }
 
 export function getIssue(issueId: string) {

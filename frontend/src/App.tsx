@@ -48,6 +48,14 @@ function AppRoutes() {
     }
   }, [navigate])
 
+  function renderAppPage() {
+    return (
+      <RequireAuth sessionVersion={sessionVersion}>
+        <AppPage onSignOut={signOut} />
+      </RequireAuth>
+    )
+  }
+
   return (
     <Routes>
       <Route
@@ -74,11 +82,15 @@ function AppRoutes() {
       />
       <Route
         path="/app"
-        element={
-          <RequireAuth sessionVersion={sessionVersion}>
-            <AppPage onSignOut={signOut} />
-          </RequireAuth>
-        }
+        element={renderAppPage()}
+      />
+      <Route
+        path="/app/workspaces/:workspaceId/projects/:projectId"
+        element={renderAppPage()}
+      />
+      <Route
+        path="/app/workspaces/:workspaceId/projects/:projectId/issues/:issueId"
+        element={renderAppPage()}
       />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
