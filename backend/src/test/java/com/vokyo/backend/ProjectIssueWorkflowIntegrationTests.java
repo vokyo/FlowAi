@@ -4,8 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vokyo.backend.activity.ActivityEventRepository;
 import com.vokyo.backend.auth.RefreshTokenRepository;
+import com.vokyo.backend.issue.Issue;
 import com.vokyo.backend.issue.IssueCommentRepository;
+import com.vokyo.backend.issue.IssuePriority;
 import com.vokyo.backend.issue.IssueRepository;
+import com.vokyo.backend.issue.IssueStatus;
 import com.vokyo.backend.project.ProjectRepository;
 import com.vokyo.backend.user.UserRepository;
 import com.vokyo.backend.workspace.WorkspaceMembershipRepository;
@@ -24,6 +27,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -31,7 +35,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(TestcontainersConfiguration.class)
 @AutoConfigureMockMvc
 @SpringBootTest(properties = "spring.ai.openai.api-key=dummy")
-class Phase2WorkIntegrationTests {
+class ProjectIssueWorkflowIntegrationTests {
 
     @Autowired
     private MockMvc mockMvc;
@@ -167,6 +171,141 @@ class Phase2WorkIntegrationTests {
     }
 
     @Test
+    void createIssueAcceptsStatusAndDefaultsToTodo() throws Exception {
+        AuthSession session = register("issue-status+" + uniqueId() + "@example.com");
+        String projectId = createProject(session, "Status Project").get("id").asText();
+
+        JsonNode inProgressIssue = postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Start implementation",
+                  "status": "IN_PROGRESS",
+                  "priority": "MEDIUM"
+                }
+                """.formatted(projectId),
+                session.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.priority").value("MEDIUM"))
+                .andReturnJson();
+
+        JsonNode defaultStatusIssue = postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Backlog item"
+                }
+                """.formatted(projectId),
+                session.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("TODO"))
+                .andExpect(jsonPath("$.priority").doesNotExist())
+                .andReturnJson();
+
+        assertThat(issueRepository.findById(UUID.fromString(inProgressIssue.get("id").asText())))
+                .get()
+                .extracting(Issue::getStatus, Issue::getPriority)
+                .containsExactly(IssueStatus.IN_PROGRESS, IssuePriority.MEDIUM);
+        assertThat(issueRepository.findById(UUID.fromString(defaultStatusIssue.get("id").asText())))
+                .get()
+                .extracting(Issue::getStatus, Issue::getPriority)
+                .containsExactly(IssueStatus.TODO, null);
+    }
+
+    @Test
+    void patchIssueUpdatesStatusPriorityAndRecordsStatusActivity() throws Exception {
+        AuthSession session = register("patch-status+" + uniqueId() + "@example.com");
+        String projectId = createProject(session, "Patch Project").get("id").asText();
+        String issueId = postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Move through workflow",
+                  "status": "TODO",
+                  "priority": "LOW"
+                }
+                """.formatted(projectId),
+                session.accessToken()
+        ).andExpect(status().isOk())
+                .andReturnJson()
+                .get("id").asText();
+
+        patchJson(
+                "/api/issues/%s".formatted(issueId),
+                """
+                {
+                  "status": "DONE",
+                  "priority": "URGENT"
+                }
+                """,
+                session.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(issueId))
+                .andExpect(jsonPath("$.status").value("DONE"))
+                .andExpect(jsonPath("$.priority").value("URGENT"))
+                .andExpect(jsonPath("$.comments").isArray());
+
+        assertThat(issueRepository.findById(UUID.fromString(issueId)))
+                .get()
+                .extracting(Issue::getStatus, Issue::getPriority)
+                .containsExactly(IssueStatus.DONE, IssuePriority.URGENT);
+
+        mockMvc.perform(get("/api/issues/{issueId}/activities", issueId)
+                        .header("Authorization", bearer(session.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].eventType").value("ISSUE_CREATED"))
+                .andExpect(jsonPath("$[1].eventType").value("ISSUE_STATUS_CHANGED"))
+                .andExpect(jsonPath("$[1].metadata.fromStatus").value("TODO"))
+                .andExpect(jsonPath("$[1].metadata.toStatus").value("DONE"));
+    }
+
+    @Test
+    void patchIssuePriorityOnlyDoesNotRecordStatusActivity() throws Exception {
+        AuthSession session = register("patch-priority+" + uniqueId() + "@example.com");
+        String projectId = createProject(session, "Priority Project").get("id").asText();
+        String issueId = postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Tune priority",
+                  "status": "TODO",
+                  "priority": "LOW"
+                }
+                """.formatted(projectId),
+                session.accessToken()
+        ).andExpect(status().isOk())
+                .andReturnJson()
+                .get("id").asText();
+
+        patchJson(
+                "/api/issues/%s".formatted(issueId),
+                """
+                {
+                  "priority": "HIGH"
+                }
+                """,
+                session.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("TODO"))
+                .andExpect(jsonPath("$.priority").value("HIGH"));
+
+        mockMvc.perform(get("/api/issues/{issueId}/activities", issueId)
+                        .header("Authorization", bearer(session.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].eventType").value("ISSUE_CREATED"))
+                .andExpect(jsonPath("$[1]").doesNotExist());
+
+        assertThat(activityEventRepository.findAll())
+                .extracting(activity -> activity.getEventType().name())
+                .doesNotContain("ISSUE_STATUS_CHANGED");
+    }
+
+    @Test
     void rejectsCrossWorkspaceProjectAndIssueAccess() throws Exception {
         AuthSession owner = register("owner+" + uniqueId() + "@example.com");
         AuthSession outsider = register("outsider+" + uniqueId() + "@example.com");
@@ -224,6 +363,17 @@ class Phase2WorkIntegrationTests {
         mockMvc.perform(get("/api/issues/{issueId}/activities", issueId)
                         .header("Authorization", bearer(outsider.accessToken())))
                 .andExpect(status().isNotFound());
+
+        patchJson(
+                "/api/issues/%s".formatted(issueId),
+                """
+                {
+                  "status": "DONE",
+                  "priority": "HIGH"
+                }
+                """,
+                outsider.accessToken()
+        ).andExpect(status().isNotFound());
     }
 
     private AuthSession register(String email) throws Exception {
@@ -247,8 +397,33 @@ class Phase2WorkIntegrationTests {
         );
     }
 
+    private JsonNode createProject(AuthSession session, String name) throws Exception {
+        return postJson(
+                "/api/projects",
+                """
+                {
+                  "name": "%s"
+                }
+                """.formatted(name),
+                session.accessToken()
+        ).andExpect(status().isOk())
+                .andReturnJson();
+    }
+
     private ResultActionsWithJson postJson(String path, String json, String accessToken) throws Exception {
         var request = post(path)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json);
+
+        if (accessToken != null) {
+            request.header("Authorization", bearer(accessToken));
+        }
+
+        return new ResultActionsWithJson(mockMvc.perform(request));
+    }
+
+    private ResultActionsWithJson patchJson(String path, String json, String accessToken) throws Exception {
+        var request = patch(path)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json);
 
