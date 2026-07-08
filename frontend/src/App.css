@@ -147,6 +147,8 @@
 .content-header,
 .detail-content-header,
 .detail-section-title,
+.issue-title-display,
+.issue-edit-actions,
 .property-section-title,
 .property-row span,
 .app-pill,
@@ -303,6 +305,7 @@
 .issue-row-main,
 .content-header > div,
 .issue-title-block,
+.issue-title-content,
 .comment-item,
 .activity-item div,
 .property-row strong {
@@ -637,6 +640,65 @@
   font-size: 30px;
 }
 
+.issue-title-display {
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+}
+
+.issue-title-content {
+  flex: 1 1 auto;
+}
+
+.issue-edit-form {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.issue-title-input,
+.issue-description-input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--input);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  outline: none;
+}
+
+.issue-title-input {
+  min-height: 46px;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 6px 8px;
+}
+
+.issue-description-input {
+  min-height: 118px;
+  color: var(--foreground);
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 8px 9px;
+  resize: vertical;
+}
+
+.issue-title-input:focus,
+.issue-description-input:focus {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring), transparent 78%);
+}
+
+.issue-edit-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .detail-section {
   display: grid;
   gap: 13px;
@@ -963,6 +1025,7 @@
   .content-header,
   .detail-content-header,
   .content-header-actions,
+  .issue-title-display,
   .comment-meta {
     align-items: stretch;
     flex-direction: column;

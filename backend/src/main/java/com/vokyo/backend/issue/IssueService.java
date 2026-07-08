@@ -134,6 +134,7 @@ public class IssueService {
                 issue.getDescription(),
                 issue.getStatus().name(),
                 issue.getPriority() == null ? null : issue.getPriority().name(),
+                toUserResponse(issue.getCreatedByUser()),
                 issue.getCreatedAt(),
                 issue.getUpdatedAt(),
                 issueCommentRepository.countByIssue_Id(issue.getId())
@@ -148,6 +149,7 @@ public class IssueService {
                 issue.getDescription(),
                 issue.getStatus().name(),
                 issue.getPriority() == null ? null : issue.getPriority().name(),
+                toUserResponse(issue.getCreatedByUser()),
                 issue.getCreatedAt(),
                 issue.getUpdatedAt(),
                 comments
@@ -163,6 +165,10 @@ public class IssueService {
                 comment.getBody(),
                 comment.getCreatedAt()
         );
+    }
+
+    private UserResponse toUserResponse(User user) {
+        return new UserResponse(user.getId(), user.getEmail(), user.getDisplayName());
     }
 
     private String normalizeOptionalText(String value) {

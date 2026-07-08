@@ -11,6 +11,7 @@ import {
   Circle,
   CircleDot,
   Clock3,
+  Check,
   Flag,
   FolderKanban,
   LayoutList,
@@ -19,6 +20,7 @@ import {
   MessageSquare,
   MoreHorizontal,
   PanelRight,
+  Pencil,
   Plus,
   Send,
   UserCircle,
@@ -335,12 +337,13 @@ export function AppPage({ onSignOut }: AppPageProps) {
     })
   }
 
-  function handleUpdateIssue(request: UpdateIssueRequest) {
+  async function handleUpdateIssue(request: UpdateIssueRequest) {
     if (!routeIssueId || !selectedProjectId) {
       return
     }
 
-    updateIssueMutation.mutate({
+    updateIssueMutation.reset()
+    await updateIssueMutation.mutateAsync({
       issueId: routeIssueId,
       projectId: selectedProjectId,
       request,
@@ -399,6 +402,7 @@ export function AppPage({ onSignOut }: AppPageProps) {
             onUpdateIssue={handleUpdateIssue}
             isUpdatingIssue={updateIssueMutation.isPending}
             updateIssueError={updateIssueMutation.error}
+            onResetUpdateIssueError={() => updateIssueMutation.reset()}
           />
         ) : (
           <ProjectIssuesView
@@ -758,6 +762,7 @@ function IssueDetailView({
   onUpdateIssue,
   isUpdatingIssue,
   updateIssueError,
+  onResetUpdateIssueError,
 }: {
   issue: IssueSummary | IssueDetail | null
   issueDetail: IssueDetail | undefined
@@ -775,11 +780,67 @@ function IssueDetailView({
   isSubmittingComment: boolean
   commentError: Error | null
   onBackToProject: () => void
-  onUpdateIssue: (request: UpdateIssueRequest) => void
+  onUpdateIssue: (request: UpdateIssueRequest) => Promise<void>
   isUpdatingIssue: boolean
   updateIssueError: Error | null
+  onResetUpdateIssueError: () => void
 }) {
   const comments = issueDetail?.comments ?? []
+  const [editingIssueId, setEditingIssueId] = useState<string | null>(null)
+  const [draftIssueTitle, setDraftIssueTitle] = useState(issue?.title ?? '')
+  const [draftIssueDescription, setDraftIssueDescription] = useState(issue?.description ?? '')
+  const [issueContentError, setIssueContentError] = useState('')
+  const issueId = issue?.id ?? null
+  const isEditingIssueContent = Boolean(issueId && editingIssueId === issueId)
+
+  async function handleSaveIssueContent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    const title = draftIssueTitle.trim()
+    if (!title) {
+      setIssueContentError('Title is required.')
+      return
+    }
+
+    setIssueContentError('')
+
+    try {
+      await onUpdateIssue({
+        title,
+        description: draftIssueDescription.trim() || null,
+      })
+      setEditingIssueId(null)
+    } catch {
+      // The shared mutation error is rendered below so the user keeps their edits.
+    }
+  }
+
+  function startIssueContentEdit() {
+    if (!issue) {
+      return
+    }
+
+    onResetUpdateIssueError()
+    setIssueContentError('')
+    setDraftIssueTitle(issue.title)
+    setDraftIssueDescription(issue.description ?? '')
+    setEditingIssueId(issue.id)
+  }
+
+  function cancelIssueContentEdit() {
+    setIssueContentError('')
+    setDraftIssueTitle(issue?.title ?? '')
+    setDraftIssueDescription(issue?.description ?? '')
+    setEditingIssueId(null)
+  }
+
+  const canSaveIssueContent = Boolean(
+    issue &&
+      draftIssueTitle.trim() &&
+      !isUpdatingIssue &&
+      (draftIssueTitle.trim() !== issue.title ||
+        (draftIssueDescription.trim() || null) !== (issue.description ?? null)),
+  )
 
   if (!issue && isLoadingIssue) {
     return (
@@ -826,11 +887,66 @@ function IssueDetailView({
       <div className="issue-detail-layout">
         <article className="issue-detail-main">
           <div className="issue-title-block">
-            <h1>{issue.title}</h1>
-            {issue.description ? (
-              <p>{issue.description}</p>
+            {isEditingIssueContent ? (
+              <form className="issue-edit-form" onSubmit={handleSaveIssueContent}>
+                <input
+                  autoFocus
+                  className="issue-title-input"
+                  value={draftIssueTitle}
+                  onChange={(event) => setDraftIssueTitle(event.target.value)}
+                  disabled={isUpdatingIssue}
+                  aria-label="Issue title"
+                />
+                <textarea
+                  className="issue-description-input"
+                  value={draftIssueDescription}
+                  onChange={(event) => setDraftIssueDescription(event.target.value)}
+                  disabled={isUpdatingIssue}
+                  aria-label="Issue description"
+                  placeholder="Add description..."
+                  rows={5}
+                />
+                {issueContentError ? <InlineNotice tone="warning">{issueContentError}</InlineNotice> : null}
+                {updateIssueError ? <ErrorState error={updateIssueError} /> : null}
+                <div className="issue-edit-actions">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={cancelIssueContentEdit}
+                    disabled={isUpdatingIssue}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={!canSaveIssueContent}>
+                    {isUpdatingIssue ? (
+                      <Loader2 aria-hidden="true" className="auth-spin" />
+                    ) : (
+                      <Check aria-hidden="true" />
+                    )}
+                    Save
+                  </Button>
+                </div>
+              </form>
             ) : (
-              <p className="muted-placeholder">No description yet.</p>
+              <div className="issue-title-display">
+                <div className="issue-title-content">
+                  <h1>{issue.title}</h1>
+                  {issue.description ? (
+                    <p>{issue.description}</p>
+                  ) : (
+                    <p className="muted-placeholder">No description yet.</p>
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={startIssueContentEdit}
+                >
+                  <Pencil aria-hidden="true" />
+                  Edit
+                </Button>
+              </div>
             )}
           </div>
 
@@ -927,7 +1043,7 @@ function IssuePropertiesPanel({
   issue: IssueSummary | IssueDetail
   selectedProject: Project | null
   currentUser: AuthUser | null
-  onUpdateIssue: (request: UpdateIssueRequest) => void
+  onUpdateIssue: (request: UpdateIssueRequest) => Promise<void>
   isUpdatingIssue: boolean
   updateIssueError: Error | null
 }) {
@@ -944,7 +1060,9 @@ function IssuePropertiesPanel({
           <span>Status</span>
           <select
             value={issue.status}
-            onChange={(event) => onUpdateIssue({ status: event.target.value as IssueStatus })}
+            onChange={(event) => {
+              void onUpdateIssue({ status: event.target.value as IssueStatus }).catch(() => undefined)
+            }}
             disabled={isUpdatingIssue}
           >
             {getStatusOptions(issue.status).map((status) => (
@@ -958,11 +1076,11 @@ function IssuePropertiesPanel({
           <span>Priority</span>
           <select
             value={issue.priority ?? ''}
-            onChange={(event) =>
-              onUpdateIssue({
+            onChange={(event) => {
+              void onUpdateIssue({
                 priority: event.target.value ? (event.target.value as IssuePriority) : null,
-              })
-            }
+              }).catch(() => undefined)
+            }}
             disabled={isUpdatingIssue}
           >
             <option value="">No priority</option>
@@ -975,7 +1093,7 @@ function IssuePropertiesPanel({
         </label>
         {updateIssueError ? (
           <InlineNotice tone="warning">
-            Issue updates are waiting for the backend PATCH endpoint.
+            {getErrorMessage(updateIssueError)}
           </InlineNotice>
         ) : null}
       </section>
@@ -997,7 +1115,7 @@ function IssuePropertiesPanel({
             {actor
               ? actor.displayName || actor.email
               : currentUser
-                ? 'Not returned yet'
+                ? currentUser.displayName || currentUser.email
                 : 'Unknown'}
           </strong>
         </div>

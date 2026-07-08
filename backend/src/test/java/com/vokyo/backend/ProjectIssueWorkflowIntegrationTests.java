@@ -121,6 +121,7 @@ class ProjectIssueWorkflowIntegrationTests {
                 .andExpect(jsonPath("$.title").value("Create work APIs"))
                 .andExpect(jsonPath("$.status").value("TODO"))
                 .andExpect(jsonPath("$.priority").value("HIGH"))
+                .andExpect(jsonPath("$.creator.email").value(session.email()))
                 .andExpect(jsonPath("$.commentCount").value(0))
                 .andReturnJson();
 
@@ -131,7 +132,8 @@ class ProjectIssueWorkflowIntegrationTests {
                         .header("Authorization", bearer(session.accessToken())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value(issueId))
-                .andExpect(jsonPath("$[0].title").value("Create work APIs"));
+                .andExpect(jsonPath("$[0].title").value("Create work APIs"))
+                .andExpect(jsonPath("$[0].creator.email").value(session.email()));
 
         JsonNode comment = postJson(
                 "/api/issues/%s/comments".formatted(issueId),
@@ -151,6 +153,7 @@ class ProjectIssueWorkflowIntegrationTests {
                         .header("Authorization", bearer(session.accessToken())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(issueId))
+                .andExpect(jsonPath("$.creator.email").value(session.email()))
                 .andExpect(jsonPath("$.comments[0].id").value(comment.get("id").asText()))
                 .andExpect(jsonPath("$.comments[0].body").value("This is ready for the frontend."));
 
@@ -238,6 +241,8 @@ class ProjectIssueWorkflowIntegrationTests {
                 "/api/issues/%s".formatted(issueId),
                 """
                 {
+                  "title": "Workflow shipped",
+                  "description": "Done and verified",
                   "status": "DONE",
                   "priority": "URGENT"
                 }
@@ -245,14 +250,17 @@ class ProjectIssueWorkflowIntegrationTests {
                 session.accessToken()
         ).andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(issueId))
+                .andExpect(jsonPath("$.title").value("Workflow shipped"))
+                .andExpect(jsonPath("$.description").value("Done and verified"))
                 .andExpect(jsonPath("$.status").value("DONE"))
                 .andExpect(jsonPath("$.priority").value("URGENT"))
+                .andExpect(jsonPath("$.creator.email").value(session.email()))
                 .andExpect(jsonPath("$.comments").isArray());
 
         assertThat(issueRepository.findById(UUID.fromString(issueId)))
                 .get()
-                .extracting(Issue::getStatus, Issue::getPriority)
-                .containsExactly(IssueStatus.DONE, IssuePriority.URGENT);
+                .extracting(Issue::getTitle, Issue::getDescription, Issue::getStatus, Issue::getPriority)
+                .containsExactly("Workflow shipped", "Done and verified", IssueStatus.DONE, IssuePriority.URGENT);
 
         mockMvc.perform(get("/api/issues/{issueId}/activities", issueId)
                         .header("Authorization", bearer(session.accessToken())))

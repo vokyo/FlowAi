@@ -19,7 +19,7 @@ export type IssueSummary = {
   description?: string | null
   status: IssueStatus
   priority?: IssuePriority | null
-  creator?: AuthUser | null
+  creator: AuthUser
   reporter?: AuthUser | null
   createdAt: string
   updatedAt: string
