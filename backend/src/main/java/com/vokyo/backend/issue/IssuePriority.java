@@ -1,4 +1,8 @@
 package com.vokyo.backend.issue;
 
-public class IssuePriority {
+public enum IssuePriority {
+    LOW,
+    MEDIUM,
+    HIGH,
+    URGENT
 }
