@@ -1,7 +1,7 @@
 package com.vokyo.backend.issue;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.vokyo.backend.activity.dto.ActivityEventResponse;
-import com.vokyo.backend.issue.dto.UpdateIssueRequest;
 import com.vokyo.backend.issue.dto.CreateCommentRequest;
 import com.vokyo.backend.issue.dto.CreateIssueRequest;
 import com.vokyo.backend.issue.dto.IssueCommentResponse;
@@ -70,8 +70,8 @@ public class IssueController {
     public IssueDetailResponse updateIssue(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID issueId,
-            @Valid @RequestBody UpdateIssueRequest request
-    ){
+            @RequestBody JsonNode request
+    ) {
         return issueService.updateIssue(jwt, issueId, request);
     }
 }

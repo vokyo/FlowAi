@@ -306,6 +306,131 @@ class ProjectIssueWorkflowIntegrationTests {
     }
 
     @Test
+    void patchIssueClearsNullableFields() throws Exception {
+        AuthSession session = register("patch-clear+" + uniqueId() + "@example.com");
+        String projectId = createProject(session, "Clear Fields Project").get("id").asText();
+        String issueId = postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Clear optional fields",
+                  "description": "Remove this later",
+                  "status": "TODO",
+                  "priority": "HIGH"
+                }
+                """.formatted(projectId),
+                session.accessToken()
+        ).andExpect(status().isOk())
+                .andReturnJson()
+                .get("id").asText();
+
+        JsonNode response = patchJson(
+                "/api/issues/%s".formatted(issueId),
+                """
+                {
+                  "description": null,
+                  "priority": null
+                }
+                """,
+                session.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(issueId))
+                .andExpect(jsonPath("$.title").value("Clear optional fields"))
+                .andExpect(jsonPath("$.status").value("TODO"))
+                .andReturnJson();
+
+        assertThat(isMissingOrNull(response, "description")).isTrue();
+        assertThat(isMissingOrNull(response, "priority")).isTrue();
+        assertThat(issueRepository.findById(UUID.fromString(issueId)))
+                .get()
+                .extracting(Issue::getDescription, Issue::getPriority)
+                .containsExactly(null, null);
+    }
+
+    @Test
+    void patchIssueEmptyBodyKeepsIssueUnchanged() throws Exception {
+        AuthSession session = register("patch-empty+" + uniqueId() + "@example.com");
+        String projectId = createProject(session, "Empty Patch Project").get("id").asText();
+        String issueId = postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Keep every field",
+                  "description": "This should remain",
+                  "status": "IN_PROGRESS",
+                  "priority": "MEDIUM"
+                }
+                """.formatted(projectId),
+                session.accessToken()
+        ).andExpect(status().isOk())
+                .andReturnJson()
+                .get("id").asText();
+
+        patchJson(
+                "/api/issues/%s".formatted(issueId),
+                "{}",
+                session.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("Keep every field"))
+                .andExpect(jsonPath("$.description").value("This should remain"))
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.priority").value("MEDIUM"));
+
+        assertThat(issueRepository.findById(UUID.fromString(issueId)))
+                .get()
+                .extracting(Issue::getTitle, Issue::getDescription, Issue::getStatus, Issue::getPriority)
+                .containsExactly("Keep every field", "This should remain", IssueStatus.IN_PROGRESS, IssuePriority.MEDIUM);
+        assertThat(activityEventRepository.findAll())
+                .extracting(activity -> activity.getEventType().name())
+                .doesNotContain("ISSUE_STATUS_CHANGED");
+    }
+
+    @Test
+    void patchIssueRejectsInvalidNulls() throws Exception {
+        AuthSession session = register("patch-invalid-nulls+" + uniqueId() + "@example.com");
+        String projectId = createProject(session, "Invalid Null Project").get("id").asText();
+        String issueId = postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Reject invalid nulls"
+                }
+                """.formatted(projectId),
+                session.accessToken()
+        ).andExpect(status().isOk())
+                .andReturnJson()
+                .get("id").asText();
+
+        patchJson(
+                "/api/issues/%s".formatted(issueId),
+                """
+                {
+                  "title": null
+                }
+                """,
+                session.accessToken()
+        ).andExpect(status().isBadRequest());
+
+        patchJson(
+                "/api/issues/%s".formatted(issueId),
+                """
+                {
+                  "status": null
+                }
+                """,
+                session.accessToken()
+        ).andExpect(status().isBadRequest());
+
+        assertThat(issueRepository.findById(UUID.fromString(issueId)))
+                .get()
+                .extracting(Issue::getTitle, Issue::getStatus)
+                .containsExactly("Reject invalid nulls", IssueStatus.TODO);
+    }
+
+    @Test
     void rejectsCrossWorkspaceProjectAndIssueAccess() throws Exception {
         AuthSession owner = register("owner+" + uniqueId() + "@example.com");
         AuthSession outsider = register("outsider+" + uniqueId() + "@example.com");
@@ -440,6 +565,11 @@ class ProjectIssueWorkflowIntegrationTests {
 
     private String uniqueId() {
         return UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private boolean isMissingOrNull(JsonNode node, String fieldName) {
+        JsonNode value = node.get(fieldName);
+        return value == null || value.isNull();
     }
 
     private record AuthSession(String accessToken, String email) {

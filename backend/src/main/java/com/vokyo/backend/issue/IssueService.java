@@ -1,8 +1,8 @@
 package com.vokyo.backend.issue;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.vokyo.backend.activity.ActivityService;
 import com.vokyo.backend.activity.dto.ActivityEventResponse;
-import com.vokyo.backend.issue.dto.UpdateIssueRequest;
 import com.vokyo.backend.auth.dto.UserResponse;
 import com.vokyo.backend.issue.dto.CreateCommentRequest;
 import com.vokyo.backend.issue.dto.CreateIssueRequest;
@@ -14,7 +14,6 @@ import com.vokyo.backend.project.ProjectRepository;
 import com.vokyo.backend.user.User;
 import com.vokyo.backend.workspace.CurrentWorkspaceContext;
 import com.vokyo.backend.workspace.WorkspaceAccessService;
-import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
@@ -26,6 +25,9 @@ import java.util.UUID;
 
 @Service
 public class IssueService {
+
+    private static final int MAX_TITLE_LENGTH = 240;
+    private static final int MAX_DESCRIPTION_LENGTH = 10000;
 
     private final IssueRepository issueRepository;
     private final IssueCommentRepository issueCommentRepository;
@@ -172,34 +174,60 @@ public class IssueService {
     }
 
     @Transactional
-    public IssueDetailResponse updateIssue(Jwt jwt, UUID issueId, @Valid UpdateIssueRequest request) {
+    public IssueDetailResponse updateIssue(Jwt jwt, UUID issueId, JsonNode request) {
+        if (request == null || !request.isObject()) {
+            throw badRequest("Patch body must be a JSON object");
+        }
+
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Issue issue = requireIssue(issueId, context.workspace().getId());
         IssueStatus previousStatus = issue.getStatus();
-        if (request.title() != null) {
-            String title = request.title().trim();
-            if(title.isBlank()){
-                throw new  ResponseStatusException(HttpStatus.BAD_REQUEST, "Title is required");
+
+        if (request.has("title")) {
+            String title = requiredText(request, "title", "Title is required").trim();
+            if (title.isBlank()) {
+                throw badRequest("Title is required");
+            }
+            if (title.length() > MAX_TITLE_LENGTH) {
+                throw badRequest("Title must be at most 240 characters");
             }
             issue.rename(title);
         }
-        if (request.description() != null) {
-            issue.changeDescription(normalizeOptionalText(request.description()));
-        }
-        if (request.status() != null) {
-            issue.changeStatus(request.status());
+
+        if (request.has("description")) {
+            JsonNode description = request.get("description");
+            if (description.isNull()) {
+                issue.changeDescription(null);
+            } else {
+                String descriptionValue = requiredText(request, "description", "Description must be text");
+                if (descriptionValue.length() > MAX_DESCRIPTION_LENGTH) {
+                    throw badRequest("Description must be at most 10000 characters");
+                }
+                issue.changeDescription(normalizeOptionalText(descriptionValue));
+            }
         }
 
-        if (request.priority() != null) {
-            issue.changePriority(request.priority());
+        IssueStatus requestedStatus = null;
+        if (request.has("status")) {
+            requestedStatus = requiredEnum(request, "status", IssueStatus.class, "Status is required");
+            issue.changeStatus(requestedStatus);
         }
 
-        if (request.status() != null && previousStatus != request.status()) {
+        if (request.has("priority")) {
+            JsonNode priority = request.get("priority");
+            if (priority.isNull()) {
+                issue.changePriority(null);
+            } else {
+                issue.changePriority(requiredEnum(request, "priority", IssuePriority.class, "Priority is invalid"));
+            }
+        }
+
+        if (requestedStatus != null && previousStatus != requestedStatus) {
             activityService.recordIssueStatusChanged(
                     issue,
                     context.user(),
                     previousStatus,
-                    request.status()
+                    requestedStatus
             );
         }
 
@@ -209,5 +237,36 @@ public class IssueService {
                 .toList();
 
         return toDetailResponse(issue, comments);
+    }
+
+    private String requiredText(JsonNode request, String fieldName, String message) {
+        JsonNode value = request.get(fieldName);
+        if (value == null || value.isNull() || !value.isTextual()) {
+            throw badRequest(message);
+        }
+
+        return value.asText();
+    }
+
+    private <E extends Enum<E>> E requiredEnum(
+            JsonNode request,
+            String fieldName,
+            Class<E> enumType,
+            String message
+    ) {
+        JsonNode value = request.get(fieldName);
+        if (value == null || value.isNull() || !value.isTextual()) {
+            throw badRequest(message);
+        }
+
+        try {
+            return Enum.valueOf(enumType, value.asText());
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(message);
+        }
+    }
+
+    private ResponseStatusException badRequest(String message) {
+        return new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
     }
 }
