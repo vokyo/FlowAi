@@ -23,6 +23,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -439,6 +441,65 @@ class ProjectIssueWorkflowIntegrationTests {
     }
 
     @Test
+    void listIssuesSupportsFiltersSearchAndArchivedVisibility() throws Exception {
+        AuthSession session = register("issue-filter+" + uniqueId() + "@example.com");
+        String projectId = createProject(session, "Filtered Project").get("id").asText();
+
+        createIssue(session, projectId, "Fix login flow", "Authentication regression", "TODO", "HIGH");
+        createIssue(session, projectId, "Build reports", "Contains billing search term", "IN_PROGRESS", "MEDIUM");
+        createIssue(session, projectId, "Release dashboard", "Ready for users", "DONE", "HIGH");
+        String archivedIssueId = createIssue(
+                session,
+                projectId,
+                "Archive old import",
+                "Legacy cleanup",
+                "TODO",
+                "LOW"
+        ).get("id").asText();
+
+        patchJson(
+                "/api/issues/%s".formatted(archivedIssueId),
+                """
+                {
+                  "status": "ARCHIVED"
+                }
+                """,
+                session.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ARCHIVED"));
+
+        JsonNode defaultList = getIssues(session, projectId)
+                .andExpect(status().isOk())
+                .andReturnJson();
+        assertThat(issueTitles(defaultList))
+                .containsExactly("Release dashboard", "Build reports", "Fix login flow");
+
+        JsonNode highPriorityIssues = getIssues(session, projectId, null, "HIGH", null)
+                .andExpect(status().isOk())
+                .andReturnJson();
+        assertThat(issueTitles(highPriorityIssues))
+                .containsExactly("Release dashboard", "Fix login flow");
+
+        JsonNode searchedIssues = getIssues(session, projectId, null, null, "billing")
+                .andExpect(status().isOk())
+                .andReturnJson();
+        assertThat(issueTitles(searchedIssues))
+                .containsExactly("Build reports");
+
+        JsonNode inProgressSearch = getIssues(session, projectId, "IN_PROGRESS", null, "billing")
+                .andExpect(status().isOk())
+                .andReturnJson();
+        assertThat(issueTitles(inProgressSearch))
+                .containsExactly("Build reports");
+
+        JsonNode archivedIssues = getIssues(session, projectId, "ARCHIVED", null, null)
+                .andExpect(status().isOk())
+                .andReturnJson();
+        assertThat(issueTitles(archivedIssues))
+                .containsExactly("Archive old import");
+    }
+
+    @Test
     void rejectsCrossWorkspaceProjectAndIssueAccess() throws Exception {
         AuthSession owner = register("owner+" + uniqueId() + "@example.com");
         AuthSession outsider = register("outsider+" + uniqueId() + "@example.com");
@@ -543,6 +604,58 @@ class ProjectIssueWorkflowIntegrationTests {
                 .andReturnJson();
     }
 
+    private JsonNode createIssue(
+            AuthSession session,
+            String projectId,
+            String title,
+            String description,
+            String issueStatus,
+            String issuePriority
+    ) throws Exception {
+        return postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "%s",
+                  "description": "%s",
+                  "status": "%s",
+                  "priority": "%s"
+                }
+                """.formatted(projectId, title, description, issueStatus, issuePriority),
+                session.accessToken()
+        ).andExpect(status().isOk())
+                .andReturnJson();
+    }
+
+    private ResultActionsWithJson getIssues(AuthSession session, String projectId) throws Exception {
+        return getIssues(session, projectId, null, null, null);
+    }
+
+    private ResultActionsWithJson getIssues(
+            AuthSession session,
+            String projectId,
+            String status,
+            String priority,
+            String query
+    ) throws Exception {
+        var request = get("/api/issues")
+                .queryParam("projectId", projectId)
+                .header("Authorization", bearer(session.accessToken()));
+
+        if (status != null) {
+            request.queryParam("status", status);
+        }
+        if (priority != null) {
+            request.queryParam("priority", priority);
+        }
+        if (query != null) {
+            request.queryParam("q", query);
+        }
+
+        return new ResultActionsWithJson(mockMvc.perform(request));
+    }
+
     private ResultActionsWithJson postJson(String path, String json, String accessToken) throws Exception {
         var request = post(path)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -578,6 +691,12 @@ class ProjectIssueWorkflowIntegrationTests {
     private boolean isMissingOrNull(JsonNode node, String fieldName) {
         JsonNode value = node.get(fieldName);
         return value == null || value.isNull();
+    }
+
+    private List<String> issueTitles(JsonNode issues) {
+        List<String> titles = new ArrayList<>();
+        issues.forEach(issue -> titles.add(issue.get("title").asText()));
+        return titles;
     }
 
     private record AuthSession(String accessToken, String email) {

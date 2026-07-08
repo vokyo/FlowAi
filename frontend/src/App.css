@@ -149,6 +149,8 @@
 .detail-section-title,
 .issue-title-display,
 .issue-edit-actions,
+.issue-filter-bar,
+.issue-search-field,
 .property-section-title,
 .property-row span,
 .app-pill,
@@ -414,6 +416,7 @@
 .app-field input,
 .app-field textarea,
 .app-field select,
+.issue-search-field input,
 .property-field select {
   width: 100%;
   min-width: 0;
@@ -430,6 +433,7 @@
 
 .app-field input,
 .app-field select,
+.issue-search-field input,
 .property-field select {
   min-height: 34px;
   padding: 7px 9px;
@@ -443,6 +447,7 @@
 .app-field input:disabled,
 .app-field textarea:disabled,
 .app-field select:disabled,
+.issue-search-field input:disabled,
 .property-field select:disabled {
   cursor: not-allowed;
   opacity: 0.62;
@@ -451,17 +456,54 @@
 .app-field input:focus,
 .app-field textarea:focus,
 .app-field select:focus,
+.issue-search-field:focus-within,
 .property-field select:focus {
   border-color: var(--ring);
   box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring), transparent 78%);
 }
 
+.issue-filter-bar,
 .issue-create-bar {
   display: grid;
-  grid-template-columns: minmax(180px, 1.2fr) minmax(120px, 180px) minmax(220px, 1fr) auto;
   gap: 10px;
   align-items: end;
   min-width: 0;
+}
+
+.issue-filter-bar {
+  grid-template-columns: minmax(220px, 1fr) minmax(130px, 170px) minmax(140px, 180px) auto;
+}
+
+.issue-search-field {
+  gap: 8px;
+  align-self: end;
+  min-width: 0;
+  border: 1px solid var(--input);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--muted-foreground);
+  padding: 0 9px;
+}
+
+.issue-search-field svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+}
+
+.issue-search-field input {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding-inline: 0;
+}
+
+.issue-search-field input:focus {
+  box-shadow: none;
+}
+
+.issue-create-bar {
+  grid-template-columns: minmax(180px, 1.2fr) minmax(120px, 180px) minmax(220px, 1fr) auto;
   border-bottom: 1px solid var(--border);
   padding-bottom: 18px;
 }
@@ -1008,6 +1050,7 @@
 @media (max-width: 920px) {
   .app-shell,
   .issue-detail-layout,
+  .issue-filter-bar,
   .issue-create-bar {
     grid-template-columns: 1fr;
   }

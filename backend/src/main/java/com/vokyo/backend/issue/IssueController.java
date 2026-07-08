@@ -28,9 +28,12 @@ public class IssueController {
     @GetMapping
     public List<IssueSummaryResponse> listIssues(
             @AuthenticationPrincipal Jwt jwt,
-            @RequestParam UUID projectId
+            @RequestParam UUID projectId,
+            @RequestParam(required = false) IssueStatus status,
+            @RequestParam(required = false) IssuePriority priority,
+            @RequestParam(required = false) String q
     ) {
-        return issueService.listIssues(jwt, projectId);
+        return issueService.listIssues(jwt, projectId, status, priority, q);
     }
 
     @PostMapping

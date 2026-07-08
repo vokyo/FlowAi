@@ -77,6 +77,12 @@ export type UpdateIssueRequest = {
   priority?: IssuePriority | null
 }
 
+export type ListIssuesFilters = {
+  status?: IssueStatus
+  priority?: IssuePriority
+  q?: string
+}
+
 export function listProjects() {
   return api.get<Project[]>('/projects')
 }
@@ -85,8 +91,20 @@ export function createProject(request: CreateProjectRequest) {
   return api.post<Project>('/projects', request)
 }
 
-export function listIssues(projectId: string) {
-  return api.get<IssueSummary[]>(`/issues?projectId=${encodeURIComponent(projectId)}`)
+export function listIssues(projectId: string, filters: ListIssuesFilters = {}) {
+  const params = new URLSearchParams({ projectId })
+
+  if (filters.status) {
+    params.set('status', filters.status)
+  }
+  if (filters.priority) {
+    params.set('priority', filters.priority)
+  }
+  if (filters.q) {
+    params.set('q', filters.q)
+  }
+
+  return api.get<IssueSummary[]>(`/issues?${params.toString()}`)
 }
 
 export function createIssue(request: CreateIssueRequest) {

@@ -15,11 +15,14 @@ import com.vokyo.backend.user.User;
 import com.vokyo.backend.workspace.CurrentWorkspaceContext;
 import com.vokyo.backend.workspace.WorkspaceAccessService;
 import org.springframework.http.HttpStatus;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import jakarta.persistence.criteria.Predicate;
 import java.util.List;
 import java.util.UUID;
 
@@ -50,13 +53,26 @@ public class IssueService {
     }
 
     @Transactional(readOnly = true)
-    public List<IssueSummaryResponse> listIssues(Jwt jwt, UUID projectId) {
+    public List<IssueSummaryResponse> listIssues(
+            Jwt jwt,
+            UUID projectId,
+            IssueStatus status,
+            IssuePriority priority,
+            String query
+    ) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         requireProject(projectId, context.workspace().getId());
+        String normalizedQuery = normalizeOptionalText(query);
 
-        return issueRepository.findByWorkspace_IdAndProject_IdOrderByCreatedAtDesc(
-                        context.workspace().getId(),
-                        projectId
+        return issueRepository.findAll(
+                        issueListSpecification(
+                                context.workspace().getId(),
+                                projectId,
+                                status,
+                                priority,
+                                normalizedQuery
+                        ),
+                        Sort.by(Sort.Direction.DESC, "createdAt")
                 )
                 .stream()
                 .map(this::toSummaryResponse)
@@ -124,6 +140,40 @@ public class IssueService {
     private Issue requireIssue(UUID issueId, UUID workspaceId) {
         return issueRepository.findByIdAndWorkspace_Id(issueId, workspaceId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Issue not found"));
+    }
+
+    private Specification<Issue> issueListSpecification(
+            UUID workspaceId,
+            UUID projectId,
+            IssueStatus status,
+            IssuePriority priority,
+            String query
+    ) {
+        return (root, criteriaQuery, criteriaBuilder) -> {
+            List<Predicate> predicates = new java.util.ArrayList<>();
+            predicates.add(criteriaBuilder.equal(root.get("workspace").get("id"), workspaceId));
+            predicates.add(criteriaBuilder.equal(root.get("project").get("id"), projectId));
+
+            if (status == null) {
+                predicates.add(criteriaBuilder.notEqual(root.get("status"), IssueStatus.ARCHIVED));
+            } else {
+                predicates.add(criteriaBuilder.equal(root.get("status"), status));
+            }
+
+            if (priority != null) {
+                predicates.add(criteriaBuilder.equal(root.get("priority"), priority));
+            }
+
+            if (query != null) {
+                String pattern = "%" + query.toLowerCase() + "%";
+                predicates.add(criteriaBuilder.or(
+                        criteriaBuilder.like(criteriaBuilder.lower(root.get("title")), pattern),
+                        criteriaBuilder.like(criteriaBuilder.lower(root.get("description")), pattern)
+                ));
+            }
+
+            return criteriaBuilder.and(predicates.toArray(Predicate[]::new));
+        };
     }
 
     private IssueSummaryResponse toSummaryResponse(Issue issue) {

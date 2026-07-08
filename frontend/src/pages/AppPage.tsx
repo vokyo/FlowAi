@@ -3,6 +3,7 @@ import type { FormEvent, ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Activity,
+  Archive,
   ArrowLeft,
   Building2,
   ChevronDown,
@@ -22,6 +23,7 @@ import {
   PanelRight,
   Pencil,
   Plus,
+  Search,
   Send,
   UserCircle,
   X,
@@ -83,6 +85,9 @@ type IssueGroup = {
   issues: IssueSummary[]
 }
 
+type KnownIssueStatus = (typeof ISSUE_STATUSES)[number]
+type IssueStatusFilter = 'ACTIVE' | KnownIssueStatus
+
 type CreateDialog = 'project' | 'issue' | null
 
 export function AppPage({ onSignOut }: AppPageProps) {
@@ -101,6 +106,9 @@ export function AppPage({ onSignOut }: AppPageProps) {
   const [issueDescription, setIssueDescription] = useState('')
   const [issueStatus, setIssueStatus] = useState<IssueStatus>('TODO')
   const [issuePriority, setIssuePriority] = useState<IssuePriority | ''>('')
+  const [issueSearchQuery, setIssueSearchQuery] = useState('')
+  const [issueStatusFilter, setIssueStatusFilter] = useState<IssueStatusFilter>('ACTIVE')
+  const [issuePriorityFilter, setIssuePriorityFilter] = useState<IssuePriority | ''>('')
   const [commentBody, setCommentBody] = useState('')
 
   const currentSessionQuery = useQuery({
@@ -129,16 +137,36 @@ export function AppPage({ onSignOut }: AppPageProps) {
     ? projects.find((project) => project.id === routeProjectId) ?? null
     : projects[0] ?? null
   const selectedProjectId = selectedProject?.id ?? null
+  const normalizedIssueSearchQuery = issueSearchQuery.trim()
+  const issueStatusQuery = issueStatusFilter === 'ACTIVE' ? undefined : issueStatusFilter
 
   const issuesQuery = useQuery({
-    queryKey: ['issues', currentWorkspaceId, selectedProjectId],
-    queryFn: () => listIssues(selectedProjectId ?? ''),
+    queryKey: [
+      'issues',
+      currentWorkspaceId,
+      selectedProjectId,
+      issueStatusFilter,
+      issuePriorityFilter,
+      normalizedIssueSearchQuery,
+    ],
+    queryFn: () =>
+      listIssues(selectedProjectId ?? '', {
+        status: issueStatusQuery,
+        priority: issuePriorityFilter || undefined,
+        q: normalizedIssueSearchQuery || undefined,
+      }),
     enabled: Boolean(canLoadCurrentWorkspace && selectedProjectId),
     retry: false,
   })
 
   const issues = issuesQuery.data ?? EMPTY_ISSUES
-  const issueGroups = useMemo(() => groupIssuesByStatus(issues), [issues])
+  const issueGroups = useMemo(
+    () => groupIssuesByStatus(issues, issueStatusFilter),
+    [issueStatusFilter, issues],
+  )
+  const hasIssueFilters = Boolean(
+    normalizedIssueSearchQuery || issueStatusFilter !== 'ACTIVE' || issuePriorityFilter,
+  )
   const selectedIssueSummary = routeIssueId
     ? issues.find((issue) => issue.id === routeIssueId) ?? null
     : null
@@ -275,6 +303,12 @@ export function AppPage({ onSignOut }: AppPageProps) {
     setActiveCreateDialog(null)
   }
 
+  function clearIssueFilters() {
+    setIssueSearchQuery('')
+    setIssueStatusFilter('ACTIVE')
+    setIssuePriorityFilter('')
+  }
+
   function handleProjectSelect(projectId: string) {
     if (!currentWorkspaceId) {
       return
@@ -350,6 +384,25 @@ export function AppPage({ onSignOut }: AppPageProps) {
     })
   }
 
+  async function handleArchiveIssue() {
+    if (!routeIssueId) {
+      return
+    }
+
+    const confirmed = window.confirm(
+      'Archive this issue? It will be hidden from the active issue list.',
+    )
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      await handleUpdateIssue({ status: 'ARCHIVED' })
+    } catch {
+      // The shared update error is rendered in the detail panel.
+    }
+  }
+
   const activeIssue = issueDetailQuery.data ?? selectedIssueSummary
   const activities = activitiesQuery.data ?? []
   const isIssueDetailRoute = Boolean(routeIssueId)
@@ -400,6 +453,7 @@ export function AppPage({ onSignOut }: AppPageProps) {
               }
             }}
             onUpdateIssue={handleUpdateIssue}
+            onArchiveIssue={handleArchiveIssue}
             isUpdatingIssue={updateIssueMutation.isPending}
             updateIssueError={updateIssueMutation.error}
             onResetUpdateIssueError={() => updateIssueMutation.reset()}
@@ -414,6 +468,14 @@ export function AppPage({ onSignOut }: AppPageProps) {
             isLoadingIssues={issuesQuery.isLoading}
             issuesError={issuesQuery.error}
             isLoadingProjects={projectsQuery.isLoading}
+            issueSearchQuery={issueSearchQuery}
+            issueStatusFilter={issueStatusFilter}
+            issuePriorityFilter={issuePriorityFilter}
+            hasIssueFilters={hasIssueFilters}
+            onIssueSearchQueryChange={setIssueSearchQuery}
+            onIssueStatusFilterChange={setIssueStatusFilter}
+            onIssuePriorityFilterChange={setIssuePriorityFilter}
+            onClearIssueFilters={clearIssueFilters}
             onOpenCreateIssue={openCreateIssueDialog}
             onIssueSelect={handleIssueSelect}
           />
@@ -587,6 +649,14 @@ function ProjectIssuesView({
   isLoadingIssues,
   issuesError,
   isLoadingProjects,
+  issueSearchQuery,
+  issueStatusFilter,
+  issuePriorityFilter,
+  hasIssueFilters,
+  onIssueSearchQueryChange,
+  onIssueStatusFilterChange,
+  onIssuePriorityFilterChange,
+  onClearIssueFilters,
   onOpenCreateIssue,
   onIssueSelect,
 }: {
@@ -598,9 +668,19 @@ function ProjectIssuesView({
   isLoadingIssues: boolean
   issuesError: Error | null
   isLoadingProjects: boolean
+  issueSearchQuery: string
+  issueStatusFilter: IssueStatusFilter
+  issuePriorityFilter: IssuePriority | ''
+  hasIssueFilters: boolean
+  onIssueSearchQueryChange: (query: string) => void
+  onIssueStatusFilterChange: (status: IssueStatusFilter) => void
+  onIssuePriorityFilterChange: (priority: IssuePriority | '') => void
+  onClearIssueFilters: () => void
   onOpenCreateIssue: (status?: IssueStatus) => void
   onIssueSelect: (issueId: string) => void
 }) {
+  const shouldShowEmptyIssues = selectedProject && !isLoadingIssues && !issuesError && issues.length === 0
+
   return (
     <div className="content-page">
       <header className="content-header">
@@ -640,7 +720,68 @@ function ProjectIssuesView({
       {isLoadingIssues ? <InlineState>Loading issues.</InlineState> : null}
       {issuesError ? <ErrorState error={issuesError} /> : null}
 
-      {selectedProject && !issuesError ? (
+      {selectedProject ? (
+        <div className="issue-filter-bar" aria-label="Issue filters">
+          <label className="issue-search-field">
+            <Search aria-hidden="true" />
+            <input
+              type="search"
+              placeholder="Search issues"
+              value={issueSearchQuery}
+              onChange={(event) => onIssueSearchQueryChange(event.target.value)}
+            />
+          </label>
+          <label className="app-field">
+            Status
+            <select
+              value={issueStatusFilter}
+              onChange={(event) => onIssueStatusFilterChange(event.target.value as IssueStatusFilter)}
+            >
+              <option value="ACTIVE">Active</option>
+              {ISSUE_STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {STATUS_LABELS[status]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="app-field">
+            Priority
+            <select
+              value={issuePriorityFilter}
+              onChange={(event) => onIssuePriorityFilterChange(event.target.value as IssuePriority | '')}
+            >
+              <option value="">Any priority</option>
+              {ISSUE_PRIORITIES.map((priority) => (
+                <option key={priority} value={priority}>
+                  {PRIORITY_LABELS[priority]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={onClearIssueFilters}
+            disabled={!hasIssueFilters}
+          >
+            Clear
+          </Button>
+        </div>
+      ) : null}
+
+      {shouldShowEmptyIssues ? (
+        <EmptyState
+          title={hasIssueFilters ? 'No matching issues' : 'No active issues yet'}
+          body={
+            hasIssueFilters
+              ? 'Adjust the search or filters to find issues in this project.'
+              : 'Create an issue to start tracking work in this project.'
+          }
+        />
+      ) : null}
+
+      {selectedProject && !issuesError && issues.length > 0 ? (
         <div className="status-list" aria-label="Issues grouped by status">
           {issueGroups.map((group) => (
             <IssueStatusSection
@@ -760,6 +901,7 @@ function IssueDetailView({
   commentError,
   onBackToProject,
   onUpdateIssue,
+  onArchiveIssue,
   isUpdatingIssue,
   updateIssueError,
   onResetUpdateIssueError,
@@ -781,6 +923,7 @@ function IssueDetailView({
   commentError: Error | null
   onBackToProject: () => void
   onUpdateIssue: (request: UpdateIssueRequest) => Promise<void>
+  onArchiveIssue: () => Promise<void>
   isUpdatingIssue: boolean
   updateIssueError: Error | null
   onResetUpdateIssueError: () => void
@@ -1024,6 +1167,7 @@ function IssueDetailView({
           selectedProject={selectedProject}
           currentUser={currentUser}
           onUpdateIssue={onUpdateIssue}
+          onArchiveIssue={onArchiveIssue}
           isUpdatingIssue={isUpdatingIssue}
           updateIssueError={updateIssueError}
         />
@@ -1037,6 +1181,7 @@ function IssuePropertiesPanel({
   selectedProject,
   currentUser,
   onUpdateIssue,
+  onArchiveIssue,
   isUpdatingIssue,
   updateIssueError,
 }: {
@@ -1044,10 +1189,12 @@ function IssuePropertiesPanel({
   selectedProject: Project | null
   currentUser: AuthUser | null
   onUpdateIssue: (request: UpdateIssueRequest) => Promise<void>
+  onArchiveIssue: () => Promise<void>
   isUpdatingIssue: boolean
   updateIssueError: Error | null
 }) {
   const actor = issue.creator ?? issue.reporter ?? null
+  const isArchived = issue.status === 'ARCHIVED'
 
   return (
     <aside className="issue-properties">
@@ -1096,6 +1243,25 @@ function IssuePropertiesPanel({
             {getErrorMessage(updateIssueError)}
           </InlineNotice>
         ) : null}
+        {isArchived ? (
+          <InlineNotice>This issue is archived.</InlineNotice>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => {
+              void onArchiveIssue().catch(() => undefined)
+            }}
+            disabled={isUpdatingIssue}
+          >
+            {isUpdatingIssue ? (
+              <Loader2 aria-hidden="true" className="auth-spin" />
+            ) : (
+              <Archive aria-hidden="true" />
+            )}
+            Archive issue
+          </Button>
+        )}
       </section>
 
       <section className="property-section">
@@ -1476,11 +1642,19 @@ function ErrorState({ error }: { error: Error }) {
   return <p className="app-error">{getErrorMessage(error)}</p>
 }
 
-function groupIssuesByStatus(issues: IssueSummary[]) {
+function groupIssuesByStatus(issues: IssueSummary[], statusFilter: IssueStatusFilter) {
   const grouped = new Map<IssueStatus, IssueSummary[]>()
+  const visibleStatuses =
+    statusFilter === 'ACTIVE'
+      ? ISSUE_STATUSES.filter((status) => status !== 'ARCHIVED')
+      : [statusFilter]
 
-  ISSUE_STATUSES.forEach((status) => grouped.set(status, []))
+  visibleStatuses.forEach((status) => grouped.set(status, []))
   issues.forEach((issue) => {
+    if (!grouped.has(issue.status)) {
+      grouped.set(issue.status, [])
+    }
+
     const group = grouped.get(issue.status) ?? []
     group.push(issue)
     grouped.set(issue.status, group)
