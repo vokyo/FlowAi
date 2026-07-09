@@ -5,7 +5,6 @@ import com.vokyo.backend.auth.dto.UserResponse;
 import com.vokyo.backend.issue.Issue;
 import com.vokyo.backend.issue.IssueComment;
 import com.vokyo.backend.issue.IssuePriority;
-import com.vokyo.backend.issue.IssueStatus;
 import com.vokyo.backend.project.Project;
 import com.vokyo.backend.user.User;
 import org.springframework.stereotype.Service;
@@ -104,8 +103,10 @@ public class ActivityService {
     public void recordIssueStatusChanged(
             Issue issue,
             User actor,
-            IssueStatus fromStatus,
-            IssueStatus toStatus
+            String fromStatus,
+            String toStatus,
+            UUID fromWorkflowStateId,
+            UUID toWorkflowStateId
     ) {
         activityEventRepository.save(new ActivityEvent(
                 issue.getWorkspace(),
@@ -115,8 +116,10 @@ public class ActivityService {
                 ActivityEventType.ISSUE_STATUS_CHANGED,
                 metadata(
                         "issueId", issue.getId(),
-                        "fromStatus", fromStatus.name(),
-                        "toStatus", toStatus.name()
+                        "fromWorkflowStateId", fromWorkflowStateId,
+                        "fromStatus", fromStatus,
+                        "toWorkflowStateId", toWorkflowStateId,
+                        "toStatus", toStatus
                 )
         ));
     }
