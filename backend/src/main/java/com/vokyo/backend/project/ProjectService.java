@@ -9,6 +9,8 @@ import com.vokyo.backend.project.dto.ProjectLabelResponse;
 import com.vokyo.backend.project.dto.ProjectMemberResponse;
 import com.vokyo.backend.project.dto.ProjectResponse;
 import com.vokyo.backend.project.dto.ProjectWorkflowStateResponse;
+import com.vokyo.backend.project.dto.ReorderProjectWorkflowStatesRequest;
+import com.vokyo.backend.project.dto.UpdateProjectWorkflowStateRequest;
 import com.vokyo.backend.workspace.CurrentWorkspaceContext;
 import com.vokyo.backend.workspace.MembershipStatus;
 import com.vokyo.backend.workspace.WorkspaceAccessService;
@@ -21,6 +23,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -180,6 +186,82 @@ public class ProjectService {
     }
 
     @Transactional
+    public ProjectWorkflowStateResponse updateProjectWorkflowState(
+            Jwt jwt,
+            UUID projectId,
+            UUID workflowStateId,
+            UpdateProjectWorkflowStateRequest request
+    ) {
+        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
+        Project project = projectAccessService.requireOwnedProject(projectId, context);
+        ProjectWorkflowState workflowState = requireProjectWorkflowState(project, workflowStateId);
+        String name = request.name().trim();
+
+        if (projectWorkflowStateRepository.existsByWorkspace_IdAndProject_IdAndNameIgnoreCaseAndIdNot(
+                project.getWorkspace().getId(),
+                project.getId(),
+                name,
+                workflowState.getId()
+        )) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Project workflow state already exists");
+        }
+
+        workflowState.rename(name);
+        workflowState.changeCategory(request.category());
+        return toWorkflowStateResponse(workflowState);
+    }
+
+    @Transactional
+    public List<ProjectWorkflowStateResponse> reorderProjectWorkflowStates(
+            Jwt jwt,
+            UUID projectId,
+            ReorderProjectWorkflowStatesRequest request
+    ) {
+        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
+        Project project = projectAccessService.requireOwnedProject(projectId, context);
+        List<UUID> requestedIds = request.workflowStateIds();
+        if (requestedIds == null || requestedIds.isEmpty()) {
+            throw badRequest("Workflow state order is required");
+        }
+
+        Set<UUID> uniqueRequestedIds = new HashSet<>(requestedIds);
+        if (uniqueRequestedIds.size() != requestedIds.size()) {
+            throw badRequest("Workflow state order cannot contain duplicates");
+        }
+
+        List<ProjectWorkflowState> workflowStates =
+                projectWorkflowStateRepository.findByWorkspace_IdAndProject_IdOrderByPositionAscNameAsc(
+                        project.getWorkspace().getId(),
+                        project.getId()
+                );
+        Map<UUID, ProjectWorkflowState> workflowStatesById = new LinkedHashMap<>();
+        for (ProjectWorkflowState workflowState : workflowStates) {
+            workflowStatesById.put(workflowState.getId(), workflowState);
+        }
+
+        for (UUID requestedId : requestedIds) {
+            if (!workflowStatesById.containsKey(requestedId)) {
+                throw notFound("Project workflow state not found");
+            }
+        }
+
+        if (requestedIds.size() != workflowStates.size()) {
+            throw badRequest("Workflow state order must include every state");
+        }
+
+        for (int index = 0; index < requestedIds.size(); index++) {
+            workflowStatesById.get(requestedIds.get(index)).moveTo((index + 1) * 10_000);
+        }
+
+        projectWorkflowStateRepository.saveAll(workflowStates);
+        return requestedIds
+                .stream()
+                .map(workflowStatesById::get)
+                .map(this::toWorkflowStateResponse)
+                .toList();
+    }
+
+    @Transactional
     public ProjectMemberResponse addProjectMember(Jwt jwt, UUID projectId, AddProjectMemberRequest request) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Project project = projectAccessService.requireOwnedProject(projectId, context);
@@ -292,6 +374,15 @@ public class ProjectService {
                 .orElse(IN_PROGRESS_POSITION);
 
         return Math.min(maxBeforeDone + 1_000, donePosition - 1);
+    }
+
+    private ProjectWorkflowState requireProjectWorkflowState(Project project, UUID workflowStateId) {
+        return projectWorkflowStateRepository.findByWorkspace_IdAndProject_IdAndId(
+                        project.getWorkspace().getId(),
+                        project.getId(),
+                        workflowStateId
+                )
+                .orElseThrow(() -> notFound("Project workflow state not found"));
     }
 
     private String normalizeOptionalText(String value) {

@@ -91,6 +91,18 @@ public class ProjectWorkflowState {
         return position;
     }
 
+    public void rename(String name) {
+        this.name = name;
+    }
+
+    public void changeCategory(WorkflowStateCategory category) {
+        this.category = category;
+    }
+
+    public void moveTo(int position) {
+        this.position = position;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }

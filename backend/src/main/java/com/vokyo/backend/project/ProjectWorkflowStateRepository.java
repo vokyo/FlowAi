@@ -19,4 +19,11 @@ public interface ProjectWorkflowStateRepository extends JpaRepository<ProjectWor
     );
 
     boolean existsByWorkspace_IdAndProject_IdAndNameIgnoreCase(UUID workspaceId, UUID projectId, String name);
+
+    boolean existsByWorkspace_IdAndProject_IdAndNameIgnoreCaseAndIdNot(
+            UUID workspaceId,
+            UUID projectId,
+            String name,
+            UUID id
+    );
 }

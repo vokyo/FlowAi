@@ -8,10 +8,13 @@ import com.vokyo.backend.project.dto.ProjectLabelResponse;
 import com.vokyo.backend.project.dto.ProjectMemberResponse;
 import com.vokyo.backend.project.dto.ProjectResponse;
 import com.vokyo.backend.project.dto.ProjectWorkflowStateResponse;
+import com.vokyo.backend.project.dto.ReorderProjectWorkflowStatesRequest;
+import com.vokyo.backend.project.dto.UpdateProjectWorkflowStateRequest;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -101,5 +104,24 @@ public class ProjectController {
             @Valid @RequestBody CreateProjectWorkflowStateRequest request
     ) {
         return projectService.createProjectWorkflowState(jwt, projectId, request);
+    }
+
+    @PatchMapping("/{projectId}/workflow-states/{workflowStateId}")
+    public ProjectWorkflowStateResponse updateProjectWorkflowState(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID projectId,
+            @PathVariable UUID workflowStateId,
+            @Valid @RequestBody UpdateProjectWorkflowStateRequest request
+    ) {
+        return projectService.updateProjectWorkflowState(jwt, projectId, workflowStateId, request);
+    }
+
+    @PatchMapping("/{projectId}/workflow-states/order")
+    public List<ProjectWorkflowStateResponse> reorderProjectWorkflowStates(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID projectId,
+            @Valid @RequestBody ReorderProjectWorkflowStatesRequest request
+    ) {
+        return projectService.reorderProjectWorkflowStates(jwt, projectId, request);
     }
 }

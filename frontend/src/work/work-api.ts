@@ -126,6 +126,15 @@ export type CreateProjectWorkflowStateRequest = {
   category: WorkflowStateCategory
 }
 
+export type UpdateProjectWorkflowStateRequest = {
+  name: string
+  category: WorkflowStateCategory
+}
+
+export type ReorderProjectWorkflowStatesRequest = {
+  workflowStateIds: string[]
+}
+
 export type CreateIssueRequest = {
   projectId: string
   title: string
@@ -203,6 +212,27 @@ export function createProjectWorkflowState(
   request: CreateProjectWorkflowStateRequest,
 ) {
   return api.post<ProjectWorkflowState>(`/projects/${projectId}/workflow-states`, request)
+}
+
+export function updateProjectWorkflowState(
+  projectId: string,
+  workflowStateId: string,
+  request: UpdateProjectWorkflowStateRequest,
+) {
+  return api.patch<ProjectWorkflowState>(
+    `/projects/${projectId}/workflow-states/${workflowStateId}`,
+    request,
+  )
+}
+
+export function reorderProjectWorkflowStates(
+  projectId: string,
+  request: ReorderProjectWorkflowStatesRequest,
+) {
+  return api.patch<ProjectWorkflowState[]>(
+    `/projects/${projectId}/workflow-states/order`,
+    request,
+  )
 }
 
 export function listIssues(projectId: string, filters: ListIssuesFilters = {}) {

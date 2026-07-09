@@ -254,7 +254,7 @@ public class IssueService {
                 issue.getProject().getId(),
                 issue.getTitle(),
                 issue.getDescription(),
-                issue.getStatus().name(),
+                responseStatus(issue),
                 toWorkflowStateResponse(issue.getWorkflowState()),
                 issue.getPriority() == null ? null : issue.getPriority().name(),
                 toLabelResponses(issue),
@@ -274,7 +274,7 @@ public class IssueService {
                 issue.getProject().getId(),
                 issue.getTitle(),
                 issue.getDescription(),
-                issue.getStatus().name(),
+                responseStatus(issue),
                 toWorkflowStateResponse(issue.getWorkflowState()),
                 issue.getPriority() == null ? null : issue.getPriority().name(),
                 toLabelResponses(issue),
@@ -630,6 +630,14 @@ public class IssueService {
         }
 
         return issue.getWorkflowState().getName();
+    }
+
+    private String responseStatus(Issue issue) {
+        if (issue.getArchivedAt() != null) {
+            return IssueStatus.ARCHIVED.name();
+        }
+
+        return issue.getWorkflowState().getCategory().toIssueStatus().name();
     }
 
     private <E extends Enum<E>> E requiredEnum(

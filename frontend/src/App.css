@@ -1171,6 +1171,10 @@
   padding: 10px;
 }
 
+.project-workflow-row {
+  align-items: start;
+}
+
 .project-member-avatar {
   width: 32px;
   height: 32px;
@@ -1257,6 +1261,29 @@
   align-items: end;
 }
 
+.workflow-state-actions {
+  align-items: center;
+}
+
+.workflow-state-edit-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(140px, 0.5fr) auto;
+  grid-column: 2 / 4;
+  gap: 10px;
+  align-items: end;
+  min-width: 0;
+}
+
+.workflow-state-edit-form .inline-notice {
+  grid-column: 1 / -1;
+}
+
+.workflow-state-edit-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
 @keyframes flowai-spin {
   to {
     transform: rotate(360deg);
@@ -1330,6 +1357,16 @@
 
   .project-member-row {
     grid-template-columns: 32px minmax(0, 1fr);
+  }
+
+  .workflow-state-edit-form {
+    grid-template-columns: 1fr;
+    grid-column: 2;
+    align-items: stretch;
+  }
+
+  .workflow-state-edit-actions {
+    justify-content: flex-start;
   }
 
   .project-member-meta {

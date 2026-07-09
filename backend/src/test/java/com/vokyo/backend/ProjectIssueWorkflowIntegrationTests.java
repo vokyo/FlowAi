@@ -1092,6 +1092,187 @@ class ProjectIssueWorkflowIntegrationTests {
     }
 
     @Test
+    void projectOwnerCanUpdateWorkflowStateAndIssueStatusFollowsCategory() throws Exception {
+        AuthSession owner = register("workflow-update-owner+" + uniqueId() + "@example.com");
+        AuthSession member = createWorkspaceMember(owner, "workflow-update-member+" + uniqueId() + "@example.com");
+        AuthSession nonProjectMember = createWorkspaceMember(
+                owner,
+                "workflow-update-non-member+" + uniqueId() + "@example.com"
+        );
+        String projectId = createProject(owner, "Workflow Update Project").get("id").asText();
+        addProjectMember(owner, projectId, userId(member));
+        String todoStateId = workflowStateIdByName(workflowStates(owner, projectId), "Todo");
+
+        JsonNode issue = postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Category follows workflow state"
+                }
+                """.formatted(projectId),
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("TODO"))
+                .andReturnJson();
+
+        patchJson(
+                "/api/projects/%s/workflow-states/%s".formatted(projectId, todoStateId),
+                """
+                {
+                  "name": "Inbox",
+                  "category": "DONE"
+                }
+                """,
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(todoStateId))
+                .andExpect(jsonPath("$.name").value("Inbox"))
+                .andExpect(jsonPath("$.category").value("DONE"));
+
+        mockMvc.perform(get("/api/issues/{issueId}", issue.get("id").asText())
+                        .header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DONE"))
+                .andExpect(jsonPath("$.workflowState.id").value(todoStateId))
+                .andExpect(jsonPath("$.workflowState.name").value("Inbox"))
+                .andExpect(jsonPath("$.workflowState.category").value("DONE"));
+
+        patchJson(
+                "/api/projects/%s/workflow-states/%s".formatted(projectId, todoStateId),
+                """
+                {
+                  "name": "Done",
+                  "category": "DONE"
+                }
+                """,
+                owner.accessToken()
+        ).andExpect(status().isConflict());
+
+        patchJson(
+                "/api/projects/%s/workflow-states/%s".formatted(projectId, todoStateId),
+                """
+                {
+                  "name": "Member edit",
+                  "category": "IN_PROGRESS"
+                }
+                """,
+                member.accessToken()
+        ).andExpect(status().isForbidden());
+
+        patchJson(
+                "/api/projects/%s/workflow-states/%s".formatted(projectId, todoStateId),
+                """
+                {
+                  "name": "Hidden edit",
+                  "category": "IN_PROGRESS"
+                }
+                """,
+                nonProjectMember.accessToken()
+        ).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void projectOwnerCanReorderWorkflowStatesWithValidation() throws Exception {
+        AuthSession owner = register("workflow-reorder-owner+" + uniqueId() + "@example.com");
+        AuthSession member = createWorkspaceMember(owner, "workflow-reorder-member+" + uniqueId() + "@example.com");
+        AuthSession nonProjectMember = createWorkspaceMember(
+                owner,
+                "workflow-reorder-non-member+" + uniqueId() + "@example.com"
+        );
+        String projectId = createProject(owner, "Workflow Reorder Project").get("id").asText();
+        String otherProjectId = createProject(owner, "Other Workflow Reorder Project").get("id").asText();
+        addProjectMember(owner, projectId, userId(member));
+        String reviewStateId = createProjectWorkflowState(owner, projectId, "Review", "IN_PROGRESS")
+                .get("id")
+                .asText();
+        JsonNode workflowStates = workflowStates(owner, projectId);
+        String todoStateId = workflowStateIdByName(workflowStates, "Todo");
+        String inProgressStateId = workflowStateIdByName(workflowStates, "In progress");
+        String doneStateId = workflowStateIdByName(workflowStates, "Done");
+        String otherProjectStateId = workflowStates(owner, otherProjectId).get(0).get("id").asText();
+
+        String reorderedIds = """
+                ["%s", "%s", "%s", "%s"]
+                """.formatted(doneStateId, reviewStateId, inProgressStateId, todoStateId);
+        patchJson(
+                "/api/projects/%s/workflow-states/order".formatted(projectId),
+                """
+                {
+                  "workflowStateIds": %s
+                }
+                """.formatted(reorderedIds),
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(doneStateId))
+                .andExpect(jsonPath("$[0].position").value(10000))
+                .andExpect(jsonPath("$[1].id").value(reviewStateId))
+                .andExpect(jsonPath("$[1].position").value(20000))
+                .andExpect(jsonPath("$[2].id").value(inProgressStateId))
+                .andExpect(jsonPath("$[2].position").value(30000))
+                .andExpect(jsonPath("$[3].id").value(todoStateId))
+                .andExpect(jsonPath("$[3].position").value(40000));
+
+        mockMvc.perform(get("/api/projects/{projectId}/workflow-states", projectId)
+                        .header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].name").value("Done"))
+                .andExpect(jsonPath("$[1].name").value("Review"))
+                .andExpect(jsonPath("$[2].name").value("In progress"))
+                .andExpect(jsonPath("$[3].name").value("Todo"));
+
+        patchJson(
+                "/api/projects/%s/workflow-states/order".formatted(projectId),
+                """
+                {
+                  "workflowStateIds": %s
+                }
+                """.formatted(reorderedIds),
+                member.accessToken()
+        ).andExpect(status().isForbidden());
+
+        patchJson(
+                "/api/projects/%s/workflow-states/order".formatted(projectId),
+                """
+                {
+                  "workflowStateIds": %s
+                }
+                """.formatted(reorderedIds),
+                nonProjectMember.accessToken()
+        ).andExpect(status().isNotFound());
+
+        patchJson(
+                "/api/projects/%s/workflow-states/order".formatted(projectId),
+                """
+                {
+                  "workflowStateIds": ["%s", "%s", "%s", "%s"]
+                }
+                """.formatted(doneStateId, doneStateId, inProgressStateId, todoStateId),
+                owner.accessToken()
+        ).andExpect(status().isBadRequest());
+
+        patchJson(
+                "/api/projects/%s/workflow-states/order".formatted(projectId),
+                """
+                {
+                  "workflowStateIds": ["%s", "%s", "%s"]
+                }
+                """.formatted(doneStateId, reviewStateId, inProgressStateId),
+                owner.accessToken()
+        ).andExpect(status().isBadRequest());
+
+        patchJson(
+                "/api/projects/%s/workflow-states/order".formatted(projectId),
+                """
+                {
+                  "workflowStateIds": ["%s", "%s", "%s", "%s"]
+                }
+                """.formatted(doneStateId, reviewStateId, inProgressStateId, otherProjectStateId),
+                owner.accessToken()
+        ).andExpect(status().isNotFound());
+    }
+
+    @Test
     void rejectsCrossWorkspaceProjectAndIssueAccess() throws Exception {
         AuthSession owner = register("owner+" + uniqueId() + "@example.com");
         AuthSession outsider = register("outsider+" + uniqueId() + "@example.com");
@@ -1515,6 +1696,16 @@ class ProjectIssueWorkflowIntegrationTests {
                 .andReturn();
 
         return objectMapper.readTree(result.getResponse().getContentAsString());
+    }
+
+    private String workflowStateIdByName(JsonNode workflowStates, String name) {
+        for (JsonNode workflowState : workflowStates) {
+            if (workflowState.get("name").asText().equals(name)) {
+                return workflowState.get("id").asText();
+            }
+        }
+
+        throw new AssertionError("Workflow state not found: " + name);
     }
 
     private AuthSession createWorkspaceMember(AuthSession ownerSession, String email) {

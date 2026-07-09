@@ -7,7 +7,9 @@ import { z } from 'zod'
 import {
   Activity,
   Archive,
+  ArrowDown,
   ArrowLeft,
+  ArrowUp,
   Building2,
   CalendarDays,
   ChevronDown,
@@ -55,7 +57,9 @@ import {
   listProjectWorkflowStates,
   listProjects,
   listWorkspaceMembers,
+  reorderProjectWorkflowStates,
   updateIssue,
+  updateProjectWorkflowState,
   type ActivityEvent,
   type IssueDetail,
   type IssuePriority,
@@ -169,6 +173,8 @@ const createProjectWorkflowStateFormSchema = z.object({
   category: z.enum(WORKFLOW_STATE_CATEGORIES),
 })
 
+const updateProjectWorkflowStateFormSchema = createProjectWorkflowStateFormSchema
+
 const addProjectMemberFormSchema = z.object({
   userId: requiredTrimmedString('Workspace member'),
 })
@@ -188,6 +194,7 @@ type CreateProjectFormValues = z.infer<typeof createProjectFormSchema>
 type CreateIssueFormValues = z.infer<typeof createIssueFormSchema>
 type CreateProjectLabelFormValues = z.infer<typeof createProjectLabelFormSchema>
 type CreateProjectWorkflowStateFormValues = z.infer<typeof createProjectWorkflowStateFormSchema>
+type UpdateProjectWorkflowStateFormValues = z.infer<typeof updateProjectWorkflowStateFormSchema>
 type AddProjectMemberFormValues = z.infer<typeof addProjectMemberFormSchema>
 type IssueContentFormValues = z.infer<typeof issueContentFormSchema>
 type CommentFormValues = z.infer<typeof commentFormSchema>
@@ -483,6 +490,50 @@ export function AppPage({ onSignOut }: AppPageProps) {
     },
   })
 
+  const updateProjectWorkflowStateMutation = useMutation({
+    mutationFn: ({
+      projectId,
+      workflowStateId,
+      values,
+    }: {
+      projectId: string
+      workflowStateId: string
+      values: UpdateProjectWorkflowStateFormValues
+    }) => updateProjectWorkflowState(projectId, workflowStateId, values),
+    onSuccess: async (workflowState) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['project-workflow-states', workflowState.projectId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['issues', currentWorkspaceId, workflowState.projectId],
+        }),
+        queryClient.invalidateQueries({ queryKey: ['issue'] }),
+      ])
+    },
+  })
+
+  const reorderProjectWorkflowStatesMutation = useMutation({
+    mutationFn: ({
+      projectId,
+      workflowStateIds,
+    }: {
+      projectId: string
+      workflowStateIds: string[]
+    }) => reorderProjectWorkflowStates(projectId, { workflowStateIds }),
+    onSuccess: async (_, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['project-workflow-states', variables.projectId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['issues', currentWorkspaceId, variables.projectId],
+        }),
+        queryClient.invalidateQueries({ queryKey: ['issue'] }),
+      ])
+    },
+  })
+
   const addProjectMemberMutation = useMutation({
     mutationFn: ({ projectId, userId }: { projectId: string; userId: string }) =>
       addProjectMember(projectId, { userId, role: 'MEMBER' }),
@@ -539,11 +590,17 @@ export function AppPage({ onSignOut }: AppPageProps) {
 
   function openProjectWorkflowDialog() {
     createProjectWorkflowStateMutation.reset()
+    updateProjectWorkflowStateMutation.reset()
+    reorderProjectWorkflowStatesMutation.reset()
     setIsProjectWorkflowDialogOpen(true)
   }
 
   function closeProjectWorkflowDialog() {
-    if (createProjectWorkflowStateMutation.isPending) {
+    if (
+      createProjectWorkflowStateMutation.isPending ||
+      updateProjectWorkflowStateMutation.isPending ||
+      reorderProjectWorkflowStatesMutation.isPending
+    ) {
       return
     }
 
@@ -629,6 +686,55 @@ export function AppPage({ onSignOut }: AppPageProps) {
       projectId: selectedProjectId,
       name,
       category: values.category,
+    })
+  }
+
+  async function handleUpdateProjectWorkflowState(
+    workflowStateId: string,
+    values: UpdateProjectWorkflowStateFormValues,
+  ) {
+    const name = values.name.trim()
+    if (!selectedProjectId || !name) {
+      return null
+    }
+
+    updateProjectWorkflowStateMutation.reset()
+    return updateProjectWorkflowStateMutation.mutateAsync({
+      projectId: selectedProjectId,
+      workflowStateId,
+      values: {
+        name,
+        category: values.category,
+      },
+    })
+  }
+
+  async function handleReorderProjectWorkflowState(workflowStateId: string, direction: -1 | 1) {
+    if (!selectedProjectId) {
+      return
+    }
+
+    const currentIndex = projectWorkflowStates.findIndex(
+      (workflowState) => workflowState.id === workflowStateId,
+    )
+    const nextIndex = currentIndex + direction
+    if (
+      currentIndex < 0 ||
+      nextIndex < 0 ||
+      nextIndex >= projectWorkflowStates.length
+    ) {
+      return
+    }
+
+    const workflowStateIds = projectWorkflowStates.map((workflowState) => workflowState.id)
+    const nextWorkflowStateId = workflowStateIds[nextIndex]
+    workflowStateIds[nextIndex] = workflowStateIds[currentIndex]
+    workflowStateIds[currentIndex] = nextWorkflowStateId
+
+    reorderProjectWorkflowStatesMutation.reset()
+    await reorderProjectWorkflowStatesMutation.mutateAsync({
+      projectId: selectedProjectId,
+      workflowStateIds,
     })
   }
 
@@ -824,12 +930,20 @@ export function AppPage({ onSignOut }: AppPageProps) {
         selectedProject={selectedProject}
         workflowStates={projectWorkflowStates}
         onSubmit={handleCreateProjectWorkflowState}
+        onUpdate={handleUpdateProjectWorkflowState}
+        onReorder={handleReorderProjectWorkflowState}
         onClose={closeProjectWorkflowDialog}
         canCreateWorkflowStates={canAddProjectMembers}
         isLoadingWorkflowStates={projectWorkflowStatesQuery.isLoading}
         workflowStatesError={projectWorkflowStatesQuery.error}
         isSubmitting={createProjectWorkflowStateMutation.isPending}
-        error={createProjectWorkflowStateMutation.error}
+        isUpdating={updateProjectWorkflowStateMutation.isPending}
+        isReordering={reorderProjectWorkflowStatesMutation.isPending}
+        error={
+          createProjectWorkflowStateMutation.error ??
+          updateProjectWorkflowStateMutation.error ??
+          reorderProjectWorkflowStatesMutation.error
+        }
       />
     </main>
   )
@@ -2285,22 +2399,33 @@ function ProjectWorkflowDialog({
   selectedProject,
   workflowStates,
   onSubmit,
+  onUpdate,
+  onReorder,
   onClose,
   canCreateWorkflowStates,
   isLoadingWorkflowStates,
   workflowStatesError,
   isSubmitting,
+  isUpdating,
+  isReordering,
   error,
 }: {
   isOpen: boolean
   selectedProject: Project | null
   workflowStates: ProjectWorkflowState[]
   onSubmit: (values: CreateProjectWorkflowStateFormValues) => Promise<ProjectWorkflowState | null>
+  onUpdate: (
+    workflowStateId: string,
+    values: UpdateProjectWorkflowStateFormValues,
+  ) => Promise<ProjectWorkflowState | null>
+  onReorder: (workflowStateId: string, direction: -1 | 1) => Promise<void>
   onClose: () => void
   canCreateWorkflowStates: boolean
   isLoadingWorkflowStates: boolean
   workflowStatesError: Error | null
   isSubmitting: boolean
+  isUpdating: boolean
+  isReordering: boolean
   error: Error | null
 }) {
   const {
@@ -2317,6 +2442,7 @@ function ProjectWorkflowDialog({
     },
   })
   const workflowStateName = useWatch({ control, name: 'name' }) ?? ''
+  const isMutatingWorkflowState = isSubmitting || isUpdating || isReordering
 
   useEffect(() => {
     if (isOpen) {
@@ -2355,19 +2481,17 @@ function ProjectWorkflowDialog({
         {workflowStatesError ? <ErrorState error={workflowStatesError} /> : null}
         {!isLoadingWorkflowStates && !workflowStatesError ? (
           <div className="project-member-list" aria-label="Workflow statuses">
-            {workflowStates.map((workflowState) => (
-              <div className="project-member-row" key={workflowState.id}>
-                <span className="workspace-avatar project-member-avatar" aria-hidden="true">
-                  <StatusIcon status={workflowState.category} />
-                </span>
-                <span className="project-member-person">
-                  <strong>{workflowState.name}</strong>
-                  <small>{formatStatus(workflowState.category)}</small>
-                </span>
-                <span className="project-member-meta">
-                  <span className="project-member-status">#{workflowState.position}</span>
-                </span>
-              </div>
+            {workflowStates.map((workflowState, index) => (
+              <WorkflowStateRow
+                key={workflowState.id}
+                workflowState={workflowState}
+                canManageWorkflowStates={canCreateWorkflowStates}
+                canMoveUp={index > 0}
+                canMoveDown={index < workflowStates.length - 1}
+                isMutating={isMutatingWorkflowState}
+                onUpdate={onUpdate}
+                onReorder={onReorder}
+              />
             ))}
           </div>
         ) : null}
@@ -2378,7 +2502,7 @@ function ProjectWorkflowDialog({
             <span className="app-state">{workflowStates.length} statuses</span>
           </div>
           {!canCreateWorkflowStates ? (
-            <InlineNotice>Only project owners can add workflow statuses.</InlineNotice>
+            <InlineNotice>Only project owners can manage workflow statuses.</InlineNotice>
           ) : (
             <form
               className="project-member-add-form"
@@ -2389,13 +2513,13 @@ function ProjectWorkflowDialog({
                 Name
                 <input
                   placeholder="Review"
-                  disabled={isSubmitting}
+                  disabled={isMutatingWorkflowState}
                   {...register('name')}
                 />
               </label>
               <label className="app-field">
                 Category
-                <select disabled={isSubmitting} {...register('category')}>
+                <select disabled={isMutatingWorkflowState} {...register('category')}>
                   {WORKFLOW_STATE_CATEGORIES.map((category) => (
                     <option key={category} value={category}>
                       {formatStatus(category)}
@@ -2409,7 +2533,7 @@ function ProjectWorkflowDialog({
               {errors.category?.message ? (
                 <InlineNotice tone="warning">{errors.category.message}</InlineNotice>
               ) : null}
-              <Button type="submit" disabled={!workflowStateName.trim() || isSubmitting}>
+              <Button type="submit" disabled={!workflowStateName.trim() || isMutatingWorkflowState}>
                 {isSubmitting ? (
                   <Loader2 aria-hidden="true" className="auth-spin" />
                 ) : (
@@ -2423,6 +2547,174 @@ function ProjectWorkflowDialog({
         </section>
       </div>
     </ModalShell>
+  )
+}
+
+function WorkflowStateRow({
+  workflowState,
+  canManageWorkflowStates,
+  canMoveUp,
+  canMoveDown,
+  isMutating,
+  onUpdate,
+  onReorder,
+}: {
+  workflowState: ProjectWorkflowState
+  canManageWorkflowStates: boolean
+  canMoveUp: boolean
+  canMoveDown: boolean
+  isMutating: boolean
+  onUpdate: (
+    workflowStateId: string,
+    values: UpdateProjectWorkflowStateFormValues,
+  ) => Promise<ProjectWorkflowState | null>
+  onReorder: (workflowStateId: string, direction: -1 | 1) => Promise<void>
+}) {
+  const [isEditing, setIsEditing] = useState(false)
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isDirty },
+  } = useForm<UpdateProjectWorkflowStateFormValues>({
+    resolver: zodResolver(updateProjectWorkflowStateFormSchema),
+    defaultValues: {
+      name: workflowState.name,
+      category: toWorkflowStateCategoryInput(workflowState.category),
+    },
+  })
+
+  useEffect(() => {
+    reset({
+      name: workflowState.name,
+      category: toWorkflowStateCategoryInput(workflowState.category),
+    })
+  }, [reset, workflowState.category, workflowState.name])
+
+  async function submitWorkflowState(values: UpdateProjectWorkflowStateFormValues) {
+    try {
+      await onUpdate(workflowState.id, values)
+      setIsEditing(false)
+    } catch {
+      // The mutation error is rendered in the dialog footer so the edited row stays open.
+    }
+  }
+
+  function cancelEdit() {
+    reset({
+      name: workflowState.name,
+      category: toWorkflowStateCategoryInput(workflowState.category),
+    })
+    setIsEditing(false)
+  }
+
+  return (
+    <div className="project-member-row project-workflow-row">
+      <span className="workspace-avatar project-member-avatar" aria-hidden="true">
+        <StatusIcon status={workflowState.category} />
+      </span>
+      {isEditing ? (
+        <form
+          className="workflow-state-edit-form"
+          onSubmit={handleSubmit(submitWorkflowState)}
+          noValidate
+        >
+          <label className="app-field">
+            Name
+            <input disabled={isMutating} {...register('name')} />
+          </label>
+          <label className="app-field">
+            Category
+            <select disabled={isMutating} {...register('category')}>
+              {WORKFLOW_STATE_CATEGORIES.map((category) => (
+                <option key={category} value={category}>
+                  {formatStatus(category)}
+                </option>
+              ))}
+            </select>
+          </label>
+          {errors.name?.message ? (
+            <InlineNotice tone="warning">{errors.name.message}</InlineNotice>
+          ) : null}
+          {errors.category?.message ? (
+            <InlineNotice tone="warning">{errors.category.message}</InlineNotice>
+          ) : null}
+          <span className="workflow-state-edit-actions">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={cancelEdit}
+              disabled={isMutating}
+              aria-label="Cancel editing status"
+              title="Cancel"
+            >
+              <X aria-hidden="true" />
+            </Button>
+            <Button
+              type="submit"
+              size="icon-sm"
+              disabled={!isDirty || isMutating}
+              aria-label="Save workflow status"
+              title="Save"
+            >
+              {isMutating ? (
+                <Loader2 aria-hidden="true" className="auth-spin" />
+              ) : (
+                <Check aria-hidden="true" />
+              )}
+            </Button>
+          </span>
+        </form>
+      ) : (
+        <>
+          <span className="project-member-person">
+            <strong>{workflowState.name}</strong>
+            <small>{formatStatus(workflowState.category)}</small>
+          </span>
+          <span className="project-member-meta workflow-state-actions">
+            <span className="project-member-status">#{workflowState.position}</span>
+            {canManageWorkflowStates ? (
+              <>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => void onReorder(workflowState.id, -1)}
+                  disabled={!canMoveUp || isMutating}
+                  aria-label={`Move ${workflowState.name} up`}
+                  title="Move up"
+                >
+                  <ArrowUp aria-hidden="true" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => void onReorder(workflowState.id, 1)}
+                  disabled={!canMoveDown || isMutating}
+                  aria-label={`Move ${workflowState.name} down`}
+                  title="Move down"
+                >
+                  <ArrowDown aria-hidden="true" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setIsEditing(true)}
+                  disabled={isMutating}
+                  aria-label={`Edit ${workflowState.name}`}
+                  title="Edit"
+                >
+                  <Pencil aria-hidden="true" />
+                </Button>
+              </>
+            ) : null}
+          </span>
+        </>
+      )}
+    </div>
   )
 }
 
@@ -2866,6 +3158,14 @@ function formatProjectRole(role: string) {
 
 function isKnownStatus(status: string): status is (typeof ISSUE_STATUSES)[number] {
   return ISSUE_STATUSES.includes(status as (typeof ISSUE_STATUSES)[number])
+}
+
+function toWorkflowStateCategoryInput(
+  category: WorkflowStateCategory,
+): (typeof WORKFLOW_STATE_CATEGORIES)[number] {
+  return WORKFLOW_STATE_CATEGORIES.includes(category as (typeof WORKFLOW_STATE_CATEGORIES)[number])
+    ? (category as (typeof WORKFLOW_STATE_CATEGORIES)[number])
+    : 'IN_PROGRESS'
 }
 
 function isKnownPriority(priority: string): priority is (typeof ISSUE_PRIORITIES)[number] {
