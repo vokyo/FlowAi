@@ -9,6 +9,29 @@ export type Project = {
   updatedAt: string
 }
 
+export type ProjectMemberRole = 'OWNER' | 'MEMBER' | string
+export type MembershipStatus = 'ACTIVE' | 'DISABLED' | string
+
+export type ProjectMember = {
+  id: string
+  userId: string
+  email: string
+  displayName: string
+  role: ProjectMemberRole
+  status: MembershipStatus
+  joinedAt: string
+}
+
+export type WorkspaceMember = {
+  id: string
+  userId: string
+  email: string
+  displayName: string
+  role: string
+  status: MembershipStatus
+  joinedAt: string
+}
+
 export type IssueStatus = 'TODO' | 'IN_PROGRESS' | 'DONE' | 'ARCHIVED' | string
 export type IssuePriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT' | string
 
@@ -58,6 +81,11 @@ export type CreateProjectRequest = {
   description?: string
 }
 
+export type AddProjectMemberRequest = {
+  userId: string
+  role: 'MEMBER'
+}
+
 export type CreateIssueRequest = {
   projectId: string
   title: string
@@ -87,8 +115,24 @@ export function listProjects() {
   return api.get<Project[]>('/projects')
 }
 
+export function getProject(projectId: string) {
+  return api.get<Project>(`/projects/${projectId}`)
+}
+
 export function createProject(request: CreateProjectRequest) {
   return api.post<Project>('/projects', request)
+}
+
+export function listProjectMembers(projectId: string) {
+  return api.get<ProjectMember[]>(`/projects/${projectId}/members`)
+}
+
+export function addProjectMember(projectId: string, request: AddProjectMemberRequest) {
+  return api.post<ProjectMember>(`/projects/${projectId}/members`, request)
+}
+
+export function listWorkspaceMembers() {
+  return api.get<WorkspaceMember[]>('/workspaces/current/members')
 }
 
 export function listIssues(projectId: string, filters: ListIssuesFilters = {}) {

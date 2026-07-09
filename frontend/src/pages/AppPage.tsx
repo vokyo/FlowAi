@@ -26,6 +26,8 @@ import {
   Search,
   Send,
   UserCircle,
+  UserPlus,
+  Users,
   X,
 } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router'
@@ -33,13 +35,17 @@ import { ApiError } from '@/api/client'
 import { getCurrentSession, type AuthUser, type AuthWorkspace } from '@/auth/auth-api'
 import { Button } from '@/components/ui/button'
 import {
+  addProjectMember,
   createIssue,
   createIssueComment,
   createProject,
+  getProject,
   getIssue,
   listIssueActivities,
   listIssues,
+  listProjectMembers,
   listProjects,
+  listWorkspaceMembers,
   updateIssue,
   type ActivityEvent,
   type IssueDetail,
@@ -47,7 +53,9 @@ import {
   type IssueStatus,
   type IssueSummary,
   type Project,
+  type ProjectMember,
   type UpdateIssueRequest,
+  type WorkspaceMember,
 } from '@/work/work-api'
 
 const ISSUE_STATUSES = ['TODO', 'IN_PROGRESS', 'DONE', 'ARCHIVED'] as const
@@ -55,6 +63,8 @@ const CREATABLE_ISSUE_STATUSES = ['TODO', 'IN_PROGRESS', 'DONE'] as const
 const ISSUE_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const
 const EMPTY_PROJECTS: Project[] = []
 const EMPTY_ISSUES: IssueSummary[] = []
+const EMPTY_PROJECT_MEMBERS: ProjectMember[] = []
+const EMPTY_WORKSPACE_MEMBERS: WorkspaceMember[] = []
 
 const STATUS_LABELS: Record<(typeof ISSUE_STATUSES)[number], string> = {
   TODO: 'Todo',
@@ -111,6 +121,8 @@ export function AppPage({ onSignOut }: AppPageProps) {
   const [issueStatusFilter, setIssueStatusFilter] = useState<IssueStatusFilter>('ACTIVE')
   const [issuePriorityFilter, setIssuePriorityFilter] = useState<IssuePriority | ''>('')
   const [commentBody, setCommentBody] = useState('')
+  const [isProjectMembersDialogOpen, setIsProjectMembersDialogOpen] = useState(false)
+  const [selectedProjectMemberUserId, setSelectedProjectMemberUserId] = useState('')
 
   const currentSessionQuery = useQuery({
     queryKey: ['current-session'],
@@ -134,10 +146,51 @@ export function AppPage({ onSignOut }: AppPageProps) {
   })
 
   const projects = projectsQuery.data ?? EMPTY_PROJECTS
-  const selectedProject = routeProjectId
+  const selectedProjectFromList = routeProjectId
     ? projects.find((project) => project.id === routeProjectId) ?? null
     : projects[0] ?? null
-  const selectedProjectId = selectedProject?.id ?? null
+  const selectedProjectId = selectedProjectFromList?.id ?? null
+
+  const selectedProjectQuery = useQuery({
+    queryKey: ['project', selectedProjectId],
+    queryFn: () => getProject(selectedProjectId ?? ''),
+    enabled: Boolean(canLoadCurrentWorkspace && selectedProjectId),
+    retry: false,
+  })
+
+  const selectedProject = selectedProjectQuery.data ?? selectedProjectFromList
+
+  const projectMembersQuery = useQuery({
+    queryKey: ['project-members', selectedProjectId],
+    queryFn: () => listProjectMembers(selectedProjectId ?? ''),
+    enabled: Boolean(canLoadCurrentWorkspace && selectedProjectId),
+    retry: false,
+  })
+
+  const workspaceMembersQuery = useQuery({
+    queryKey: ['workspace-members', currentWorkspaceId],
+    queryFn: listWorkspaceMembers,
+    enabled: Boolean(canLoadCurrentWorkspace && selectedProjectId && isProjectMembersDialogOpen),
+    retry: false,
+  })
+
+  const projectMembers = projectMembersQuery.data ?? EMPTY_PROJECT_MEMBERS
+  const workspaceMembers = workspaceMembersQuery.data ?? EMPTY_WORKSPACE_MEMBERS
+  const currentProjectMember = projectMembers.find(
+    (member) => member.userId === currentUser?.id && member.status === 'ACTIVE',
+  )
+  const canAddProjectMembers = currentProjectMember?.role === 'OWNER'
+  const projectMemberUserIds = useMemo(
+    () => new Set(projectMembers.map((member) => member.userId)),
+    [projectMembers],
+  )
+  const addableWorkspaceMembers = useMemo(
+    () =>
+      workspaceMembers.filter(
+        (member) => member.status === 'ACTIVE' && !projectMemberUserIds.has(member.userId),
+      ),
+    [projectMemberUserIds, workspaceMembers],
+  )
   const normalizedIssueSearchQuery = issueSearchQuery.trim()
   const issueStatusQuery = issueStatusFilter === 'ACTIVE' ? undefined : issueStatusFilter
 
@@ -280,6 +333,22 @@ export function AppPage({ onSignOut }: AppPageProps) {
     },
   })
 
+  const addProjectMemberMutation = useMutation({
+    mutationFn: ({ projectId, userId }: { projectId: string; userId: string }) =>
+      addProjectMember(projectId, { userId, role: 'MEMBER' }),
+    onSuccess: async (_, variables) => {
+      setSelectedProjectMemberUserId('')
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['project', variables.projectId] }),
+        queryClient.invalidateQueries({ queryKey: ['project-members', variables.projectId] }),
+        queryClient.invalidateQueries({ queryKey: ['projects', currentWorkspaceId] }),
+        queryClient.invalidateQueries({
+          queryKey: ['issues', currentWorkspaceId, variables.projectId],
+        }),
+      ])
+    },
+  })
+
   function openCreateProjectDialog() {
     createProjectMutation.reset()
     setProjectName('')
@@ -302,6 +371,20 @@ export function AppPage({ onSignOut }: AppPageProps) {
     }
 
     setActiveCreateDialog(null)
+  }
+
+  function openProjectMembersDialog() {
+    addProjectMemberMutation.reset()
+    setSelectedProjectMemberUserId('')
+    setIsProjectMembersDialogOpen(true)
+  }
+
+  function closeProjectMembersDialog() {
+    if (addProjectMemberMutation.isPending) {
+      return
+    }
+
+    setIsProjectMembersDialogOpen(false)
   }
 
   function clearIssueFilters() {
@@ -354,6 +437,20 @@ export function AppPage({ onSignOut }: AppPageProps) {
       description: issueDescription.trim() || undefined,
       status: issueStatus,
       priority: issuePriority || undefined,
+    })
+  }
+
+  function handleAddProjectMember(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!selectedProjectId || !selectedProjectMemberUserId) {
+      return
+    }
+
+    addProjectMemberMutation.reset()
+    addProjectMemberMutation.mutate({
+      projectId: selectedProjectId,
+      userId: selectedProjectMemberUserId,
     })
   }
 
@@ -463,11 +560,13 @@ export function AppPage({ onSignOut }: AppPageProps) {
           <ProjectIssuesView
             currentWorkspace={currentWorkspace}
             selectedProject={selectedProject}
+            projectMembers={projectMembers}
             issues={issues}
             issueGroups={issueGroups}
             selectedIssueId={routeIssueId ?? null}
             isLoadingIssues={issuesQuery.isLoading}
             issuesError={issuesQuery.error}
+            isLoadingProjectMembers={projectMembersQuery.isLoading}
             isLoadingProjects={projectsQuery.isLoading}
             issueSearchQuery={issueSearchQuery}
             issueStatusFilter={issueStatusFilter}
@@ -477,6 +576,7 @@ export function AppPage({ onSignOut }: AppPageProps) {
             onIssueStatusFilterChange={setIssueStatusFilter}
             onIssuePriorityFilterChange={setIssuePriorityFilter}
             onClearIssueFilters={clearIssueFilters}
+            onOpenProjectMembers={openProjectMembersDialog}
             onOpenCreateIssue={openCreateIssueDialog}
             onIssueSelect={handleIssueSelect}
           />
@@ -510,6 +610,24 @@ export function AppPage({ onSignOut }: AppPageProps) {
         onClose={closeCreateDialog}
         isSubmitting={createIssueMutation.isPending}
         error={createIssueMutation.error}
+      />
+      <ProjectMembersDialog
+        isOpen={isProjectMembersDialogOpen}
+        selectedProject={selectedProject}
+        projectMembers={projectMembers}
+        workspaceMembers={workspaceMembers}
+        addableWorkspaceMembers={addableWorkspaceMembers}
+        selectedUserId={selectedProjectMemberUserId}
+        onSelectedUserIdChange={setSelectedProjectMemberUserId}
+        onSubmit={handleAddProjectMember}
+        onClose={closeProjectMembersDialog}
+        canAddMembers={canAddProjectMembers}
+        isLoadingProjectMembers={projectMembersQuery.isLoading}
+        isLoadingWorkspaceMembers={workspaceMembersQuery.isLoading}
+        projectMembersError={projectMembersQuery.error}
+        workspaceMembersError={workspaceMembersQuery.error}
+        isSubmitting={addProjectMemberMutation.isPending}
+        error={addProjectMemberMutation.error}
       />
     </main>
   )
@@ -644,11 +762,13 @@ function ProjectList({
 function ProjectIssuesView({
   currentWorkspace,
   selectedProject,
+  projectMembers,
   issues,
   issueGroups,
   selectedIssueId,
   isLoadingIssues,
   issuesError,
+  isLoadingProjectMembers,
   isLoadingProjects,
   issueSearchQuery,
   issueStatusFilter,
@@ -658,16 +778,19 @@ function ProjectIssuesView({
   onIssueStatusFilterChange,
   onIssuePriorityFilterChange,
   onClearIssueFilters,
+  onOpenProjectMembers,
   onOpenCreateIssue,
   onIssueSelect,
 }: {
   currentWorkspace: AuthWorkspace | null
   selectedProject: Project | null
+  projectMembers: ProjectMember[]
   issues: IssueSummary[]
   issueGroups: IssueGroup[]
   selectedIssueId: string | null
   isLoadingIssues: boolean
   issuesError: Error | null
+  isLoadingProjectMembers: boolean
   isLoadingProjects: boolean
   issueSearchQuery: string
   issueStatusFilter: IssueStatusFilter
@@ -677,6 +800,7 @@ function ProjectIssuesView({
   onIssueStatusFilterChange: (status: IssueStatusFilter) => void
   onIssuePriorityFilterChange: (priority: IssuePriority | '') => void
   onClearIssueFilters: () => void
+  onOpenProjectMembers: () => void
   onOpenCreateIssue: (status?: IssueStatus) => void
   onIssueSelect: (issueId: string) => void
 }) {
@@ -698,6 +822,18 @@ function ProjectIssuesView({
               <LayoutList aria-hidden="true" />
               {issues.length} issues
             </span>
+          ) : null}
+          {selectedProject ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onOpenProjectMembers}
+              disabled={isLoadingProjectMembers}
+              aria-label="Open project members"
+            >
+              <Users aria-hidden="true" />
+              {isLoadingProjectMembers ? 'Members' : `${projectMembers.length} members`}
+            </Button>
           ) : null}
           <Button
             type="button"
@@ -1523,6 +1659,144 @@ function CreateIssueDialog({
   )
 }
 
+function ProjectMembersDialog({
+  isOpen,
+  selectedProject,
+  projectMembers,
+  workspaceMembers,
+  addableWorkspaceMembers,
+  selectedUserId,
+  onSelectedUserIdChange,
+  onSubmit,
+  onClose,
+  canAddMembers,
+  isLoadingProjectMembers,
+  isLoadingWorkspaceMembers,
+  projectMembersError,
+  workspaceMembersError,
+  isSubmitting,
+  error,
+}: {
+  isOpen: boolean
+  selectedProject: Project | null
+  projectMembers: ProjectMember[]
+  workspaceMembers: WorkspaceMember[]
+  addableWorkspaceMembers: WorkspaceMember[]
+  selectedUserId: string
+  onSelectedUserIdChange: (userId: string) => void
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void
+  onClose: () => void
+  canAddMembers: boolean
+  isLoadingProjectMembers: boolean
+  isLoadingWorkspaceMembers: boolean
+  projectMembersError: Error | null
+  workspaceMembersError: Error | null
+  isSubmitting: boolean
+  error: Error | null
+}) {
+  if (!isOpen) {
+    return null
+  }
+
+  const activeWorkspaceMemberCount = workspaceMembers.filter(
+    (member) => member.status === 'ACTIVE',
+  ).length
+  const canSubmit = canAddMembers && Boolean(selectedUserId) && !isSubmitting
+  const workspaceMemberCountLabel = isLoadingWorkspaceMembers
+    ? 'Loading workspace members'
+    : `${activeWorkspaceMemberCount} active workspace members`
+
+  return (
+    <ModalShell
+      title="Project members"
+      eyebrow={selectedProject?.name ?? 'Project'}
+      onClose={onClose}
+      variant="members"
+    >
+      <div className="project-members-dialog">
+        {isLoadingProjectMembers ? <InlineState>Loading project members.</InlineState> : null}
+        {projectMembersError ? <ErrorState error={projectMembersError} /> : null}
+        {!isLoadingProjectMembers && !projectMembersError ? (
+          <div className="project-member-list" aria-label="Project members">
+            {projectMembers.map((member) => (
+              <div className="project-member-row" key={member.id}>
+                <span className="workspace-avatar project-member-avatar" aria-hidden="true">
+                  {getInitials(member.displayName || member.email)}
+                </span>
+                <span className="project-member-person">
+                  <strong>{member.displayName || member.email}</strong>
+                  <small>
+                    {member.email} - Joined {formatDate(member.joinedAt)}
+                  </small>
+                </span>
+                <span className="project-member-meta">
+                  <span className="project-role-badge" data-role={member.role}>
+                    {formatProjectRole(member.role)}
+                  </span>
+                  <span className="project-member-status">{formatStatus(member.status)}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        <section className="project-member-add-section">
+          <div className="project-member-add-heading">
+            <h3>Add member</h3>
+            <span className="app-state">{workspaceMemberCountLabel}</span>
+          </div>
+          {isLoadingProjectMembers ? (
+            <InlineNotice>Checking project role.</InlineNotice>
+          ) : !canAddMembers ? (
+            <InlineNotice>Only project owners can add members.</InlineNotice>
+          ) : (
+            <form className="project-member-add-form" onSubmit={onSubmit}>
+              <label className="app-field">
+                Workspace member
+                <select
+                  value={selectedUserId}
+                  onChange={(event) => onSelectedUserIdChange(event.target.value)}
+                  disabled={
+                    isSubmitting ||
+                    isLoadingWorkspaceMembers ||
+                    Boolean(workspaceMembersError) ||
+                    addableWorkspaceMembers.length === 0
+                  }
+                >
+                  <option value="">
+                    {isLoadingWorkspaceMembers ? 'Loading members' : 'Select member'}
+                  </option>
+                  {addableWorkspaceMembers.map((member) => (
+                    <option key={member.id} value={member.userId}>
+                      {member.displayName || member.email} - {member.email}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Button type="submit" disabled={!canSubmit}>
+                {isSubmitting ? (
+                  <Loader2 aria-hidden="true" className="auth-spin" />
+                ) : (
+                  <UserPlus aria-hidden="true" />
+                )}
+                Add member
+              </Button>
+            </form>
+          )}
+          {workspaceMembersError ? <ErrorState error={workspaceMembersError} /> : null}
+          {canAddMembers &&
+          !isLoadingWorkspaceMembers &&
+          !workspaceMembersError &&
+          addableWorkspaceMembers.length === 0 ? (
+            <InlineNotice>All active workspace members are already in this project.</InlineNotice>
+          ) : null}
+          {error ? <ProjectMemberMutationErrorState error={error} /> : null}
+        </section>
+      </div>
+    </ModalShell>
+  )
+}
+
 function ModalShell({
   title,
   eyebrow,
@@ -1534,7 +1808,7 @@ function ModalShell({
   eyebrow: string
   children: ReactNode
   onClose: () => void
-  variant?: 'default' | 'issue'
+  variant?: 'default' | 'issue' | 'members'
 }) {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -1647,6 +1921,10 @@ function ErrorState({ error }: { error: Error }) {
   return <p className="app-error">{getErrorMessage(error)}</p>
 }
 
+function ProjectMemberMutationErrorState({ error }: { error: Error }) {
+  return <p className="app-error">{getProjectMemberMutationErrorMessage(error)}</p>
+}
+
 function groupIssuesByStatus(issues: IssueSummary[], statusFilter: IssueStatusFilter) {
   const grouped = new Map<IssueStatus, IssueSummary[]>()
   const visibleStatuses =
@@ -1711,6 +1989,26 @@ function getErrorMessage(error: Error) {
   return 'Unable to load this workspace data.'
 }
 
+function getProjectMemberMutationErrorMessage(error: Error) {
+  if (error instanceof ApiError) {
+    if (error.status === 409) {
+      return 'This member is already in the project.'
+    }
+
+    if (error.status === 403) {
+      return 'You do not have permission to add project members.'
+    }
+
+    if (error.status === 404) {
+      return 'This project or workspace member is no longer available.'
+    }
+
+    return error.message
+  }
+
+  return 'Unable to add this project member.'
+}
+
 function formatStatus(status: string) {
   if (isKnownStatus(status)) {
     return STATUS_LABELS[status]
@@ -1729,6 +2027,10 @@ function formatPriority(priority: string) {
   }
 
   return formatStatus(priority)
+}
+
+function formatProjectRole(role: string) {
+  return formatStatus(role)
 }
 
 function isKnownStatus(status: string): status is (typeof ISSUE_STATUSES)[number] {

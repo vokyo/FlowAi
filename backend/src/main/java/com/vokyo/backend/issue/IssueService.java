@@ -10,7 +10,7 @@ import com.vokyo.backend.issue.dto.IssueCommentResponse;
 import com.vokyo.backend.issue.dto.IssueDetailResponse;
 import com.vokyo.backend.issue.dto.IssueSummaryResponse;
 import com.vokyo.backend.project.Project;
-import com.vokyo.backend.project.ProjectRepository;
+import com.vokyo.backend.project.ProjectAccessService;
 import com.vokyo.backend.user.User;
 import com.vokyo.backend.workspace.CurrentWorkspaceContext;
 import com.vokyo.backend.workspace.WorkspaceAccessService;
@@ -36,20 +36,20 @@ public class IssueService {
 
     private final IssueRepository issueRepository;
     private final IssueCommentRepository issueCommentRepository;
-    private final ProjectRepository projectRepository;
+    private final ProjectAccessService projectAccessService;
     private final WorkspaceAccessService workspaceAccessService;
     private final ActivityService activityService;
 
     public IssueService(
             IssueRepository issueRepository,
             IssueCommentRepository issueCommentRepository,
-            ProjectRepository projectRepository,
+            ProjectAccessService projectAccessService,
             WorkspaceAccessService workspaceAccessService,
             ActivityService activityService
     ) {
         this.issueRepository = issueRepository;
         this.issueCommentRepository = issueCommentRepository;
-        this.projectRepository = projectRepository;
+        this.projectAccessService = projectAccessService;
         this.workspaceAccessService = workspaceAccessService;
         this.activityService = activityService;
     }
@@ -63,7 +63,7 @@ public class IssueService {
             String query
     ) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
-        requireProject(projectId, context.workspace().getId());
+        projectAccessService.requireAccessibleProject(projectId, context);
         String normalizedQuery = normalizeOptionalText(query);
 
         List<Issue> issues = issueRepository.findAll(
@@ -87,7 +87,7 @@ public class IssueService {
     @Transactional
     public IssueSummaryResponse createIssue(Jwt jwt, CreateIssueRequest request) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
-        Project project = requireProject(request.projectId(), context.workspace().getId());
+        Project project = projectAccessService.requireAccessibleProject(request.projectId(), context);
         if (request.status() == IssueStatus.ARCHIVED) {
             throw badRequest("Issue cannot be created as archived");
         }
@@ -110,6 +110,7 @@ public class IssueService {
     public IssueDetailResponse getIssue(Jwt jwt, UUID issueId) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Issue issue = requireIssue(issueId, context.workspace().getId());
+        projectAccessService.requireIssueProjectAccess(issue, context);
         List<IssueCommentResponse> comments = issueCommentRepository.findByIssue_IdOrderByCreatedAtAsc(issue.getId())
                 .stream()
                 .map(this::toCommentResponse)
@@ -122,6 +123,7 @@ public class IssueService {
     public IssueCommentResponse createComment(Jwt jwt, UUID issueId, CreateCommentRequest request) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Issue issue = requireIssue(issueId, context.workspace().getId());
+        projectAccessService.requireIssueProjectAccess(issue, context);
         IssueComment comment = issueCommentRepository.save(new IssueComment(
                 context.workspace(),
                 issue.getProject(),
@@ -138,12 +140,8 @@ public class IssueService {
     public List<ActivityEventResponse> listIssueActivities(Jwt jwt, UUID issueId) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Issue issue = requireIssue(issueId, context.workspace().getId());
+        projectAccessService.requireIssueProjectAccess(issue, context);
         return activityService.listIssueActivities(issue.getId(), context.workspace().getId());
-    }
-
-    private Project requireProject(UUID projectId, UUID workspaceId) {
-        return projectRepository.findByIdAndWorkspace_Id(projectId, workspaceId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
     }
 
     private Issue requireIssue(UUID issueId, UUID workspaceId) {
@@ -264,6 +262,7 @@ public class IssueService {
 
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Issue issue = requireIssue(issueId, context.workspace().getId());
+        projectAccessService.requireIssueProjectAccess(issue, context);
         IssueStatus previousStatus = issue.getStatus();
 
         if (request.has("title")) {
