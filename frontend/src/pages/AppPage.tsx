@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { FormEvent, ReactNode } from 'react'
+import type { ReactNode } from 'react'
+import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useForm, useWatch } from 'react-hook-form'
+import { z } from 'zod'
 import {
   Activity,
   Archive,
@@ -26,6 +29,7 @@ import {
   Plus,
   Search,
   Send,
+  Tag,
   UserCircle,
   UserPlus,
   Users,
@@ -37,6 +41,8 @@ import { getCurrentSession, type AuthUser, type AuthWorkspace } from '@/auth/aut
 import { Button } from '@/components/ui/button'
 import {
   addProjectMember,
+  createProjectLabel,
+  createProjectWorkflowState,
   createIssue,
   createIssueComment,
   createProject,
@@ -44,7 +50,9 @@ import {
   getIssue,
   listIssueActivities,
   listIssues,
+  listProjectLabels,
   listProjectMembers,
+  listProjectWorkflowStates,
   listProjects,
   listWorkspaceMembers,
   updateIssue,
@@ -54,18 +62,33 @@ import {
   type IssueStatus,
   type IssueSummary,
   type Project,
+  type ProjectLabel,
   type ProjectMember,
+  type ProjectWorkflowState,
   type UpdateIssueRequest,
+  type WorkflowStateCategory,
   type WorkspaceMember,
 } from '@/work/work-api'
 
 const ISSUE_STATUSES = ['TODO', 'IN_PROGRESS', 'DONE', 'ARCHIVED'] as const
-const CREATABLE_ISSUE_STATUSES = ['TODO', 'IN_PROGRESS', 'DONE'] as const
+const WORKFLOW_STATE_CATEGORIES = ['TODO', 'IN_PROGRESS', 'DONE'] as const
 const ISSUE_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const
 const EMPTY_PROJECTS: Project[] = []
 const EMPTY_ISSUES: IssueSummary[] = []
+const EMPTY_PROJECT_LABELS: ProjectLabel[] = []
 const EMPTY_PROJECT_MEMBERS: ProjectMember[] = []
+const EMPTY_PROJECT_WORKFLOW_STATES: ProjectWorkflowState[] = []
 const EMPTY_WORKSPACE_MEMBERS: WorkspaceMember[] = []
+const DEFAULT_LABEL_COLOR = '#64748b'
+const FORM_LIMITS = {
+  projectName: 160,
+  projectDescription: 2_000,
+  issueTitle: 240,
+  issueDescription: 10_000,
+  labelName: 60,
+  workflowStateName: 60,
+  commentBody: 4_000,
+} as const
 
 const STATUS_LABELS: Record<(typeof ISSUE_STATUSES)[number], string> = {
   TODO: 'Todo',
@@ -93,14 +116,81 @@ type AppRouteParams = {
 
 type IssueGroup = {
   status: IssueStatus
+  workflowState: ProjectWorkflowState | null
   label: string
   issues: IssueSummary[]
 }
 
-type KnownIssueStatus = (typeof ISSUE_STATUSES)[number]
-type IssueStatusFilter = 'ACTIVE' | KnownIssueStatus
+type IssueWorkflowFilter = 'ACTIVE' | 'ARCHIVED' | string
 
 type CreateDialog = 'project' | 'issue' | null
+
+const requiredTrimmedString = (fieldName: string) =>
+  z.string().refine((value) => value.trim().length > 0, {
+    message: `${fieldName} is required.`,
+  })
+
+const optionalDateInputSchema = z.union([
+  z.literal(''),
+  z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.'),
+])
+
+const issuePriorityInputSchema = z.union([z.enum(ISSUE_PRIORITIES), z.literal('')])
+
+const createProjectFormSchema = z.object({
+  name: requiredTrimmedString('Name').max(FORM_LIMITS.projectName, 'Name is too long.'),
+  description: z
+    .string()
+    .max(FORM_LIMITS.projectDescription, 'Description is too long.'),
+})
+
+const createIssueFormSchema = z.object({
+  title: requiredTrimmedString('Title').max(FORM_LIMITS.issueTitle, 'Title is too long.'),
+  description: z
+    .string()
+    .max(FORM_LIMITS.issueDescription, 'Description is too long.'),
+  workflowStateId: z.string(),
+  priority: issuePriorityInputSchema,
+  labelIds: z.array(z.string()),
+  assigneeUserId: z.string(),
+  dueDate: optionalDateInputSchema,
+})
+
+const createProjectLabelFormSchema = z.object({
+  name: requiredTrimmedString('Label name').max(FORM_LIMITS.labelName, 'Label name is too long.'),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Choose a valid label color.'),
+})
+
+const createProjectWorkflowStateFormSchema = z.object({
+  name: requiredTrimmedString('Status name').max(
+    FORM_LIMITS.workflowStateName,
+    'Status name is too long.',
+  ),
+  category: z.enum(WORKFLOW_STATE_CATEGORIES),
+})
+
+const addProjectMemberFormSchema = z.object({
+  userId: requiredTrimmedString('Workspace member'),
+})
+
+const issueContentFormSchema = z.object({
+  title: requiredTrimmedString('Title').max(FORM_LIMITS.issueTitle, 'Title is too long.'),
+  description: z
+    .string()
+    .max(FORM_LIMITS.issueDescription, 'Description is too long.'),
+})
+
+const commentFormSchema = z.object({
+  body: requiredTrimmedString('Comment').max(FORM_LIMITS.commentBody, 'Comment is too long.'),
+})
+
+type CreateProjectFormValues = z.infer<typeof createProjectFormSchema>
+type CreateIssueFormValues = z.infer<typeof createIssueFormSchema>
+type CreateProjectLabelFormValues = z.infer<typeof createProjectLabelFormSchema>
+type CreateProjectWorkflowStateFormValues = z.infer<typeof createProjectWorkflowStateFormSchema>
+type AddProjectMemberFormValues = z.infer<typeof addProjectMemberFormSchema>
+type IssueContentFormValues = z.infer<typeof issueContentFormSchema>
+type CommentFormValues = z.infer<typeof commentFormSchema>
 
 export function AppPage({ onSignOut }: AppPageProps) {
   const queryClient = useQueryClient()
@@ -112,21 +202,14 @@ export function AppPage({ onSignOut }: AppPageProps) {
   } = useParams<AppRouteParams>()
   const [activeCreateDialog, setActiveCreateDialog] = useState<CreateDialog>(null)
   const [areProjectsOpen, setAreProjectsOpen] = useState(true)
-  const [projectName, setProjectName] = useState('')
-  const [projectDescription, setProjectDescription] = useState('')
-  const [issueTitle, setIssueTitle] = useState('')
-  const [issueDescription, setIssueDescription] = useState('')
-  const [issueStatus, setIssueStatus] = useState<IssueStatus>('TODO')
-  const [issuePriority, setIssuePriority] = useState<IssuePriority | ''>('')
-  const [issueAssigneeUserId, setIssueAssigneeUserId] = useState('')
-  const [issueDueDate, setIssueDueDate] = useState('')
+  const [createIssueDefaultWorkflowStateId, setCreateIssueDefaultWorkflowStateId] = useState('')
   const [issueSearchQuery, setIssueSearchQuery] = useState('')
-  const [issueStatusFilter, setIssueStatusFilter] = useState<IssueStatusFilter>('ACTIVE')
+  const [issueWorkflowFilter, setIssueWorkflowFilter] = useState<IssueWorkflowFilter>('ACTIVE')
   const [issuePriorityFilter, setIssuePriorityFilter] = useState<IssuePriority | ''>('')
+  const [issueLabelFilter, setIssueLabelFilter] = useState('')
   const [issueAssigneeFilter, setIssueAssigneeFilter] = useState('')
-  const [commentBody, setCommentBody] = useState('')
   const [isProjectMembersDialogOpen, setIsProjectMembersDialogOpen] = useState(false)
-  const [selectedProjectMemberUserId, setSelectedProjectMemberUserId] = useState('')
+  const [isProjectWorkflowDialogOpen, setIsProjectWorkflowDialogOpen] = useState(false)
 
   const currentSessionQuery = useQuery({
     queryKey: ['current-session'],
@@ -171,6 +254,20 @@ export function AppPage({ onSignOut }: AppPageProps) {
     retry: false,
   })
 
+  const projectLabelsQuery = useQuery({
+    queryKey: ['project-labels', selectedProjectId],
+    queryFn: () => listProjectLabels(selectedProjectId ?? ''),
+    enabled: Boolean(canLoadCurrentWorkspace && selectedProjectId),
+    retry: false,
+  })
+
+  const projectWorkflowStatesQuery = useQuery({
+    queryKey: ['project-workflow-states', selectedProjectId],
+    queryFn: () => listProjectWorkflowStates(selectedProjectId ?? ''),
+    enabled: Boolean(canLoadCurrentWorkspace && selectedProjectId),
+    retry: false,
+  })
+
   const workspaceMembersQuery = useQuery({
     queryKey: ['workspace-members', currentWorkspaceId],
     queryFn: listWorkspaceMembers,
@@ -179,6 +276,8 @@ export function AppPage({ onSignOut }: AppPageProps) {
   })
 
   const projectMembers = projectMembersQuery.data ?? EMPTY_PROJECT_MEMBERS
+  const projectLabels = projectLabelsQuery.data ?? EMPTY_PROJECT_LABELS
+  const projectWorkflowStates = projectWorkflowStatesQuery.data ?? EMPTY_PROJECT_WORKFLOW_STATES
   const workspaceMembers = workspaceMembersQuery.data ?? EMPTY_WORKSPACE_MEMBERS
   const activeProjectMembers = useMemo(
     () => projectMembers.filter((member) => member.status === 'ACTIVE'),
@@ -200,22 +299,29 @@ export function AppPage({ onSignOut }: AppPageProps) {
     [projectMemberUserIds, workspaceMembers],
   )
   const normalizedIssueSearchQuery = issueSearchQuery.trim()
-  const issueStatusQuery = issueStatusFilter === 'ACTIVE' ? undefined : issueStatusFilter
+  const issueStatusQuery = issueWorkflowFilter === 'ARCHIVED' ? 'ARCHIVED' : undefined
+  const issueWorkflowStateQuery =
+    issueWorkflowFilter === 'ACTIVE' || issueWorkflowFilter === 'ARCHIVED'
+      ? undefined
+      : issueWorkflowFilter
 
   const issuesQuery = useQuery({
     queryKey: [
       'issues',
       currentWorkspaceId,
       selectedProjectId,
-      issueStatusFilter,
+      issueWorkflowFilter,
       issuePriorityFilter,
+      issueLabelFilter,
       issueAssigneeFilter,
       normalizedIssueSearchQuery,
     ],
     queryFn: () =>
       listIssues(selectedProjectId ?? '', {
         status: issueStatusQuery,
+        workflowStateId: issueWorkflowStateQuery,
         priority: issuePriorityFilter || undefined,
+        labelId: issueLabelFilter || undefined,
         assigneeUserId: issueAssigneeFilter || undefined,
         q: normalizedIssueSearchQuery || undefined,
       }),
@@ -225,13 +331,14 @@ export function AppPage({ onSignOut }: AppPageProps) {
 
   const issues = issuesQuery.data ?? EMPTY_ISSUES
   const issueGroups = useMemo(
-    () => groupIssuesByStatus(issues, issueStatusFilter),
-    [issueStatusFilter, issues],
+    () => groupIssuesByWorkflowState(issues, projectWorkflowStates, issueWorkflowFilter),
+    [issueWorkflowFilter, issues, projectWorkflowStates],
   )
   const hasIssueFilters = Boolean(
     normalizedIssueSearchQuery ||
-      issueStatusFilter !== 'ACTIVE' ||
+      issueWorkflowFilter !== 'ACTIVE' ||
       issuePriorityFilter ||
+      issueLabelFilter ||
       issueAssigneeFilter,
   )
   const selectedIssueSummary = routeIssueId
@@ -284,8 +391,6 @@ export function AppPage({ onSignOut }: AppPageProps) {
   const createProjectMutation = useMutation({
     mutationFn: createProject,
     onSuccess: async (project) => {
-      setProjectName('')
-      setProjectDescription('')
       setActiveCreateDialog(null)
       await queryClient.invalidateQueries({ queryKey: ['projects', currentWorkspaceId] })
       if (currentWorkspaceId) {
@@ -297,12 +402,6 @@ export function AppPage({ onSignOut }: AppPageProps) {
   const createIssueMutation = useMutation({
     mutationFn: createIssue,
     onSuccess: async (issue) => {
-      setIssueTitle('')
-      setIssueDescription('')
-      setIssueStatus('TODO')
-      setIssuePriority('')
-      setIssueAssigneeUserId('')
-      setIssueDueDate('')
       setActiveCreateDialog(null)
       await queryClient.invalidateQueries({
         queryKey: ['issues', currentWorkspaceId, issue.projectId],
@@ -317,7 +416,6 @@ export function AppPage({ onSignOut }: AppPageProps) {
     mutationFn: ({ issueId, body }: { issueId: string; projectId: string; body: string }) =>
       createIssueComment(issueId, { body }),
     onSuccess: async (_, variables) => {
-      setCommentBody('')
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['issue', variables.issueId] }),
         queryClient.invalidateQueries({ queryKey: ['issue-activities', variables.issueId] }),
@@ -348,11 +446,47 @@ export function AppPage({ onSignOut }: AppPageProps) {
     },
   })
 
+  const createProjectLabelMutation = useMutation({
+    mutationFn: ({
+      projectId,
+      name,
+      color,
+    }: {
+      projectId: string
+      name: string
+      color: string
+    }) => createProjectLabel(projectId, { name, color }),
+    onSuccess: async (label) => {
+      await queryClient.invalidateQueries({ queryKey: ['project-labels', label.projectId] })
+    },
+  })
+
+  const createProjectWorkflowStateMutation = useMutation({
+    mutationFn: ({
+      projectId,
+      name,
+      category,
+    }: {
+      projectId: string
+      name: string
+      category: WorkflowStateCategory
+    }) => createProjectWorkflowState(projectId, { name, category }),
+    onSuccess: async (workflowState) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['project-workflow-states', workflowState.projectId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['issues', currentWorkspaceId, workflowState.projectId],
+        }),
+      ])
+    },
+  })
+
   const addProjectMemberMutation = useMutation({
     mutationFn: ({ projectId, userId }: { projectId: string; userId: string }) =>
       addProjectMember(projectId, { userId, role: 'MEMBER' }),
     onSuccess: async (_, variables) => {
-      setSelectedProjectMemberUserId('')
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['project', variables.projectId] }),
         queryClient.invalidateQueries({ queryKey: ['project-members', variables.projectId] }),
@@ -366,24 +500,24 @@ export function AppPage({ onSignOut }: AppPageProps) {
 
   function openCreateProjectDialog() {
     createProjectMutation.reset()
-    setProjectName('')
-    setProjectDescription('')
     setActiveCreateDialog('project')
   }
 
-  function openCreateIssueDialog(status: IssueStatus = 'TODO') {
+  function openCreateIssueDialog(workflowState?: ProjectWorkflowState | null) {
     createIssueMutation.reset()
-    setIssueTitle('')
-    setIssueDescription('')
-    setIssueStatus(getCreatableIssueStatus(status))
-    setIssuePriority('')
-    setIssueAssigneeUserId('')
-    setIssueDueDate('')
+    setCreateIssueDefaultWorkflowStateId(
+      workflowState?.id ?? defaultWorkflowStateIdForStatus(projectWorkflowStates, 'TODO'),
+    )
+    createProjectLabelMutation.reset()
     setActiveCreateDialog('issue')
   }
 
   function closeCreateDialog() {
-    if (createProjectMutation.isPending || createIssueMutation.isPending) {
+    if (
+      createProjectMutation.isPending ||
+      createIssueMutation.isPending ||
+      createProjectLabelMutation.isPending
+    ) {
       return
     }
 
@@ -392,7 +526,6 @@ export function AppPage({ onSignOut }: AppPageProps) {
 
   function openProjectMembersDialog() {
     addProjectMemberMutation.reset()
-    setSelectedProjectMemberUserId('')
     setIsProjectMembersDialogOpen(true)
   }
 
@@ -404,10 +537,24 @@ export function AppPage({ onSignOut }: AppPageProps) {
     setIsProjectMembersDialogOpen(false)
   }
 
+  function openProjectWorkflowDialog() {
+    createProjectWorkflowStateMutation.reset()
+    setIsProjectWorkflowDialogOpen(true)
+  }
+
+  function closeProjectWorkflowDialog() {
+    if (createProjectWorkflowStateMutation.isPending) {
+      return
+    }
+
+    setIsProjectWorkflowDialogOpen(false)
+  }
+
   function clearIssueFilters() {
     setIssueSearchQuery('')
-    setIssueStatusFilter('ACTIVE')
+    setIssueWorkflowFilter('ACTIVE')
     setIssuePriorityFilter('')
+    setIssueLabelFilter('')
     setIssueAssigneeFilter('')
   }
 
@@ -427,24 +574,20 @@ export function AppPage({ onSignOut }: AppPageProps) {
     navigate(issuePath(currentWorkspaceId, selectedProjectId, issueId))
   }
 
-  function handleCreateProject(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-
-    const name = projectName.trim()
+  function handleCreateProject(values: CreateProjectFormValues) {
+    const name = values.name.trim()
     if (!name || !canLoadCurrentWorkspace) {
       return
     }
 
     createProjectMutation.mutate({
       name,
-      description: projectDescription.trim() || undefined,
+      description: values.description.trim() || undefined,
     })
   }
 
-  function handleCreateIssue(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-
-    const title = issueTitle.trim()
+  function handleCreateIssue(values: CreateIssueFormValues) {
+    const title = values.title.trim()
     if (!selectedProjectId || !title) {
       return
     }
@@ -452,37 +595,63 @@ export function AppPage({ onSignOut }: AppPageProps) {
     createIssueMutation.mutate({
       projectId: selectedProjectId,
       title,
-      description: issueDescription.trim() || undefined,
-      status: issueStatus,
-      priority: issuePriority || undefined,
-      assigneeUserId: issueAssigneeUserId || undefined,
-      dueDate: issueDueDate || undefined,
+      description: values.description.trim() || undefined,
+      workflowStateId: values.workflowStateId || undefined,
+      priority: values.priority || undefined,
+      labelIds: values.labelIds,
+      assigneeUserId: values.assigneeUserId || undefined,
+      dueDate: values.dueDate || undefined,
     })
   }
 
-  function handleAddProjectMember(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
+  async function handleCreateIssueLabel(values: CreateProjectLabelFormValues) {
+    const name = values.name.trim()
+    if (!selectedProjectId || !name) {
+      return null
+    }
 
-    if (!selectedProjectId || !selectedProjectMemberUserId) {
+    createProjectLabelMutation.reset()
+    return createProjectLabelMutation.mutateAsync({
+      projectId: selectedProjectId,
+      name,
+      color: values.color,
+    })
+  }
+
+  async function handleCreateProjectWorkflowState(values: CreateProjectWorkflowStateFormValues) {
+    const name = values.name.trim()
+    if (!selectedProjectId || !name) {
+      return null
+    }
+
+    createProjectWorkflowStateMutation.reset()
+    return createProjectWorkflowStateMutation.mutateAsync({
+      projectId: selectedProjectId,
+      name,
+      category: values.category,
+    })
+  }
+
+  async function handleAddProjectMember(values: AddProjectMemberFormValues) {
+    const userId = values.userId.trim()
+    if (!selectedProjectId || !userId) {
       return
     }
 
     addProjectMemberMutation.reset()
-    addProjectMemberMutation.mutate({
+    await addProjectMemberMutation.mutateAsync({
       projectId: selectedProjectId,
-      userId: selectedProjectMemberUserId,
+      userId,
     })
   }
 
-  function handleCreateComment(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-
-    const body = commentBody.trim()
+  async function handleCreateComment(values: CommentFormValues) {
+    const body = values.body.trim()
     if (!routeIssueId || !selectedProjectId || !body) {
       return
     }
 
-    createCommentMutation.mutate({
+    await createCommentMutation.mutateAsync({
       issueId: routeIssueId,
       projectId: selectedProjectId,
       body,
@@ -554,6 +723,8 @@ export function AppPage({ onSignOut }: AppPageProps) {
             issueDetail={issueDetailQuery.data}
             selectedProject={selectedProject}
             projectMembers={activeProjectMembers}
+            projectLabels={projectLabels}
+            projectWorkflowStates={projectWorkflowStates}
             currentWorkspace={currentWorkspace}
             currentUser={currentUser}
             activities={activities}
@@ -561,8 +732,6 @@ export function AppPage({ onSignOut }: AppPageProps) {
             issueError={issueDetailQuery.error}
             isLoadingActivities={activitiesQuery.isLoading}
             activitiesError={activitiesQuery.error}
-            commentBody={commentBody}
-            onCommentBodyChange={setCommentBody}
             onSubmitComment={handleCreateComment}
             isSubmittingComment={createCommentMutation.isPending}
             commentError={createCommentMutation.error}
@@ -582,6 +751,8 @@ export function AppPage({ onSignOut }: AppPageProps) {
             currentWorkspace={currentWorkspace}
             selectedProject={selectedProject}
             projectMembers={projectMembers}
+            projectLabels={projectLabels}
+            projectWorkflowStates={projectWorkflowStates}
             issues={issues}
             issueGroups={issueGroups}
             selectedIssueId={routeIssueId ?? null}
@@ -590,16 +761,19 @@ export function AppPage({ onSignOut }: AppPageProps) {
             isLoadingProjectMembers={projectMembersQuery.isLoading}
             isLoadingProjects={projectsQuery.isLoading}
             issueSearchQuery={issueSearchQuery}
-            issueStatusFilter={issueStatusFilter}
+            issueWorkflowFilter={issueWorkflowFilter}
             issuePriorityFilter={issuePriorityFilter}
+            issueLabelFilter={issueLabelFilter}
             issueAssigneeFilter={issueAssigneeFilter}
             hasIssueFilters={hasIssueFilters}
             onIssueSearchQueryChange={setIssueSearchQuery}
-            onIssueStatusFilterChange={setIssueStatusFilter}
+            onIssueWorkflowFilterChange={setIssueWorkflowFilter}
             onIssuePriorityFilterChange={setIssuePriorityFilter}
+            onIssueLabelFilterChange={setIssueLabelFilter}
             onIssueAssigneeFilterChange={setIssueAssigneeFilter}
             onClearIssueFilters={clearIssueFilters}
             onOpenProjectMembers={openProjectMembersDialog}
+            onOpenProjectWorkflow={openProjectWorkflowDialog}
             onOpenCreateIssue={openCreateIssueDialog}
             onIssueSelect={handleIssueSelect}
           />
@@ -608,10 +782,6 @@ export function AppPage({ onSignOut }: AppPageProps) {
 
       <CreateProjectDialog
         isOpen={activeCreateDialog === 'project'}
-        projectName={projectName}
-        projectDescription={projectDescription}
-        onProjectNameChange={setProjectName}
-        onProjectDescriptionChange={setProjectDescription}
         onSubmit={handleCreateProject}
         onClose={closeCreateDialog}
         canCreateProject={canLoadCurrentWorkspace}
@@ -621,23 +791,17 @@ export function AppPage({ onSignOut }: AppPageProps) {
       <CreateIssueDialog
         isOpen={activeCreateDialog === 'issue'}
         selectedProject={selectedProject}
-        issueTitle={issueTitle}
-        issueDescription={issueDescription}
-        issueStatus={issueStatus}
-        issuePriority={issuePriority}
-        issueAssigneeUserId={issueAssigneeUserId}
-        issueDueDate={issueDueDate}
+        projectWorkflowStates={projectWorkflowStates}
+        initialWorkflowStateId={createIssueDefaultWorkflowStateId}
+        projectLabels={projectLabels}
         projectMembers={activeProjectMembers}
-        onIssueTitleChange={setIssueTitle}
-        onIssueDescriptionChange={setIssueDescription}
-        onIssueStatusChange={setIssueStatus}
-        onIssuePriorityChange={setIssuePriority}
-        onIssueAssigneeUserIdChange={setIssueAssigneeUserId}
-        onIssueDueDateChange={setIssueDueDate}
+        onCreateLabel={handleCreateIssueLabel}
         onSubmit={handleCreateIssue}
         onClose={closeCreateDialog}
         isSubmitting={createIssueMutation.isPending}
+        isCreatingLabel={createProjectLabelMutation.isPending}
         error={createIssueMutation.error}
+        createLabelError={createProjectLabelMutation.error}
       />
       <ProjectMembersDialog
         isOpen={isProjectMembersDialogOpen}
@@ -645,8 +809,6 @@ export function AppPage({ onSignOut }: AppPageProps) {
         projectMembers={projectMembers}
         workspaceMembers={workspaceMembers}
         addableWorkspaceMembers={addableWorkspaceMembers}
-        selectedUserId={selectedProjectMemberUserId}
-        onSelectedUserIdChange={setSelectedProjectMemberUserId}
         onSubmit={handleAddProjectMember}
         onClose={closeProjectMembersDialog}
         canAddMembers={canAddProjectMembers}
@@ -656,6 +818,18 @@ export function AppPage({ onSignOut }: AppPageProps) {
         workspaceMembersError={workspaceMembersQuery.error}
         isSubmitting={addProjectMemberMutation.isPending}
         error={addProjectMemberMutation.error}
+      />
+      <ProjectWorkflowDialog
+        isOpen={isProjectWorkflowDialogOpen}
+        selectedProject={selectedProject}
+        workflowStates={projectWorkflowStates}
+        onSubmit={handleCreateProjectWorkflowState}
+        onClose={closeProjectWorkflowDialog}
+        canCreateWorkflowStates={canAddProjectMembers}
+        isLoadingWorkflowStates={projectWorkflowStatesQuery.isLoading}
+        workflowStatesError={projectWorkflowStatesQuery.error}
+        isSubmitting={createProjectWorkflowStateMutation.isPending}
+        error={createProjectWorkflowStateMutation.error}
       />
     </main>
   )
@@ -791,6 +965,8 @@ function ProjectIssuesView({
   currentWorkspace,
   selectedProject,
   projectMembers,
+  projectLabels,
+  projectWorkflowStates,
   issues,
   issueGroups,
   selectedIssueId,
@@ -799,22 +975,27 @@ function ProjectIssuesView({
   isLoadingProjectMembers,
   isLoadingProjects,
   issueSearchQuery,
-  issueStatusFilter,
+  issueWorkflowFilter,
   issuePriorityFilter,
+  issueLabelFilter,
   issueAssigneeFilter,
   hasIssueFilters,
   onIssueSearchQueryChange,
-  onIssueStatusFilterChange,
+  onIssueWorkflowFilterChange,
   onIssuePriorityFilterChange,
+  onIssueLabelFilterChange,
   onIssueAssigneeFilterChange,
   onClearIssueFilters,
   onOpenProjectMembers,
+  onOpenProjectWorkflow,
   onOpenCreateIssue,
   onIssueSelect,
 }: {
   currentWorkspace: AuthWorkspace | null
   selectedProject: Project | null
   projectMembers: ProjectMember[]
+  projectLabels: ProjectLabel[]
+  projectWorkflowStates: ProjectWorkflowState[]
   issues: IssueSummary[]
   issueGroups: IssueGroup[]
   selectedIssueId: string | null
@@ -823,17 +1004,20 @@ function ProjectIssuesView({
   isLoadingProjectMembers: boolean
   isLoadingProjects: boolean
   issueSearchQuery: string
-  issueStatusFilter: IssueStatusFilter
+  issueWorkflowFilter: IssueWorkflowFilter
   issuePriorityFilter: IssuePriority | ''
+  issueLabelFilter: string
   issueAssigneeFilter: string
   hasIssueFilters: boolean
   onIssueSearchQueryChange: (query: string) => void
-  onIssueStatusFilterChange: (status: IssueStatusFilter) => void
+  onIssueWorkflowFilterChange: (status: IssueWorkflowFilter) => void
   onIssuePriorityFilterChange: (priority: IssuePriority | '') => void
+  onIssueLabelFilterChange: (labelId: string) => void
   onIssueAssigneeFilterChange: (assigneeUserId: string) => void
   onClearIssueFilters: () => void
   onOpenProjectMembers: () => void
-  onOpenCreateIssue: (status?: IssueStatus) => void
+  onOpenProjectWorkflow: () => void
+  onOpenCreateIssue: (workflowState?: ProjectWorkflowState | null) => void
   onIssueSelect: (issueId: string) => void
 }) {
   const shouldShowEmptyIssues = selectedProject && !isLoadingIssues && !issuesError && issues.length === 0
@@ -854,6 +1038,17 @@ function ProjectIssuesView({
               <LayoutList aria-hidden="true" />
               {issues.length} issues
             </span>
+          ) : null}
+          {selectedProject ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onOpenProjectWorkflow}
+              aria-label="Open workflow states"
+            >
+              <CircleDot aria-hidden="true" />
+              {projectWorkflowStates.length} statuses
+            </Button>
           ) : null}
           {selectedProject ? (
             <Button
@@ -903,15 +1098,16 @@ function ProjectIssuesView({
           <label className="app-field">
             Status
             <select
-              value={issueStatusFilter}
-              onChange={(event) => onIssueStatusFilterChange(event.target.value as IssueStatusFilter)}
+              value={issueWorkflowFilter}
+              onChange={(event) => onIssueWorkflowFilterChange(event.target.value as IssueWorkflowFilter)}
             >
               <option value="ACTIVE">Active</option>
-              {ISSUE_STATUSES.map((status) => (
-                <option key={status} value={status}>
-                  {STATUS_LABELS[status]}
+              {projectWorkflowStates.map((workflowState) => (
+                <option key={workflowState.id} value={workflowState.id}>
+                  {workflowState.name}
                 </option>
               ))}
+              <option value="ARCHIVED">Archived</option>
             </select>
           </label>
           <label className="app-field">
@@ -924,6 +1120,21 @@ function ProjectIssuesView({
               {ISSUE_PRIORITIES.map((priority) => (
                 <option key={priority} value={priority}>
                   {PRIORITY_LABELS[priority]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="app-field">
+            Label
+            <select
+              value={issueLabelFilter}
+              onChange={(event) => onIssueLabelFilterChange(event.target.value)}
+              disabled={projectLabels.length === 0}
+            >
+              <option value="">Any label</option>
+              {projectLabels.map((label) => (
+                <option key={label.id} value={label.id}>
+                  {label.name}
                 </option>
               ))}
             </select>
@@ -970,7 +1181,7 @@ function ProjectIssuesView({
           {issueGroups.map((group) => (
             <IssueStatusSection
               group={group}
-              key={group.status}
+              key={group.workflowState?.id ?? group.status}
               selectedIssueId={selectedIssueId}
               onIssueSelect={onIssueSelect}
               onOpenCreateIssue={onOpenCreateIssue}
@@ -991,7 +1202,7 @@ function IssueStatusSection({
   group: IssueGroup
   selectedIssueId: string | null
   onIssueSelect: (issueId: string) => void
-  onOpenCreateIssue: (status?: IssueStatus) => void
+  onOpenCreateIssue: (workflowState?: ProjectWorkflowState | null) => void
 }) {
   const canCreateIssueInStatus = group.status !== 'ARCHIVED'
 
@@ -1009,7 +1220,7 @@ function IssueStatusSection({
               type="button"
               variant="ghost"
               size="icon-xs"
-              onClick={() => onOpenCreateIssue(group.status)}
+              onClick={() => onOpenCreateIssue(group.workflowState)}
               aria-label={`Create issue in ${group.label}`}
               title="Create issue"
             >
@@ -1053,13 +1264,24 @@ function IssueRow({
       onClick={() => onSelectIssue(issue.id)}
     >
       <span className="issue-row-status">
-        <StatusIcon status={issue.status} />
+        <StatusIcon status={statusForIcon(issue)} />
       </span>
       <span className="issue-row-main">
         <strong>{issue.title}</strong>
         {issue.description ? <small>{issue.description}</small> : null}
+        {issue.labels.length > 0 ? (
+          <span className="issue-label-row">
+            {issue.labels.map((label) => (
+              <LabelBadge label={label} key={label.id} />
+            ))}
+          </span>
+        ) : null}
       </span>
       <span className="issue-row-meta">
+        <span className="issue-comment-count">
+          <CircleDot aria-hidden="true" />
+          {issue.status === 'ARCHIVED' ? 'Archived' : issue.workflowState.name}
+        </span>
         <PriorityBadge priority={issue.priority} />
         <span className="issue-comment-count">
           <UserCircle aria-hidden="true" />
@@ -1086,6 +1308,8 @@ function IssueDetailView({
   issueDetail,
   selectedProject,
   projectMembers,
+  projectLabels,
+  projectWorkflowStates,
   currentWorkspace,
   currentUser,
   activities,
@@ -1093,8 +1317,6 @@ function IssueDetailView({
   issueError,
   isLoadingActivities,
   activitiesError,
-  commentBody,
-  onCommentBodyChange,
   onSubmitComment,
   isSubmittingComment,
   commentError,
@@ -1109,6 +1331,8 @@ function IssueDetailView({
   issueDetail: IssueDetail | undefined
   selectedProject: Project | null
   projectMembers: ProjectMember[]
+  projectLabels: ProjectLabel[]
+  projectWorkflowStates: ProjectWorkflowState[]
   currentWorkspace: AuthWorkspace | null
   currentUser: AuthUser | null
   activities: ActivityEvent[]
@@ -1116,9 +1340,7 @@ function IssueDetailView({
   issueError: Error | null
   isLoadingActivities: boolean
   activitiesError: Error | null
-  commentBody: string
-  onCommentBodyChange: (body: string) => void
-  onSubmitComment: (event: FormEvent<HTMLFormElement>) => void
+  onSubmitComment: (values: CommentFormValues) => Promise<void>
   isSubmittingComment: boolean
   commentError: Error | null
   onBackToProject: () => void
@@ -1130,27 +1352,46 @@ function IssueDetailView({
 }) {
   const comments = issueDetail?.comments ?? []
   const [editingIssueId, setEditingIssueId] = useState<string | null>(null)
-  const [draftIssueTitle, setDraftIssueTitle] = useState(issue?.title ?? '')
-  const [draftIssueDescription, setDraftIssueDescription] = useState(issue?.description ?? '')
-  const [issueContentError, setIssueContentError] = useState('')
+  const {
+    register: registerIssueContent,
+    handleSubmit: handleIssueContentSubmit,
+    reset: resetIssueContentForm,
+    control: issueContentControl,
+    formState: { errors: issueContentErrors },
+  } = useForm<IssueContentFormValues>({
+    resolver: zodResolver(issueContentFormSchema),
+    defaultValues: {
+      title: issue?.title ?? '',
+      description: issue?.description ?? '',
+    },
+  })
   const issueId = issue?.id ?? null
   const isEditingIssueContent = Boolean(issueId && editingIssueId === issueId)
+  const draftIssueTitle =
+    useWatch({ control: issueContentControl, name: 'title' }) ?? ''
+  const draftIssueDescription =
+    useWatch({ control: issueContentControl, name: 'description' }) ?? ''
 
-  async function handleSaveIssueContent(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-
-    const title = draftIssueTitle.trim()
-    if (!title) {
-      setIssueContentError('Title is required.')
-      return
+  useEffect(() => {
+    if (!isEditingIssueContent) {
+      resetIssueContentForm({
+        title: issue?.title ?? '',
+        description: issue?.description ?? '',
+      })
     }
+  }, [
+    isEditingIssueContent,
+    issue?.description,
+    issue?.id,
+    issue?.title,
+    resetIssueContentForm,
+  ])
 
-    setIssueContentError('')
-
+  async function handleSaveIssueContent(values: IssueContentFormValues) {
     try {
       await onUpdateIssue({
-        title,
-        description: draftIssueDescription.trim() || null,
+        title: values.title.trim(),
+        description: values.description.trim() || null,
       })
       setEditingIssueId(null)
     } catch {
@@ -1164,16 +1405,18 @@ function IssueDetailView({
     }
 
     onResetUpdateIssueError()
-    setIssueContentError('')
-    setDraftIssueTitle(issue.title)
-    setDraftIssueDescription(issue.description ?? '')
+    resetIssueContentForm({
+      title: issue.title,
+      description: issue.description ?? '',
+    })
     setEditingIssueId(issue.id)
   }
 
   function cancelIssueContentEdit() {
-    setIssueContentError('')
-    setDraftIssueTitle(issue?.title ?? '')
-    setDraftIssueDescription(issue?.description ?? '')
+    resetIssueContentForm({
+      title: issue?.title ?? '',
+      description: issue?.description ?? '',
+    })
     setEditingIssueId(null)
   }
 
@@ -1231,25 +1474,34 @@ function IssueDetailView({
         <article className="issue-detail-main">
           <div className="issue-title-block">
             {isEditingIssueContent ? (
-              <form className="issue-edit-form" onSubmit={handleSaveIssueContent}>
+              <form
+                className="issue-edit-form"
+                onSubmit={handleIssueContentSubmit(handleSaveIssueContent)}
+                noValidate
+              >
                 <input
                   autoFocus
                   className="issue-title-input"
-                  value={draftIssueTitle}
-                  onChange={(event) => setDraftIssueTitle(event.target.value)}
                   disabled={isUpdatingIssue}
                   aria-label="Issue title"
+                  {...registerIssueContent('title')}
                 />
                 <textarea
                   className="issue-description-input"
-                  value={draftIssueDescription}
-                  onChange={(event) => setDraftIssueDescription(event.target.value)}
                   disabled={isUpdatingIssue}
                   aria-label="Issue description"
                   placeholder="Add description..."
                   rows={5}
+                  {...registerIssueContent('description')}
                 />
-                {issueContentError ? <InlineNotice tone="warning">{issueContentError}</InlineNotice> : null}
+                {issueContentErrors.title?.message ? (
+                  <InlineNotice tone="warning">{issueContentErrors.title.message}</InlineNotice>
+                ) : null}
+                {issueContentErrors.description?.message ? (
+                  <InlineNotice tone="warning">
+                    {issueContentErrors.description.message}
+                  </InlineNotice>
+                ) : null}
                 {updateIssueError ? <ErrorState error={updateIssueError} /> : null}
                 <div className="issue-edit-actions">
                   <Button
@@ -1315,27 +1567,11 @@ function IssueDetailView({
                 </article>
               ))}
             </div>
-            <form className="comment-form" onSubmit={onSubmitComment}>
-              <label className="app-field">
-                Add comment
-                <textarea
-                  name="commentBody"
-                  placeholder="Leave a comment..."
-                  rows={4}
-                  value={commentBody}
-                  onChange={(event) => onCommentBodyChange(event.target.value)}
-                />
-              </label>
-              {commentError ? <ErrorState error={commentError} /> : null}
-              <Button type="submit" disabled={!commentBody.trim() || isSubmittingComment}>
-                {isSubmittingComment ? (
-                  <Loader2 aria-hidden="true" className="auth-spin" />
-                ) : (
-                  <Send aria-hidden="true" />
-                )}
-                Comment
-              </Button>
-            </form>
+            <CommentForm
+              onSubmit={onSubmitComment}
+              isSubmitting={isSubmittingComment}
+              error={commentError}
+            />
           </section>
 
           <section className="detail-section">
@@ -1366,6 +1602,8 @@ function IssueDetailView({
           issue={issue}
           selectedProject={selectedProject}
           projectMembers={projectMembers}
+          projectLabels={projectLabels}
+          projectWorkflowStates={projectWorkflowStates}
           currentUser={currentUser}
           onUpdateIssue={onUpdateIssue}
           onArchiveIssue={onArchiveIssue}
@@ -1377,10 +1615,69 @@ function IssueDetailView({
   )
 }
 
+function CommentForm({
+  onSubmit,
+  isSubmitting,
+  error,
+}: {
+  onSubmit: (values: CommentFormValues) => Promise<void>
+  isSubmitting: boolean
+  error: Error | null
+}) {
+  const {
+    register,
+    handleSubmit,
+    reset,
+    control,
+    formState: { errors },
+  } = useForm<CommentFormValues>({
+    resolver: zodResolver(commentFormSchema),
+    defaultValues: {
+      body: '',
+    },
+  })
+  const body = useWatch({ control, name: 'body' }) ?? ''
+
+  async function submitComment(values: CommentFormValues) {
+    try {
+      await onSubmit(values)
+      reset({ body: '' })
+    } catch {
+      // The mutation error is rendered below so the draft comment stays in place.
+    }
+  }
+
+  return (
+    <form className="comment-form" onSubmit={handleSubmit(submitComment)} noValidate>
+      <label className="app-field">
+        Add comment
+        <textarea
+          placeholder="Leave a comment..."
+          rows={4}
+          disabled={isSubmitting}
+          {...register('body')}
+        />
+      </label>
+      {errors.body?.message ? <InlineNotice tone="warning">{errors.body.message}</InlineNotice> : null}
+      {error ? <ErrorState error={error} /> : null}
+      <Button type="submit" disabled={!body.trim() || isSubmitting}>
+        {isSubmitting ? (
+          <Loader2 aria-hidden="true" className="auth-spin" />
+        ) : (
+          <Send aria-hidden="true" />
+        )}
+        Comment
+      </Button>
+    </form>
+  )
+}
+
 function IssuePropertiesPanel({
   issue,
   selectedProject,
   projectMembers,
+  projectLabels,
+  projectWorkflowStates,
   currentUser,
   onUpdateIssue,
   onArchiveIssue,
@@ -1390,6 +1687,8 @@ function IssuePropertiesPanel({
   issue: IssueSummary | IssueDetail
   selectedProject: Project | null
   projectMembers: ProjectMember[]
+  projectLabels: ProjectLabel[]
+  projectWorkflowStates: ProjectWorkflowState[]
   currentUser: AuthUser | null
   onUpdateIssue: (request: UpdateIssueRequest) => Promise<void>
   onArchiveIssue: () => Promise<void>
@@ -1409,15 +1708,15 @@ function IssuePropertiesPanel({
         <label className="property-field">
           <span>Status</span>
           <select
-            value={issue.status}
+            value={issue.workflowState.id}
             onChange={(event) => {
-              void onUpdateIssue({ status: event.target.value as IssueStatus }).catch(() => undefined)
+              void onUpdateIssue({ workflowStateId: event.target.value }).catch(() => undefined)
             }}
-            disabled={isUpdatingIssue}
+            disabled={isUpdatingIssue || projectWorkflowStates.length === 0}
           >
-            {getStatusOptions(issue.status).map((status) => (
-              <option key={status} value={status}>
-                {formatStatus(status)}
+            {projectWorkflowStates.map((workflowState) => (
+              <option key={workflowState.id} value={workflowState.id}>
+                {workflowState.name}
               </option>
             ))}
           </select>
@@ -1473,6 +1772,36 @@ function IssuePropertiesPanel({
             disabled={isUpdatingIssue}
           />
         </label>
+        <div className="property-field">
+          <span>Labels</span>
+          {projectLabels.length === 0 ? (
+            <InlineNotice>No labels in this project.</InlineNotice>
+          ) : (
+            <div className="label-toggle-list">
+              {projectLabels.map((label) => {
+                const isSelected = issue.labels.some((issueLabel) => issueLabel.id === label.id)
+                return (
+                  <label className="label-toggle" key={label.id}>
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => {
+                        const labelIds = isSelected
+                          ? issue.labels
+                              .filter((issueLabel) => issueLabel.id !== label.id)
+                              .map((issueLabel) => issueLabel.id)
+                          : [...issue.labels.map((issueLabel) => issueLabel.id), label.id]
+                        void onUpdateIssue({ labelIds }).catch(() => undefined)
+                      }}
+                      disabled={isUpdatingIssue}
+                    />
+                    <LabelBadge label={label} />
+                  </label>
+                )
+              })}
+            </div>
+          )}
+        </div>
         {updateIssueError ? (
           <InlineNotice tone="warning">
             {getErrorMessage(updateIssueError)}
@@ -1558,10 +1887,6 @@ function WorkspaceMismatchState({
 
 function CreateProjectDialog({
   isOpen,
-  projectName,
-  projectDescription,
-  onProjectNameChange,
-  onProjectDescriptionChange,
   onSubmit,
   onClose,
   canCreateProject,
@@ -1569,45 +1894,65 @@ function CreateProjectDialog({
   error,
 }: {
   isOpen: boolean
-  projectName: string
-  projectDescription: string
-  onProjectNameChange: (name: string) => void
-  onProjectDescriptionChange: (description: string) => void
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void
+  onSubmit: (values: CreateProjectFormValues) => void
   onClose: () => void
   canCreateProject: boolean
   isSubmitting: boolean
   error: Error | null
 }) {
+  const {
+    register,
+    handleSubmit,
+    reset,
+    control,
+    formState: { errors },
+  } = useForm<CreateProjectFormValues>({
+    resolver: zodResolver(createProjectFormSchema),
+    defaultValues: {
+      name: '',
+      description: '',
+    },
+  })
+  const projectName = useWatch({ control, name: 'name' }) ?? ''
+
+  useEffect(() => {
+    if (isOpen) {
+      reset({
+        name: '',
+        description: '',
+      })
+    }
+  }, [isOpen, reset])
+
   if (!isOpen) {
     return null
   }
 
   return (
     <ModalShell title="Create project" eyebrow="Project" onClose={onClose}>
-      <form className="modal-form" onSubmit={onSubmit}>
+      <form className="modal-form" onSubmit={handleSubmit(onSubmit)} noValidate>
         <label className="app-field">
           Name
           <input
             autoFocus
-            name="projectName"
             placeholder="Mobile launch"
-            value={projectName}
-            onChange={(event) => onProjectNameChange(event.target.value)}
             disabled={!canCreateProject}
+            {...register('name')}
           />
         </label>
+        {errors.name?.message ? <InlineNotice tone="warning">{errors.name.message}</InlineNotice> : null}
         <label className="app-field">
           Description
           <textarea
-            name="projectDescription"
             placeholder="Optional project notes"
             rows={4}
-            value={projectDescription}
-            onChange={(event) => onProjectDescriptionChange(event.target.value)}
             disabled={!canCreateProject}
+            {...register('description')}
           />
         </label>
+        {errors.description?.message ? (
+          <InlineNotice tone="warning">{errors.description.message}</InlineNotice>
+        ) : null}
         {error ? <ErrorState error={error} /> : null}
         <div className="modal-actions">
           <Button type="button" variant="ghost" onClick={onClose} disabled={isSubmitting}>
@@ -1634,43 +1979,128 @@ function CreateIssueDialog({
   isOpen,
   selectedProject,
   projectMembers,
-  issueTitle,
-  issueDescription,
-  issueStatus,
-  issuePriority,
-  issueAssigneeUserId,
-  issueDueDate,
-  onIssueTitleChange,
-  onIssueDescriptionChange,
-  onIssueStatusChange,
-  onIssuePriorityChange,
-  onIssueAssigneeUserIdChange,
-  onIssueDueDateChange,
+  projectWorkflowStates,
+  projectLabels,
+  initialWorkflowStateId,
+  onCreateLabel,
   onSubmit,
   onClose,
   isSubmitting,
+  isCreatingLabel,
   error,
+  createLabelError,
 }: {
   isOpen: boolean
   selectedProject: Project | null
   projectMembers: ProjectMember[]
-  issueTitle: string
-  issueDescription: string
-  issueStatus: IssueStatus
-  issuePriority: IssuePriority | ''
-  issueAssigneeUserId: string
-  issueDueDate: string
-  onIssueTitleChange: (title: string) => void
-  onIssueDescriptionChange: (description: string) => void
-  onIssueStatusChange: (status: IssueStatus) => void
-  onIssuePriorityChange: (priority: IssuePriority | '') => void
-  onIssueAssigneeUserIdChange: (userId: string) => void
-  onIssueDueDateChange: (dueDate: string) => void
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void
+  projectWorkflowStates: ProjectWorkflowState[]
+  projectLabels: ProjectLabel[]
+  initialWorkflowStateId: string
+  onCreateLabel: (values: CreateProjectLabelFormValues) => Promise<ProjectLabel | null>
+  onSubmit: (values: CreateIssueFormValues) => void
   onClose: () => void
   isSubmitting: boolean
+  isCreatingLabel: boolean
   error: Error | null
+  createLabelError: Error | null
 }) {
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setValue,
+    control,
+    getValues,
+    formState: { errors },
+  } = useForm<CreateIssueFormValues>({
+    resolver: zodResolver(createIssueFormSchema),
+    defaultValues: {
+      title: '',
+      description: '',
+      workflowStateId: initialWorkflowStateId,
+      priority: '',
+      labelIds: [],
+      assigneeUserId: '',
+      dueDate: '',
+    },
+  })
+  const {
+    register: registerLabel,
+    handleSubmit: handleLabelSubmit,
+    reset: resetLabelForm,
+    control: labelControl,
+    formState: { errors: labelErrors },
+  } = useForm<CreateProjectLabelFormValues>({
+    resolver: zodResolver(createProjectLabelFormSchema),
+    defaultValues: {
+      name: '',
+      color: DEFAULT_LABEL_COLOR,
+    },
+  })
+  const issueTitle = useWatch({ control, name: 'title' }) ?? ''
+  const issueWorkflowStateId = useWatch({ control, name: 'workflowStateId' }) ?? ''
+  const issueLabelIds = useWatch({ control, name: 'labelIds' }) ?? []
+  const newLabelName = useWatch({ control: labelControl, name: 'name' }) ?? ''
+  const selectedWorkflowState = projectWorkflowStates.find(
+    (workflowState) => workflowState.id === issueWorkflowStateId,
+  )
+
+  useEffect(() => {
+    if (isOpen) {
+      reset({
+        title: '',
+        description: '',
+        workflowStateId: initialWorkflowStateId,
+        priority: '',
+        labelIds: [],
+        assigneeUserId: '',
+        dueDate: '',
+      })
+      resetLabelForm({
+        name: '',
+        color: DEFAULT_LABEL_COLOR,
+      })
+    }
+  }, [initialWorkflowStateId, isOpen, reset, resetLabelForm])
+
+  function handleIssueLabelToggle(labelId: string) {
+    const nextLabelIds = issueLabelIds.includes(labelId)
+      ? issueLabelIds.filter((currentLabelId) => currentLabelId !== labelId)
+      : [...issueLabelIds, labelId]
+
+    setValue('labelIds', nextLabelIds, {
+      shouldDirty: true,
+      shouldTouch: true,
+      shouldValidate: true,
+    })
+  }
+
+  async function submitNewLabel(values: CreateProjectLabelFormValues) {
+    try {
+      const label = await onCreateLabel(values)
+      if (!label) {
+        return
+      }
+
+      const currentLabelIds = getValues('labelIds') ?? []
+      setValue(
+        'labelIds',
+        currentLabelIds.includes(label.id) ? currentLabelIds : [...currentLabelIds, label.id],
+        {
+          shouldDirty: true,
+          shouldTouch: true,
+          shouldValidate: true,
+        },
+      )
+      resetLabelForm({
+        name: '',
+        color: DEFAULT_LABEL_COLOR,
+      })
+    } catch {
+      // The create-label mutation error is rendered in the label section.
+    }
+  }
+
   if (!isOpen) {
     return null
   }
@@ -1682,37 +2112,40 @@ function CreateIssueDialog({
       onClose={onClose}
       variant="issue"
     >
-      <form className="issue-modal-form" onSubmit={onSubmit}>
+      <form
+        className="issue-modal-form"
+        onSubmit={handleSubmit((values) => onSubmit(values))}
+        noValidate
+      >
         <input
           autoFocus
           className="issue-modal-title"
-          name="issueTitle"
           placeholder="Issue title"
-          value={issueTitle}
-          onChange={(event) => onIssueTitleChange(event.target.value)}
           disabled={!selectedProject}
+          {...register('title')}
         />
+        {errors.title?.message ? <InlineNotice tone="warning">{errors.title.message}</InlineNotice> : null}
         <textarea
           className="issue-modal-description"
-          name="issueDescription"
           placeholder="Add description..."
           rows={5}
-          value={issueDescription}
-          onChange={(event) => onIssueDescriptionChange(event.target.value)}
           disabled={!selectedProject}
+          {...register('description')}
         />
+        {errors.description?.message ? (
+          <InlineNotice tone="warning">{errors.description.message}</InlineNotice>
+        ) : null}
         <div className="issue-modal-chip-row" aria-label="Issue properties">
           <label className="issue-modal-chip issue-modal-chip-select">
-            <StatusIcon status={issueStatus} />
+            <StatusIcon status={selectedWorkflowState?.category ?? 'TODO'} />
             <select
-              value={issueStatus}
-              onChange={(event) => onIssueStatusChange(event.target.value as IssueStatus)}
-              disabled={!selectedProject}
+              disabled={!selectedProject || projectWorkflowStates.length === 0}
               aria-label="Status"
+              {...register('workflowStateId')}
             >
-              {CREATABLE_ISSUE_STATUSES.map((status) => (
-                <option key={status} value={status}>
-                  {STATUS_LABELS[status]}
+              {projectWorkflowStates.map((workflowState) => (
+                <option key={workflowState.id} value={workflowState.id}>
+                  {workflowState.name}
                 </option>
               ))}
             </select>
@@ -1720,10 +2153,9 @@ function CreateIssueDialog({
           <label className="issue-modal-chip issue-modal-chip-select">
             <Flag aria-hidden="true" />
             <select
-              value={issuePriority}
-              onChange={(event) => onIssuePriorityChange(event.target.value as IssuePriority | '')}
               disabled={!selectedProject}
               aria-label="Priority"
+              {...register('priority')}
             >
               <option value="">Priority</option>
               {ISSUE_PRIORITIES.map((priority) => (
@@ -1736,10 +2168,9 @@ function CreateIssueDialog({
           <label className="issue-modal-chip issue-modal-chip-select">
             <UserCircle aria-hidden="true" />
             <select
-              value={issueAssigneeUserId}
-              onChange={(event) => onIssueAssigneeUserIdChange(event.target.value)}
               disabled={!selectedProject || projectMembers.length === 0}
               aria-label="Assignee"
+              {...register('assigneeUserId')}
             >
               <option value="">Assignee</option>
               {projectMembers.map((member) => (
@@ -1753,10 +2184,9 @@ function CreateIssueDialog({
             <CalendarDays aria-hidden="true" />
             <input
               type="date"
-              value={issueDueDate}
-              onChange={(event) => onIssueDueDateChange(event.target.value)}
               disabled={!selectedProject}
               aria-label="Due date"
+              {...register('dueDate')}
             />
           </label>
           <span className="issue-modal-chip">
@@ -1767,11 +2197,72 @@ function CreateIssueDialog({
             <MoreHorizontal aria-hidden="true" />
           </span>
         </div>
+        <div className="issue-modal-label-section">
+          <div className="issue-modal-section-title">
+            <Tag aria-hidden="true" />
+            Labels
+          </div>
+          {projectLabels.length === 0 ? (
+            <InlineState>No labels yet.</InlineState>
+          ) : (
+            <div className="label-toggle-list label-toggle-list-inline">
+              {projectLabels.map((label) => (
+                <label className="label-toggle" key={label.id}>
+                  <input
+                    type="checkbox"
+                    checked={issueLabelIds.includes(label.id)}
+                    onChange={() => handleIssueLabelToggle(label.id)}
+                    disabled={!selectedProject || isSubmitting}
+                  />
+                  <LabelBadge label={label} />
+                </label>
+              ))}
+            </div>
+          )}
+          <div className="issue-modal-label-create">
+            <label className="app-field">
+              New label
+              <input
+                placeholder="Bug"
+                disabled={!selectedProject || isCreatingLabel}
+                {...registerLabel('name')}
+              />
+            </label>
+            <label className="app-field app-field-color">
+              Color
+              <input
+                type="color"
+                disabled={!selectedProject || isCreatingLabel}
+                {...registerLabel('color')}
+              />
+            </label>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                void handleLabelSubmit(submitNewLabel)()
+              }}
+              disabled={!selectedProject || !newLabelName.trim() || isCreatingLabel}
+            >
+              {isCreatingLabel ? (
+                <Loader2 aria-hidden="true" className="auth-spin" />
+              ) : (
+                <Plus aria-hidden="true" />
+              )}
+              Add label
+            </Button>
+          </div>
+          {labelErrors.name?.message ? (
+            <InlineNotice tone="warning">{labelErrors.name.message}</InlineNotice>
+          ) : null}
+          {labelErrors.color?.message ? (
+            <InlineNotice tone="warning">{labelErrors.color.message}</InlineNotice>
+          ) : null}
+          {createLabelError ? <ErrorState error={createLabelError} /> : null}
+        </div>
         {error ? <ErrorState error={error} /> : null}
         <div className="issue-modal-footer">
-          <span className="app-state">
-            Status is sent with the issue creation request.
-          </span>
+          <span className="app-state">{selectedProject?.name ?? 'No project selected'}</span>
           <Button
             type="submit"
             disabled={!selectedProject || !issueTitle.trim() || isSubmitting}
@@ -1789,14 +2280,158 @@ function CreateIssueDialog({
   )
 }
 
+function ProjectWorkflowDialog({
+  isOpen,
+  selectedProject,
+  workflowStates,
+  onSubmit,
+  onClose,
+  canCreateWorkflowStates,
+  isLoadingWorkflowStates,
+  workflowStatesError,
+  isSubmitting,
+  error,
+}: {
+  isOpen: boolean
+  selectedProject: Project | null
+  workflowStates: ProjectWorkflowState[]
+  onSubmit: (values: CreateProjectWorkflowStateFormValues) => Promise<ProjectWorkflowState | null>
+  onClose: () => void
+  canCreateWorkflowStates: boolean
+  isLoadingWorkflowStates: boolean
+  workflowStatesError: Error | null
+  isSubmitting: boolean
+  error: Error | null
+}) {
+  const {
+    register,
+    handleSubmit,
+    reset,
+    control,
+    formState: { errors },
+  } = useForm<CreateProjectWorkflowStateFormValues>({
+    resolver: zodResolver(createProjectWorkflowStateFormSchema),
+    defaultValues: {
+      name: '',
+      category: 'IN_PROGRESS',
+    },
+  })
+  const workflowStateName = useWatch({ control, name: 'name' }) ?? ''
+
+  useEffect(() => {
+    if (isOpen) {
+      reset({
+        name: '',
+        category: 'IN_PROGRESS',
+      })
+    }
+  }, [isOpen, reset])
+
+  async function submitWorkflowState(values: CreateProjectWorkflowStateFormValues) {
+    try {
+      await onSubmit(values)
+      reset({
+        name: '',
+        category: 'IN_PROGRESS',
+      })
+    } catch {
+      // The mutation error is rendered below so the draft status stays available.
+    }
+  }
+
+  if (!isOpen) {
+    return null
+  }
+
+  return (
+    <ModalShell
+      title="Workflow statuses"
+      eyebrow={selectedProject?.name ?? 'Project'}
+      onClose={onClose}
+      variant="members"
+    >
+      <div className="project-members-dialog">
+        {isLoadingWorkflowStates ? <InlineState>Loading workflow statuses.</InlineState> : null}
+        {workflowStatesError ? <ErrorState error={workflowStatesError} /> : null}
+        {!isLoadingWorkflowStates && !workflowStatesError ? (
+          <div className="project-member-list" aria-label="Workflow statuses">
+            {workflowStates.map((workflowState) => (
+              <div className="project-member-row" key={workflowState.id}>
+                <span className="workspace-avatar project-member-avatar" aria-hidden="true">
+                  <StatusIcon status={workflowState.category} />
+                </span>
+                <span className="project-member-person">
+                  <strong>{workflowState.name}</strong>
+                  <small>{formatStatus(workflowState.category)}</small>
+                </span>
+                <span className="project-member-meta">
+                  <span className="project-member-status">#{workflowState.position}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        <section className="project-member-add-section">
+          <div className="project-member-add-heading">
+            <h3>Add status</h3>
+            <span className="app-state">{workflowStates.length} statuses</span>
+          </div>
+          {!canCreateWorkflowStates ? (
+            <InlineNotice>Only project owners can add workflow statuses.</InlineNotice>
+          ) : (
+            <form
+              className="project-member-add-form"
+              onSubmit={handleSubmit(submitWorkflowState)}
+              noValidate
+            >
+              <label className="app-field">
+                Name
+                <input
+                  placeholder="Review"
+                  disabled={isSubmitting}
+                  {...register('name')}
+                />
+              </label>
+              <label className="app-field">
+                Category
+                <select disabled={isSubmitting} {...register('category')}>
+                  {WORKFLOW_STATE_CATEGORIES.map((category) => (
+                    <option key={category} value={category}>
+                      {formatStatus(category)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {errors.name?.message ? (
+                <InlineNotice tone="warning">{errors.name.message}</InlineNotice>
+              ) : null}
+              {errors.category?.message ? (
+                <InlineNotice tone="warning">{errors.category.message}</InlineNotice>
+              ) : null}
+              <Button type="submit" disabled={!workflowStateName.trim() || isSubmitting}>
+                {isSubmitting ? (
+                  <Loader2 aria-hidden="true" className="auth-spin" />
+                ) : (
+                  <Plus aria-hidden="true" />
+                )}
+                Add status
+              </Button>
+            </form>
+          )}
+          {error ? <ErrorState error={error} /> : null}
+        </section>
+      </div>
+    </ModalShell>
+  )
+}
+
 function ProjectMembersDialog({
   isOpen,
   selectedProject,
   projectMembers,
   workspaceMembers,
   addableWorkspaceMembers,
-  selectedUserId,
-  onSelectedUserIdChange,
   onSubmit,
   onClose,
   canAddMembers,
@@ -1812,9 +2447,7 @@ function ProjectMembersDialog({
   projectMembers: ProjectMember[]
   workspaceMembers: WorkspaceMember[]
   addableWorkspaceMembers: WorkspaceMember[]
-  selectedUserId: string
-  onSelectedUserIdChange: (userId: string) => void
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void
+  onSubmit: (values: AddProjectMemberFormValues) => Promise<void>
   onClose: () => void
   canAddMembers: boolean
   isLoadingProjectMembers: boolean
@@ -1824,6 +2457,35 @@ function ProjectMembersDialog({
   isSubmitting: boolean
   error: Error | null
 }) {
+  const {
+    register,
+    handleSubmit,
+    reset,
+    control,
+    formState: { errors },
+  } = useForm<AddProjectMemberFormValues>({
+    resolver: zodResolver(addProjectMemberFormSchema),
+    defaultValues: {
+      userId: '',
+    },
+  })
+  const selectedUserId = useWatch({ control, name: 'userId' }) ?? ''
+
+  useEffect(() => {
+    if (isOpen) {
+      reset({ userId: '' })
+    }
+  }, [isOpen, reset])
+
+  async function submitProjectMember(values: AddProjectMemberFormValues) {
+    try {
+      await onSubmit(values)
+      reset({ userId: '' })
+    } catch {
+      // The mutation error is rendered below so the selected member remains visible.
+    }
+  }
+
   if (!isOpen) {
     return null
   }
@@ -1880,18 +2542,21 @@ function ProjectMembersDialog({
           ) : !canAddMembers ? (
             <InlineNotice>Only project owners can add members.</InlineNotice>
           ) : (
-            <form className="project-member-add-form" onSubmit={onSubmit}>
+            <form
+              className="project-member-add-form"
+              onSubmit={handleSubmit(submitProjectMember)}
+              noValidate
+            >
               <label className="app-field">
                 Workspace member
                 <select
-                  value={selectedUserId}
-                  onChange={(event) => onSelectedUserIdChange(event.target.value)}
                   disabled={
                     isSubmitting ||
                     isLoadingWorkspaceMembers ||
                     Boolean(workspaceMembersError) ||
                     addableWorkspaceMembers.length === 0
                   }
+                  {...register('userId')}
                 >
                   <option value="">
                     {isLoadingWorkspaceMembers ? 'Loading members' : 'Select member'}
@@ -1903,6 +2568,9 @@ function ProjectMembersDialog({
                   ))}
                 </select>
               </label>
+              {errors.userId?.message ? (
+                <InlineNotice tone="warning">{errors.userId.message}</InlineNotice>
+              ) : null}
               <Button type="submit" disabled={!canSubmit}>
                 {isSubmitting ? (
                   <Loader2 aria-hidden="true" className="auth-spin" />
@@ -2019,6 +2687,15 @@ function PriorityBadge({ priority }: { priority?: IssuePriority | null }) {
   )
 }
 
+function LabelBadge({ label }: { label: ProjectLabel }) {
+  return (
+    <span className="label-badge">
+      <span className="label-swatch" style={{ backgroundColor: label.color }} aria-hidden="true" />
+      {label.name}
+    </span>
+  )
+}
+
 function InlineState({ children }: { children: ReactNode }) {
   return <p className="app-state">{children}</p>
 }
@@ -2055,43 +2732,67 @@ function ProjectMemberMutationErrorState({ error }: { error: Error }) {
   return <p className="app-error">{getProjectMemberMutationErrorMessage(error)}</p>
 }
 
-function groupIssuesByStatus(issues: IssueSummary[], statusFilter: IssueStatusFilter) {
-  const grouped = new Map<IssueStatus, IssueSummary[]>()
-  const visibleStatuses =
-    statusFilter === 'ACTIVE'
-      ? ISSUE_STATUSES.filter((status) => status !== 'ARCHIVED')
-      : [statusFilter]
+function groupIssuesByWorkflowState(
+  issues: IssueSummary[],
+  workflowStates: ProjectWorkflowState[],
+  workflowFilter: IssueWorkflowFilter,
+) {
+  if (workflowFilter === 'ARCHIVED') {
+    return [
+      {
+        status: 'ARCHIVED',
+        workflowState: null,
+        label: 'Archived',
+        issues,
+      },
+    ]
+  }
 
-  visibleStatuses.forEach((status) => grouped.set(status, []))
+  const visibleWorkflowStates =
+    workflowFilter === 'ACTIVE'
+      ? workflowStates
+      : workflowStates.filter((workflowState) => workflowState.id === workflowFilter)
+  const grouped = new Map<string, IssueSummary[]>()
+
+  visibleWorkflowStates.forEach((workflowState) => grouped.set(workflowState.id, []))
   issues.forEach((issue) => {
-    if (!grouped.has(issue.status)) {
-      grouped.set(issue.status, [])
+    const workflowState = issue.workflowState
+    if (!grouped.has(workflowState.id)) {
+      grouped.set(workflowState.id, [])
     }
 
-    const group = grouped.get(issue.status) ?? []
+    const group = grouped.get(workflowState.id) ?? []
     group.push(issue)
-    grouped.set(issue.status, group)
+    grouped.set(workflowState.id, group)
   })
 
-  return Array.from(grouped.entries()).map(([status, statusIssues]) => ({
-    status,
-    label: formatStatus(status),
-    issues: statusIssues,
+  const knownWorkflowStateIds = new Set(workflowStates.map((workflowState) => workflowState.id))
+  const dynamicWorkflowStates = issues
+    .map((issue) => issue.workflowState)
+    .filter((workflowState, index, allWorkflowStates) =>
+      !knownWorkflowStateIds.has(workflowState.id) &&
+      allWorkflowStates.findIndex((candidate) => candidate.id === workflowState.id) === index,
+    )
+  const groups = [...visibleWorkflowStates, ...dynamicWorkflowStates]
+
+  return groups.map((workflowState) => ({
+    status: workflowState.category,
+    workflowState,
+    label: workflowState.name,
+    issues: grouped.get(workflowState.id) ?? [],
   }))
 }
 
-function getStatusOptions(currentStatus: IssueStatus) {
-  const options = new Set<IssueStatus>(ISSUE_STATUSES)
-  options.add(currentStatus)
-  return Array.from(options)
+function defaultWorkflowStateIdForStatus(
+  workflowStates: ProjectWorkflowState[],
+  status: IssueStatus,
+) {
+  const category = status === 'DONE' || status === 'IN_PROGRESS' ? status : 'TODO'
+  return workflowStates.find((workflowState) => workflowState.category === category)?.id ?? ''
 }
 
-function getCreatableIssueStatus(status: IssueStatus): IssueStatus {
-  if (status === 'TODO' || status === 'IN_PROGRESS' || status === 'DONE') {
-    return status
-  }
-
-  return 'TODO'
+function statusForIcon(issue: IssueSummary | IssueDetail) {
+  return issue.status === 'ARCHIVED' ? 'ARCHIVED' : issue.workflowState.category
 }
 
 function projectPath(workspaceId: string, projectId: string) {

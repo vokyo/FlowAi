@@ -11,6 +11,13 @@ import com.vokyo.backend.issue.dto.IssueDetailResponse;
 import com.vokyo.backend.issue.dto.IssueSummaryResponse;
 import com.vokyo.backend.project.Project;
 import com.vokyo.backend.project.ProjectAccessService;
+import com.vokyo.backend.project.ProjectLabel;
+import com.vokyo.backend.project.ProjectLabelRepository;
+import com.vokyo.backend.project.ProjectWorkflowState;
+import com.vokyo.backend.project.ProjectWorkflowStateRepository;
+import com.vokyo.backend.project.WorkflowStateCategory;
+import com.vokyo.backend.project.dto.ProjectLabelResponse;
+import com.vokyo.backend.project.dto.ProjectWorkflowStateResponse;
 import com.vokyo.backend.user.User;
 import com.vokyo.backend.workspace.CurrentWorkspaceContext;
 import com.vokyo.backend.workspace.WorkspaceAccessService;
@@ -28,6 +35,7 @@ import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -39,6 +47,8 @@ public class IssueService {
 
     private final IssueRepository issueRepository;
     private final IssueCommentRepository issueCommentRepository;
+    private final ProjectLabelRepository projectLabelRepository;
+    private final ProjectWorkflowStateRepository projectWorkflowStateRepository;
     private final ProjectAccessService projectAccessService;
     private final WorkspaceAccessService workspaceAccessService;
     private final ActivityService activityService;
@@ -46,12 +56,16 @@ public class IssueService {
     public IssueService(
             IssueRepository issueRepository,
             IssueCommentRepository issueCommentRepository,
+            ProjectLabelRepository projectLabelRepository,
+            ProjectWorkflowStateRepository projectWorkflowStateRepository,
             ProjectAccessService projectAccessService,
             WorkspaceAccessService workspaceAccessService,
             ActivityService activityService
     ) {
         this.issueRepository = issueRepository;
         this.issueCommentRepository = issueCommentRepository;
+        this.projectLabelRepository = projectLabelRepository;
+        this.projectWorkflowStateRepository = projectWorkflowStateRepository;
         this.projectAccessService = projectAccessService;
         this.workspaceAccessService = workspaceAccessService;
         this.activityService = activityService;
@@ -62,8 +76,10 @@ public class IssueService {
             Jwt jwt,
             UUID projectId,
             IssueStatus status,
+            UUID workflowStateId,
             IssuePriority priority,
             UUID assigneeUserId,
+            UUID labelId,
             String query
     ) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
@@ -75,8 +91,10 @@ public class IssueService {
                         context.workspace().getId(),
                         projectId,
                         status,
+                        workflowStateId,
                         priority,
                         assigneeUserId,
+                        labelId,
                         normalizedQuery
                 ),
                 Sort.by(Sort.Direction.DESC, "createdAt")
@@ -97,6 +115,8 @@ public class IssueService {
             throw badRequest("Issue cannot be created as archived");
         }
         User assignee = resolveAssignee(project, request.assigneeUserId());
+        List<ProjectLabel> labels = resolveProjectLabels(project, request.labelIds());
+        ProjectWorkflowState workflowState = resolveWorkflowStateForCreate(project, request.workflowStateId(), request.status());
 
         Issue issue = issueRepository.save(new Issue(
                 context.workspace(),
@@ -105,10 +125,11 @@ public class IssueService {
                 request.title().trim(),
                 normalizeOptionalText(request.description()),
                 assignee,
-                request.status(),
+                workflowState,
                 request.priority(),
                 request.dueDate()
         ));
+        issue.replaceLabels(labels);
 
         activityService.recordIssueCreated(issue, context.user());
         return toSummaryResponse(issue, 0L);
@@ -161,8 +182,10 @@ public class IssueService {
             UUID workspaceId,
             UUID projectId,
             IssueStatus status,
+            UUID workflowStateId,
             IssuePriority priority,
             UUID assigneeUserId,
+            UUID labelId,
             String query
     ) {
         return (root, criteriaQuery, criteriaBuilder) -> {
@@ -171,9 +194,16 @@ public class IssueService {
             predicates.add(criteriaBuilder.equal(root.get("project").get("id"), projectId));
 
             if (status == null) {
-                predicates.add(criteriaBuilder.notEqual(root.get("status"), IssueStatus.ARCHIVED));
+                predicates.add(criteriaBuilder.isNull(root.get("archivedAt")));
+            } else if (status == IssueStatus.ARCHIVED) {
+                predicates.add(criteriaBuilder.isNotNull(root.get("archivedAt")));
             } else {
-                predicates.add(criteriaBuilder.equal(root.get("status"), status));
+                predicates.add(criteriaBuilder.isNull(root.get("archivedAt")));
+                predicates.add(criteriaBuilder.equal(root.get("workflowState").get("category"), categoryFromStatus(status)));
+            }
+
+            if (workflowStateId != null) {
+                predicates.add(criteriaBuilder.equal(root.get("workflowState").get("id"), workflowStateId));
             }
 
             if (priority != null) {
@@ -182,6 +212,10 @@ public class IssueService {
 
             if (assigneeUserId != null) {
                 predicates.add(criteriaBuilder.equal(root.get("assigneeUser").get("id"), assigneeUserId));
+            }
+
+            if (labelId != null) {
+                predicates.add(criteriaBuilder.equal(root.join("labels").get("id"), labelId));
             }
 
             if (query != null) {
@@ -221,10 +255,13 @@ public class IssueService {
                 issue.getTitle(),
                 issue.getDescription(),
                 issue.getStatus().name(),
+                toWorkflowStateResponse(issue.getWorkflowState()),
                 issue.getPriority() == null ? null : issue.getPriority().name(),
+                toLabelResponses(issue),
                 toUserResponse(issue.getCreatedByUser()),
                 issue.getAssigneeUser() == null ? null : toUserResponse(issue.getAssigneeUser()),
                 issue.getDueDate(),
+                issue.getArchivedAt(),
                 issue.getCreatedAt(),
                 issue.getUpdatedAt(),
                 commentCount
@@ -238,10 +275,13 @@ public class IssueService {
                 issue.getTitle(),
                 issue.getDescription(),
                 issue.getStatus().name(),
+                toWorkflowStateResponse(issue.getWorkflowState()),
                 issue.getPriority() == null ? null : issue.getPriority().name(),
+                toLabelResponses(issue),
                 toUserResponse(issue.getCreatedByUser()),
                 issue.getAssigneeUser() == null ? null : toUserResponse(issue.getAssigneeUser()),
                 issue.getDueDate(),
+                issue.getArchivedAt(),
                 issue.getCreatedAt(),
                 issue.getUpdatedAt(),
                 comments
@@ -256,6 +296,36 @@ public class IssueService {
                 new UserResponse(author.getId(), author.getEmail(), author.getDisplayName()),
                 comment.getBody(),
                 comment.getCreatedAt()
+        );
+    }
+
+    private List<ProjectLabelResponse> toLabelResponses(Issue issue) {
+        return issue.getLabels()
+                .stream()
+                .map(this::toLabelResponse)
+                .toList();
+    }
+
+    private ProjectLabelResponse toLabelResponse(ProjectLabel label) {
+        return new ProjectLabelResponse(
+                label.getId(),
+                label.getProject().getId(),
+                label.getName(),
+                label.getColor(),
+                label.getCreatedAt(),
+                label.getUpdatedAt()
+        );
+    }
+
+    private ProjectWorkflowStateResponse toWorkflowStateResponse(ProjectWorkflowState workflowState) {
+        return new ProjectWorkflowStateResponse(
+                workflowState.getId(),
+                workflowState.getProject().getId(),
+                workflowState.getName(),
+                workflowState.getCategory().name(),
+                workflowState.getPosition(),
+                workflowState.getCreatedAt(),
+                workflowState.getUpdatedAt()
         );
     }
 
@@ -279,6 +349,69 @@ public class IssueService {
         return projectAccessService.requireActiveProjectMemberUser(project, assigneeUserId);
     }
 
+    private List<ProjectLabel> resolveProjectLabels(Project project, List<UUID> labelIds) {
+        if (labelIds == null || labelIds.isEmpty()) {
+            return List.of();
+        }
+
+        Set<UUID> uniqueLabelIds = Set.copyOf(labelIds);
+        List<ProjectLabel> labels = projectLabelRepository.findByWorkspace_IdAndProject_IdAndIdIn(
+                project.getWorkspace().getId(),
+                project.getId(),
+                uniqueLabelIds
+        );
+
+        if (labels.size() != uniqueLabelIds.size()) {
+            throw notFound("Project label not found");
+        }
+
+        return labels;
+    }
+
+    private ProjectWorkflowState resolveWorkflowStateForCreate(
+            Project project,
+            UUID workflowStateId,
+            IssueStatus status
+    ) {
+        if (workflowStateId != null) {
+            return requireProjectWorkflowState(project, workflowStateId);
+        }
+
+        if (status != null) {
+            return requireDefaultWorkflowState(project, categoryFromStatus(status));
+        }
+
+        return requireDefaultWorkflowState(project, WorkflowStateCategory.TODO);
+    }
+
+    private ProjectWorkflowState requireProjectWorkflowState(Project project, UUID workflowStateId) {
+        return projectWorkflowStateRepository.findByWorkspace_IdAndProject_IdAndId(
+                        project.getWorkspace().getId(),
+                        project.getId(),
+                        workflowStateId
+                )
+                .orElseThrow(() -> notFound("Project workflow state not found"));
+    }
+
+    private ProjectWorkflowState requireDefaultWorkflowState(Project project, WorkflowStateCategory category) {
+        return projectWorkflowStateRepository
+                .findFirstByWorkspace_IdAndProject_IdAndCategoryOrderByPositionAscNameAsc(
+                        project.getWorkspace().getId(),
+                        project.getId(),
+                        category
+                )
+                .orElseThrow(() -> notFound("Project workflow state not found"));
+    }
+
+    private WorkflowStateCategory categoryFromStatus(IssueStatus status) {
+        return switch (status) {
+            case TODO -> WorkflowStateCategory.TODO;
+            case IN_PROGRESS -> WorkflowStateCategory.IN_PROGRESS;
+            case DONE -> WorkflowStateCategory.DONE;
+            case ARCHIVED -> throw badRequest("Archived is not a workflow state");
+        };
+    }
+
     @Transactional
     public IssueDetailResponse updateIssue(Jwt jwt, UUID issueId, JsonNode request) {
         if (request == null || !request.isObject()) {
@@ -289,7 +422,9 @@ public class IssueService {
         Issue issue = requireIssue(issueId, context.workspace().getId());
         projectAccessService.requireIssueProjectAccess(issue, context);
         String previousTitle = issue.getTitle();
-        IssueStatus previousStatus = issue.getStatus();
+        ProjectWorkflowState previousWorkflowState = issue.getWorkflowState();
+        String previousStatus = displayStatus(issue);
+        UUID previousWorkflowStateId = issue.getWorkflowState().getId();
         IssuePriority previousPriority = issue.getPriority();
         User previousAssignee = issue.getAssigneeUser();
         LocalDate previousDueDate = issue.getDueDate();
@@ -318,6 +453,14 @@ public class IssueService {
             }
         }
 
+        if (request.has("labelIds")) {
+            issue.replaceLabels(resolveProjectLabels(issue.getProject(), requiredUuidList(
+                    request,
+                    "labelIds",
+                    "Labels are invalid"
+            )));
+        }
+
         if (request.has("assigneeUserId")) {
             JsonNode assigneeUserId = request.get("assigneeUserId");
             if (assigneeUserId.isNull()) {
@@ -331,10 +474,25 @@ public class IssueService {
             }
         }
 
-        IssueStatus requestedStatus = null;
+        if (request.has("workflowStateId")) {
+            issue.changeWorkflowState(requireProjectWorkflowState(issue.getProject(), requiredUuid(
+                    request,
+                    "workflowStateId",
+                    "Workflow state is invalid"
+            )));
+        }
+
         if (request.has("status")) {
-            requestedStatus = requiredEnum(request, "status", IssueStatus.class, "Status is required");
-            issue.changeStatus(requestedStatus);
+            IssueStatus requestedStatus = requiredEnum(request, "status", IssueStatus.class, "Status is required");
+            if (requestedStatus == IssueStatus.ARCHIVED) {
+                issue.archive();
+            } else {
+                issue.changeWorkflowState(requireDefaultWorkflowState(
+                        issue.getProject(),
+                        categoryFromStatus(requestedStatus)
+                ));
+                issue.unarchive();
+            }
         }
 
         if (request.has("priority")) {
@@ -364,12 +522,17 @@ public class IssueService {
             );
         }
 
-        if (requestedStatus != null && previousStatus != requestedStatus) {
+        String currentStatus = displayStatus(issue);
+        UUID currentWorkflowStateId = issue.getWorkflowState().getId();
+        if (!Objects.equals(previousStatus, currentStatus)
+                || !Objects.equals(previousWorkflowStateId, currentWorkflowStateId)) {
             activityService.recordIssueStatusChanged(
                     issue,
                     context.user(),
                     previousStatus,
-                    requestedStatus
+                    currentStatus,
+                    previousWorkflowState.getId(),
+                    currentWorkflowStateId
             );
         }
 
@@ -426,6 +589,28 @@ public class IssueService {
         }
     }
 
+    private List<UUID> requiredUuidList(JsonNode request, String fieldName, String message) {
+        JsonNode value = request.get(fieldName);
+        if (value == null || value.isNull() || !value.isArray()) {
+            throw badRequest(message);
+        }
+
+        List<UUID> ids = new java.util.ArrayList<>();
+        for (JsonNode item : value) {
+            if (!item.isTextual()) {
+                throw badRequest(message);
+            }
+
+            try {
+                ids.add(UUID.fromString(item.asText()));
+            } catch (IllegalArgumentException exception) {
+                throw badRequest(message);
+            }
+        }
+
+        return ids;
+    }
+
     private LocalDate requiredLocalDate(JsonNode request, String fieldName, String message) {
         String value = requiredText(request, fieldName, message);
         try {
@@ -437,6 +622,14 @@ public class IssueService {
 
     private UUID userId(User user) {
         return user == null ? null : user.getId();
+    }
+
+    private String displayStatus(Issue issue) {
+        if (issue.getArchivedAt() != null) {
+            return "Archived";
+        }
+
+        return issue.getWorkflowState().getName();
     }
 
     private <E extends Enum<E>> E requiredEnum(
@@ -459,5 +652,9 @@ public class IssueService {
 
     private ResponseStatusException badRequest(String message) {
         return new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
+    }
+
+    private ResponseStatusException notFound(String message) {
+        return new ResponseStatusException(HttpStatus.NOT_FOUND, message);
     }
 }

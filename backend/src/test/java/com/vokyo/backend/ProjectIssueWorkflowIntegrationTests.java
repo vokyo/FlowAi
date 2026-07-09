@@ -9,9 +9,11 @@ import com.vokyo.backend.issue.IssueCommentRepository;
 import com.vokyo.backend.issue.IssuePriority;
 import com.vokyo.backend.issue.IssueRepository;
 import com.vokyo.backend.issue.IssueStatus;
+import com.vokyo.backend.project.ProjectLabelRepository;
 import com.vokyo.backend.project.ProjectMemberRepository;
 import com.vokyo.backend.project.ProjectRole;
 import com.vokyo.backend.project.ProjectRepository;
+import com.vokyo.backend.project.ProjectWorkflowStateRepository;
 import com.vokyo.backend.security.JwtService;
 import com.vokyo.backend.user.User;
 import com.vokyo.backend.user.UserRepository;
@@ -66,7 +68,13 @@ class ProjectIssueWorkflowIntegrationTests {
     private ProjectRepository projectRepository;
 
     @Autowired
+    private ProjectLabelRepository projectLabelRepository;
+
+    @Autowired
     private ProjectMemberRepository projectMemberRepository;
+
+    @Autowired
+    private ProjectWorkflowStateRepository projectWorkflowStateRepository;
 
     @Autowired
     private RefreshTokenRepository refreshTokenRepository;
@@ -88,7 +96,9 @@ class ProjectIssueWorkflowIntegrationTests {
         activityEventRepository.deleteAllInBatch();
         issueCommentRepository.deleteAllInBatch();
         issueRepository.deleteAllInBatch();
+        projectLabelRepository.deleteAllInBatch();
         projectMemberRepository.deleteAllInBatch();
+        projectWorkflowStateRepository.deleteAllInBatch();
         projectRepository.deleteAllInBatch();
         refreshTokenRepository.deleteAllInBatch();
         membershipRepository.deleteAllInBatch();
@@ -137,6 +147,8 @@ class ProjectIssueWorkflowIntegrationTests {
                 .andExpect(jsonPath("$.projectId").value(projectId))
                 .andExpect(jsonPath("$.title").value("Create work APIs"))
                 .andExpect(jsonPath("$.status").value("TODO"))
+                .andExpect(jsonPath("$.workflowState.name").value("Todo"))
+                .andExpect(jsonPath("$.workflowState.category").value("TODO"))
                 .andExpect(jsonPath("$.priority").value("HIGH"))
                 .andExpect(jsonPath("$.creator.email").value(session.email()))
                 .andExpect(jsonPath("$.commentCount").value(0))
@@ -183,6 +195,9 @@ class ProjectIssueWorkflowIntegrationTests {
                 .andExpect(jsonPath("$[1].actor.email").value(session.email()));
 
         assertThat(projectRepository.findAll()).hasSize(1);
+        assertThat(projectWorkflowStateRepository.findAll())
+                .extracting(workflowState -> workflowState.getName())
+                .containsExactlyInAnyOrder("Todo", "In progress", "Done");
         assertThat(projectMemberRepository.findAll())
                 .singleElement()
                 .satisfies(member -> {
@@ -214,6 +229,7 @@ class ProjectIssueWorkflowIntegrationTests {
                 session.accessToken()
         ).andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.workflowState.name").value("In progress"))
                 .andExpect(jsonPath("$.priority").value("MEDIUM"))
                 .andReturnJson();
 
@@ -228,6 +244,7 @@ class ProjectIssueWorkflowIntegrationTests {
                 session.accessToken()
         ).andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("TODO"))
+                .andExpect(jsonPath("$.workflowState.name").value("Todo"))
                 .andExpect(jsonPath("$.priority").doesNotExist())
                 .andReturnJson();
 
@@ -313,8 +330,10 @@ class ProjectIssueWorkflowIntegrationTests {
                 .andExpect(jsonPath("$[1].metadata.fromTitle").value("Move through workflow"))
                 .andExpect(jsonPath("$[1].metadata.toTitle").value("Workflow shipped"))
                 .andExpect(jsonPath("$[2].eventType").value("ISSUE_STATUS_CHANGED"))
-                .andExpect(jsonPath("$[2].metadata.fromStatus").value("TODO"))
-                .andExpect(jsonPath("$[2].metadata.toStatus").value("DONE"))
+                .andExpect(jsonPath("$[2].metadata.fromStatus").value("Todo"))
+                .andExpect(jsonPath("$[2].metadata.toStatus").value("Done"))
+                .andExpect(jsonPath("$[2].metadata.fromWorkflowStateId").isString())
+                .andExpect(jsonPath("$[2].metadata.toWorkflowStateId").isString())
                 .andExpect(jsonPath("$[3].eventType").value("ISSUE_PRIORITY_CHANGED"))
                 .andExpect(jsonPath("$[3].metadata.fromPriority").value("LOW"))
                 .andExpect(jsonPath("$[3].metadata.toPriority").value("URGENT"));
@@ -724,6 +743,355 @@ class ProjectIssueWorkflowIntegrationTests {
     }
 
     @Test
+    void projectMembersCanCreateAndListProjectLabels() throws Exception {
+        AuthSession owner = register("label-owner+" + uniqueId() + "@example.com");
+        AuthSession member = createWorkspaceMember(owner, "label-member+" + uniqueId() + "@example.com");
+        String projectId = createProject(owner, "Labels Project").get("id").asText();
+        addProjectMember(owner, projectId, userId(member));
+
+        JsonNode bugLabel = postJson(
+                "/api/projects/%s/labels".formatted(projectId),
+                """
+                {
+                  "name": "Bug",
+                  "color": "#ef4444"
+                }
+                """,
+                member.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.projectId").value(projectId))
+                .andExpect(jsonPath("$.name").value("Bug"))
+                .andExpect(jsonPath("$.color").value("#ef4444"))
+                .andReturnJson();
+
+        postJson(
+                "/api/projects/%s/labels".formatted(projectId),
+                """
+                {
+                  "name": "Design"
+                }
+                """,
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.color").value("#64748b"));
+
+        mockMvc.perform(get("/api/projects/{projectId}/labels", projectId)
+                        .header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].name").value("Bug"))
+                .andExpect(jsonPath("$[1].name").value("Design"));
+
+        postJson(
+                "/api/projects/%s/labels".formatted(projectId),
+                """
+                {
+                  "name": "bug",
+                  "color": "#f97316"
+                }
+                """,
+                owner.accessToken()
+        ).andExpect(status().isConflict());
+
+        assertThat(bugLabel.get("id").asText()).isNotBlank();
+        assertThat(projectLabelRepository.findAll()).hasSize(2);
+    }
+
+    @Test
+    void projectLabelsAreHiddenFromNonProjectMembers() throws Exception {
+        AuthSession owner = register("label-hidden-owner+" + uniqueId() + "@example.com");
+        AuthSession nonProjectMember = createWorkspaceMember(
+                owner,
+                "label-hidden-member+" + uniqueId() + "@example.com"
+        );
+        String projectId = createProject(owner, "Hidden Labels Project").get("id").asText();
+
+        mockMvc.perform(get("/api/projects/{projectId}/labels", projectId)
+                        .header("Authorization", bearer(nonProjectMember.accessToken())))
+                .andExpect(status().isNotFound());
+
+        postJson(
+                "/api/projects/%s/labels".formatted(projectId),
+                """
+                {
+                  "name": "Hidden"
+                }
+                """,
+                nonProjectMember.accessToken()
+        ).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void issueLabelsCanBeCreatedFilteredReplacedAndCleared() throws Exception {
+        AuthSession owner = register("issue-label-owner+" + uniqueId() + "@example.com");
+        String projectId = createProject(owner, "Issue Labels Project").get("id").asText();
+        String otherProjectId = createProject(owner, "Other Labels Project").get("id").asText();
+        String bugLabelId = createProjectLabel(owner, projectId, "Bug", "#ef4444").get("id").asText();
+        String frontendLabelId = createProjectLabel(owner, projectId, "Frontend", "#0ea5e9").get("id").asText();
+        String otherProjectLabelId = createProjectLabel(owner, otherProjectId, "External", "#22c55e").get("id").asText();
+
+        JsonNode issue = postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Labelled issue",
+                  "labelIds": ["%s", "%s"]
+                }
+                """.formatted(projectId, bugLabelId, frontendLabelId),
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.labels[0].name").value("Bug"))
+                .andExpect(jsonPath("$.labels[1].name").value("Frontend"))
+                .andReturnJson();
+        String issueId = issue.get("id").asText();
+
+        createIssue(owner, projectId, "Unlabelled issue", "No labels", "TODO", "LOW");
+
+        JsonNode bugIssues = getIssues(owner, projectId, null, null, null, null, bugLabelId)
+                .andExpect(status().isOk())
+                .andReturnJson();
+        assertThat(issueTitles(bugIssues)).containsExactly("Labelled issue");
+
+        patchJson(
+                "/api/issues/%s".formatted(issueId),
+                """
+                {
+                  "labelIds": ["%s"]
+                }
+                """.formatted(frontendLabelId),
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.labels[0].id").value(frontendLabelId))
+                .andExpect(jsonPath("$.labels[1]").doesNotExist());
+
+        JsonNode clearedIssue = patchJson(
+                "/api/issues/%s".formatted(issueId),
+                """
+                {
+                  "labelIds": []
+                }
+                """,
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andReturnJson();
+        assertThat(clearedIssue.get("labels").isEmpty()).isTrue();
+
+        postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Cross project label",
+                  "labelIds": ["%s"]
+                }
+                """.formatted(projectId, otherProjectLabelId),
+                owner.accessToken()
+        ).andExpect(status().isNotFound());
+
+        patchJson(
+                "/api/issues/%s".formatted(issueId),
+                """
+                {
+                  "labelIds": ["%s"]
+                }
+                """.formatted(UUID.randomUUID()),
+                owner.accessToken()
+        ).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void projectWorkflowStatesAreCreatedListedAndPermissioned() throws Exception {
+        AuthSession owner = register("workflow-owner+" + uniqueId() + "@example.com");
+        AuthSession projectMember = createWorkspaceMember(owner, "workflow-member+" + uniqueId() + "@example.com");
+        AuthSession nonProjectMember = createWorkspaceMember(owner, "workflow-non-member+" + uniqueId() + "@example.com");
+        String projectId = createProject(owner, "Workflow Project").get("id").asText();
+        addProjectMember(owner, projectId, userId(projectMember));
+
+        mockMvc.perform(get("/api/projects/{projectId}/workflow-states", projectId)
+                        .header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].name").value("Todo"))
+                .andExpect(jsonPath("$[0].category").value("TODO"))
+                .andExpect(jsonPath("$[1].name").value("In progress"))
+                .andExpect(jsonPath("$[1].category").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$[2].name").value("Done"))
+                .andExpect(jsonPath("$[2].category").value("DONE"));
+
+        mockMvc.perform(get("/api/projects/{projectId}/workflow-states", projectId)
+                        .header("Authorization", bearer(projectMember.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].name").value("Todo"));
+
+        postJson(
+                "/api/projects/%s/workflow-states".formatted(projectId),
+                """
+                {
+                  "name": "Review",
+                  "category": "IN_PROGRESS"
+                }
+                """,
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.projectId").value(projectId))
+                .andExpect(jsonPath("$.name").value("Review"))
+                .andExpect(jsonPath("$.category").value("IN_PROGRESS"));
+
+        postJson(
+                "/api/projects/%s/workflow-states".formatted(projectId),
+                """
+                {
+                  "name": "review",
+                  "category": "IN_PROGRESS"
+                }
+                """,
+                owner.accessToken()
+        ).andExpect(status().isConflict());
+
+        postJson(
+                "/api/projects/%s/workflow-states".formatted(projectId),
+                """
+                {
+                  "name": "QA",
+                  "category": "IN_PROGRESS"
+                }
+                """,
+                projectMember.accessToken()
+        ).andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/projects/{projectId}/workflow-states", projectId)
+                        .header("Authorization", bearer(nonProjectMember.accessToken())))
+                .andExpect(status().isNotFound());
+
+        postJson(
+                "/api/projects/%s/workflow-states".formatted(projectId),
+                """
+                {
+                  "name": "Hidden",
+                  "category": "IN_PROGRESS"
+                }
+                """,
+                nonProjectMember.accessToken()
+        ).andExpect(status().isNotFound());
+
+        assertThat(projectWorkflowStateRepository.findAll())
+                .extracting(workflowState -> workflowState.getName())
+                .contains("Todo", "In progress", "Done", "Review");
+    }
+
+    @Test
+    void issueWorkflowStateCanBeSpecifiedFilteredMovedAndArchived() throws Exception {
+        AuthSession owner = register("issue-workflow-owner+" + uniqueId() + "@example.com");
+        String projectId = createProject(owner, "Issue Workflow Project").get("id").asText();
+        String otherProjectId = createProject(owner, "Other Workflow Project").get("id").asText();
+        String reviewStateId = createProjectWorkflowState(owner, projectId, "Review", "IN_PROGRESS")
+                .get("id")
+                .asText();
+        String otherProjectStateId = workflowStates(owner, otherProjectId).get(0).get("id").asText();
+
+        JsonNode defaultIssue = postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Default workflow issue"
+                }
+                """.formatted(projectId),
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("TODO"))
+                .andExpect(jsonPath("$.workflowState.name").value("Todo"))
+                .andReturnJson();
+
+        JsonNode reviewIssue = postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Review workflow issue",
+                  "workflowStateId": "%s"
+                }
+                """.formatted(projectId, reviewStateId),
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.workflowState.id").value(reviewStateId))
+                .andExpect(jsonPath("$.workflowState.name").value("Review"))
+                .andReturnJson();
+
+        JsonNode reviewIssues = getIssues(owner, projectId, null, null, null, null, null, reviewStateId)
+                .andExpect(status().isOk())
+                .andReturnJson();
+        assertThat(issueTitles(reviewIssues)).containsExactly("Review workflow issue");
+
+        String defaultIssueId = defaultIssue.get("id").asText();
+        patchJson(
+                "/api/issues/%s".formatted(defaultIssueId),
+                """
+                {
+                  "workflowStateId": "%s"
+                }
+                """.formatted(reviewStateId),
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.workflowState.name").value("Review"));
+
+        mockMvc.perform(get("/api/issues/{issueId}/activities", defaultIssueId)
+                        .header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].eventType").value("ISSUE_CREATED"))
+                .andExpect(jsonPath("$[1].eventType").value("ISSUE_STATUS_CHANGED"))
+                .andExpect(jsonPath("$[1].metadata.fromStatus").value("Todo"))
+                .andExpect(jsonPath("$[1].metadata.toStatus").value("Review"))
+                .andExpect(jsonPath("$[1].metadata.toWorkflowStateId").value(reviewStateId));
+
+        patchJson(
+                "/api/issues/%s".formatted(reviewIssue.get("id").asText()),
+                """
+                {
+                  "status": "ARCHIVED"
+                }
+                """,
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ARCHIVED"))
+                .andExpect(jsonPath("$.workflowState.name").value("Review"))
+                .andExpect(jsonPath("$.archivedAt").isString());
+
+        JsonNode activeIssues = getIssues(owner, projectId)
+                .andExpect(status().isOk())
+                .andReturnJson();
+        assertThat(issueTitles(activeIssues)).containsExactly("Default workflow issue");
+
+        JsonNode archivedIssues = getIssues(owner, projectId, "ARCHIVED", null, null)
+                .andExpect(status().isOk())
+                .andReturnJson();
+        assertThat(issueTitles(archivedIssues)).containsExactly("Review workflow issue");
+
+        postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Cross project workflow state",
+                  "workflowStateId": "%s"
+                }
+                """.formatted(projectId, otherProjectStateId),
+                owner.accessToken()
+        ).andExpect(status().isNotFound());
+
+        patchJson(
+                "/api/issues/%s".formatted(defaultIssueId),
+                """
+                {
+                  "workflowStateId": "%s"
+                }
+                """.formatted(UUID.randomUUID()),
+                owner.accessToken()
+        ).andExpect(status().isNotFound());
+    }
+
+    @Test
     void rejectsCrossWorkspaceProjectAndIssueAccess() throws Exception {
         AuthSession owner = register("owner+" + uniqueId() + "@example.com");
         AuthSession outsider = register("outsider+" + uniqueId() + "@example.com");
@@ -1107,6 +1475,48 @@ class ProjectIssueWorkflowIntegrationTests {
         ).andExpect(status().isOk());
     }
 
+    private JsonNode createProjectLabel(AuthSession session, String projectId, String name, String color) throws Exception {
+        return postJson(
+                "/api/projects/%s/labels".formatted(projectId),
+                """
+                {
+                  "name": "%s",
+                  "color": "%s"
+                }
+                """.formatted(name, color),
+                session.accessToken()
+        ).andExpect(status().isOk())
+                .andReturnJson();
+    }
+
+    private JsonNode createProjectWorkflowState(
+            AuthSession session,
+            String projectId,
+            String name,
+            String category
+    ) throws Exception {
+        return postJson(
+                "/api/projects/%s/workflow-states".formatted(projectId),
+                """
+                {
+                  "name": "%s",
+                  "category": "%s"
+                }
+                """.formatted(name, category),
+                session.accessToken()
+        ).andExpect(status().isOk())
+                .andReturnJson();
+    }
+
+    private JsonNode workflowStates(AuthSession session, String projectId) throws Exception {
+        MvcResult result = mockMvc.perform(get("/api/projects/{projectId}/workflow-states", projectId)
+                        .header("Authorization", bearer(session.accessToken())))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        return objectMapper.readTree(result.getResponse().getContentAsString());
+    }
+
     private AuthSession createWorkspaceMember(AuthSession ownerSession, String email) {
         User owner = userRepository.findByEmail(ownerSession.email()).orElseThrow();
         Workspace workspace = workspaceRepository.findFirstByOwner_IdOrderByCreatedAtAsc(owner.getId()).orElseThrow();
@@ -1189,6 +1599,31 @@ class ProjectIssueWorkflowIntegrationTests {
             String query,
             String assigneeUserId
     ) throws Exception {
+        return getIssues(session, projectId, status, priority, query, assigneeUserId, null);
+    }
+
+    private ResultActionsWithJson getIssues(
+            AuthSession session,
+            String projectId,
+            String status,
+            String priority,
+            String query,
+            String assigneeUserId,
+            String labelId
+    ) throws Exception {
+        return getIssues(session, projectId, status, priority, query, assigneeUserId, labelId, null);
+    }
+
+    private ResultActionsWithJson getIssues(
+            AuthSession session,
+            String projectId,
+            String status,
+            String priority,
+            String query,
+            String assigneeUserId,
+            String labelId,
+            String workflowStateId
+    ) throws Exception {
         var request = get("/api/issues")
                 .queryParam("projectId", projectId)
                 .header("Authorization", bearer(session.accessToken()));
@@ -1204,6 +1639,12 @@ class ProjectIssueWorkflowIntegrationTests {
         }
         if (assigneeUserId != null) {
             request.queryParam("assigneeUserId", assigneeUserId);
+        }
+        if (labelId != null) {
+            request.queryParam("labelId", labelId);
+        }
+        if (workflowStateId != null) {
+            request.queryParam("workflowStateId", workflowStateId);
         }
 
         return new ResultActionsWithJson(mockMvc.perform(request));

@@ -2,8 +2,12 @@ package com.vokyo.backend.project;
 
 import com.vokyo.backend.project.dto.CreateProjectRequest;
 import com.vokyo.backend.project.dto.AddProjectMemberRequest;
+import com.vokyo.backend.project.dto.CreateProjectLabelRequest;
+import com.vokyo.backend.project.dto.CreateProjectWorkflowStateRequest;
+import com.vokyo.backend.project.dto.ProjectLabelResponse;
 import com.vokyo.backend.project.dto.ProjectMemberResponse;
 import com.vokyo.backend.project.dto.ProjectResponse;
+import com.vokyo.backend.project.dto.ProjectWorkflowStateResponse;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -63,5 +67,39 @@ public class ProjectController {
             @Valid @RequestBody AddProjectMemberRequest request
     ) {
         return projectService.addProjectMember(jwt, projectId, request);
+    }
+
+    @GetMapping("/{projectId}/labels")
+    public List<ProjectLabelResponse> listProjectLabels(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID projectId
+    ) {
+        return projectService.listProjectLabels(jwt, projectId);
+    }
+
+    @PostMapping("/{projectId}/labels")
+    public ProjectLabelResponse createProjectLabel(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID projectId,
+            @Valid @RequestBody CreateProjectLabelRequest request
+    ) {
+        return projectService.createProjectLabel(jwt, projectId, request);
+    }
+
+    @GetMapping("/{projectId}/workflow-states")
+    public List<ProjectWorkflowStateResponse> listProjectWorkflowStates(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID projectId
+    ) {
+        return projectService.listProjectWorkflowStates(jwt, projectId);
+    }
+
+    @PostMapping("/{projectId}/workflow-states")
+    public ProjectWorkflowStateResponse createProjectWorkflowState(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID projectId,
+            @Valid @RequestBody CreateProjectWorkflowStateRequest request
+    ) {
+        return projectService.createProjectWorkflowState(jwt, projectId, request);
     }
 }

@@ -1,12 +1,17 @@
 package com.vokyo.backend.issue;
 
 import com.vokyo.backend.project.Project;
+import com.vokyo.backend.project.ProjectLabel;
+import com.vokyo.backend.project.ProjectWorkflowState;
 import com.vokyo.backend.user.User;
 import com.vokyo.backend.workspace.Workspace;
 import jakarta.persistence.*;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Collection;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.UUID;
 
 @Entity
@@ -35,9 +40,22 @@ public class Issue {
     @Column(columnDefinition = "text")
     private String description;
 
+    @ManyToMany
+    @JoinTable(
+            name = "issue_labels",
+            joinColumns = @JoinColumn(name = "issue_id"),
+            inverseJoinColumns = @JoinColumn(name = "label_id")
+    )
+    @OrderBy("name asc")
+    private Set<ProjectLabel> labels = new LinkedHashSet<>();
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "assignee_user_id")
     private User assigneeUser;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "workflow_state_id", nullable = false)
+    private ProjectWorkflowState workflowState;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
@@ -56,6 +74,9 @@ public class Issue {
     @Column(name = "due_date")
     private LocalDate dueDate;
 
+    @Column(name = "archived_at")
+    private Instant archivedAt;
+
     protected Issue() {
     }
 
@@ -66,7 +87,7 @@ public class Issue {
             String title,
             String description,
             User assigneeUser,
-            IssueStatus status,
+            ProjectWorkflowState workflowState,
             IssuePriority priority,
             LocalDate dueDate
     ) {
@@ -76,7 +97,8 @@ public class Issue {
         this.title = title;
         this.description = description;
         this.assigneeUser = assigneeUser;
-        this.status = status == null ? IssueStatus.TODO : status;
+        this.workflowState = workflowState;
+        this.status = statusFromWorkflowState(workflowState);
         this.priority = priority;
         this.dueDate = dueDate;
     }
@@ -87,8 +109,8 @@ public class Issue {
         this.createdAt = now;
         this.updatedAt = now;
 
-        if (this.status == null) {
-            this.status = IssueStatus.TODO;
+        if (this.status == null && this.workflowState != null) {
+            this.status = statusFromWorkflowState(this.workflowState);
         }
     }
 
@@ -121,12 +143,20 @@ public class Issue {
         return description;
     }
 
+    public Set<ProjectLabel> getLabels() {
+        return labels;
+    }
+
     public User getAssigneeUser() {
         return assigneeUser;
     }
 
     public IssueStatus getStatus() {
-        return status;
+        return archivedAt == null ? status : IssueStatus.ARCHIVED;
+    }
+
+    public ProjectWorkflowState getWorkflowState() {
+        return workflowState;
     }
 
     public IssuePriority getPriority() {
@@ -145,6 +175,10 @@ public class Issue {
         return dueDate;
     }
 
+    public Instant getArchivedAt() {
+        return archivedAt;
+    }
+
     public void rename(String title) {
         this.title = title;
     }
@@ -153,12 +187,32 @@ public class Issue {
         this.description = description;
     }
 
+    public void replaceLabels(Collection<ProjectLabel> labels) {
+        this.labels.clear();
+        this.labels.addAll(labels);
+    }
+
     public void assignTo(User assigneeUser) {
         this.assigneeUser = assigneeUser;
     }
 
-    public void changeStatus(IssueStatus status) {
-        this.status = status;
+    public void changeWorkflowState(ProjectWorkflowState workflowState) {
+        this.workflowState = workflowState;
+        if (this.archivedAt == null) {
+            this.status = statusFromWorkflowState(workflowState);
+        }
+    }
+
+    public void archive() {
+        if (this.archivedAt == null) {
+            this.archivedAt = Instant.now();
+        }
+        this.status = IssueStatus.ARCHIVED;
+    }
+
+    public void unarchive() {
+        this.archivedAt = null;
+        this.status = statusFromWorkflowState(this.workflowState);
     }
 
     public void changePriority(IssuePriority priority) {
@@ -167,5 +221,13 @@ public class Issue {
 
     public void changeDueDate(LocalDate dueDate) {
         this.dueDate = dueDate;
+    }
+
+    private IssueStatus statusFromWorkflowState(ProjectWorkflowState workflowState) {
+        if (workflowState == null) {
+            return IssueStatus.TODO;
+        }
+
+        return workflowState.getCategory().toIssueStatus();
     }
 }

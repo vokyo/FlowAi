@@ -32,6 +32,27 @@ export type WorkspaceMember = {
   joinedAt: string
 }
 
+export type ProjectLabel = {
+  id: string
+  projectId: string
+  name: string
+  color: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type WorkflowStateCategory = 'TODO' | 'IN_PROGRESS' | 'DONE' | string
+
+export type ProjectWorkflowState = {
+  id: string
+  projectId: string
+  name: string
+  category: WorkflowStateCategory
+  position: number
+  createdAt: string
+  updatedAt: string
+}
+
 export type IssueStatus = 'TODO' | 'IN_PROGRESS' | 'DONE' | 'ARCHIVED' | string
 export type IssuePriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT' | string
 
@@ -41,11 +62,14 @@ export type IssueSummary = {
   title: string
   description?: string | null
   status: IssueStatus
+  workflowState: ProjectWorkflowState
   priority?: IssuePriority | null
+  labels: ProjectLabel[]
   creator: AuthUser
   reporter?: AuthUser | null
   assignee?: AuthUser | null
   dueDate?: string | null
+  archivedAt?: string | null
   createdAt: string
   updatedAt: string
   commentCount?: number | null
@@ -92,12 +116,24 @@ export type AddProjectMemberRequest = {
   role: 'MEMBER'
 }
 
+export type CreateProjectLabelRequest = {
+  name: string
+  color?: string
+}
+
+export type CreateProjectWorkflowStateRequest = {
+  name: string
+  category: WorkflowStateCategory
+}
+
 export type CreateIssueRequest = {
   projectId: string
   title: string
   description?: string
   status?: IssueStatus
+  workflowStateId?: string
   priority?: IssuePriority | null
+  labelIds?: string[]
   assigneeUserId?: string | null
   dueDate?: string | null
 }
@@ -110,15 +146,19 @@ export type UpdateIssueRequest = {
   title?: string
   description?: string | null
   status?: IssueStatus
+  workflowStateId?: string
   priority?: IssuePriority | null
+  labelIds?: string[]
   assigneeUserId?: string | null
   dueDate?: string | null
 }
 
 export type ListIssuesFilters = {
   status?: IssueStatus
+  workflowStateId?: string
   priority?: IssuePriority
   assigneeUserId?: string
+  labelId?: string
   q?: string
 }
 
@@ -146,17 +186,42 @@ export function listWorkspaceMembers() {
   return api.get<WorkspaceMember[]>('/workspaces/current/members')
 }
 
+export function listProjectLabels(projectId: string) {
+  return api.get<ProjectLabel[]>(`/projects/${projectId}/labels`)
+}
+
+export function createProjectLabel(projectId: string, request: CreateProjectLabelRequest) {
+  return api.post<ProjectLabel>(`/projects/${projectId}/labels`, request)
+}
+
+export function listProjectWorkflowStates(projectId: string) {
+  return api.get<ProjectWorkflowState[]>(`/projects/${projectId}/workflow-states`)
+}
+
+export function createProjectWorkflowState(
+  projectId: string,
+  request: CreateProjectWorkflowStateRequest,
+) {
+  return api.post<ProjectWorkflowState>(`/projects/${projectId}/workflow-states`, request)
+}
+
 export function listIssues(projectId: string, filters: ListIssuesFilters = {}) {
   const params = new URLSearchParams({ projectId })
 
   if (filters.status) {
     params.set('status', filters.status)
   }
+  if (filters.workflowStateId) {
+    params.set('workflowStateId', filters.workflowStateId)
+  }
   if (filters.priority) {
     params.set('priority', filters.priority)
   }
   if (filters.assigneeUserId) {
     params.set('assigneeUserId', filters.assigneeUserId)
+  }
+  if (filters.labelId) {
+    params.set('labelId', filters.labelId)
   }
   if (filters.q) {
     params.set('q', filters.q)

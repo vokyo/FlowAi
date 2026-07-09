@@ -155,9 +155,12 @@
 .property-row span,
 .app-pill,
 .priority-badge,
+.label-badge,
 .issue-comment-count,
 .status-section-actions,
 .issue-modal-chip,
+.issue-modal-section-title,
+.label-toggle,
 .modal-actions,
 .issue-modal-footer {
   display: flex;
@@ -475,7 +478,7 @@
 }
 
 .issue-filter-bar {
-  grid-template-columns: minmax(220px, 1fr) minmax(120px, 160px) minmax(130px, 170px) minmax(150px, 190px) auto;
+  grid-template-columns: minmax(220px, 1fr) minmax(118px, 150px) minmax(128px, 160px) minmax(140px, 170px) minmax(150px, 190px) auto;
 }
 
 .issue-search-field {
@@ -534,7 +537,8 @@
 }
 
 .app-pill,
-.priority-badge {
+.priority-badge,
+.label-badge {
   width: fit-content;
   max-width: 100%;
   gap: 6px;
@@ -555,6 +559,24 @@
 
 .priority-badge-empty {
   color: var(--muted-foreground);
+}
+
+.label-badge {
+  background: color-mix(in oklch, var(--muted), transparent 46%);
+}
+
+.label-swatch {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+}
+
+.issue-label-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
 }
 
 .status-list {
@@ -1051,6 +1073,67 @@
   padding-inline: 0;
 }
 
+.issue-modal-label-section {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.issue-modal-section-title {
+  gap: 7px;
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.issue-modal-section-title svg {
+  width: 14px;
+  height: 14px;
+  color: var(--muted-foreground);
+}
+
+.label-toggle-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-width: 0;
+}
+
+.label-toggle-list-inline {
+  max-height: 92px;
+  overflow: auto;
+}
+
+.label-toggle {
+  gap: 6px;
+  max-width: 100%;
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.label-toggle input {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.issue-modal-label-create {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) 72px auto;
+  gap: 9px;
+  align-items: end;
+  min-width: 0;
+}
+
+.app-field-color input {
+  min-width: 0;
+  padding: 4px;
+}
+
 .issue-modal-footer {
   justify-content: space-between;
   gap: 12px;
@@ -1239,6 +1322,10 @@
   .project-member-add-form {
     grid-template-columns: 1fr;
     align-items: stretch;
+  }
+
+  .issue-modal-label-create {
+    grid-template-columns: 1fr;
   }
 
   .project-member-row {

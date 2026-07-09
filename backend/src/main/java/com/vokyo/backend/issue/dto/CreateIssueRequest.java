@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 public record CreateIssueRequest(
@@ -20,7 +21,11 @@ public record CreateIssueRequest(
         @Size(max = 10000)
         String description,
 
+        List<UUID> labelIds,
+
         UUID assigneeUserId,
+
+        UUID workflowStateId,
 
         IssueStatus status,
 

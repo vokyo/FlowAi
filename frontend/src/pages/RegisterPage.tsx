@@ -1,5 +1,8 @@
-import { useState, type FormEvent } from 'react'
+import { useState } from 'react'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useForm } from 'react-hook-form'
 import { Link, Navigate, useNavigate } from 'react-router'
+import { z } from 'zod'
 import { ArrowRight, Loader2 } from 'lucide-react'
 import { ApiError } from '@/api/client'
 import { register } from '@/auth/auth-api'
@@ -11,33 +14,54 @@ type RegisterPageProps = {
   onAuthenticated: () => void
 }
 
+const registerFormSchema = z.object({
+  displayName: z.string().refine((value) => value.trim().length > 0, {
+    message: 'Name is required.',
+  }),
+  email: z.string().min(1, 'Email is required.').email('Enter a valid email address.'),
+  password: z.string().min(8, 'Password must be at least 8 characters.'),
+  workspaceName: z.string().refine((value) => value.trim().length > 0, {
+    message: 'Workspace is required.',
+  }),
+})
+
+type RegisterFormValues = z.infer<typeof registerFormSchema>
+
 export function RegisterPage({
   isAuthenticated,
   onAuthenticated,
 }: RegisterPageProps) {
   const navigate = useNavigate()
-  const [displayName, setDisplayName] = useState('')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [workspaceName, setWorkspaceName] = useState('FlowAI Workspace')
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const {
+    register: registerField,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<RegisterFormValues>({
+    resolver: zodResolver(registerFormSchema),
+    defaultValues: {
+      displayName: '',
+      email: '',
+      password: '',
+      workspaceName: 'FlowAI Workspace',
+    },
+  })
 
   if (isAuthenticated) {
     return <Navigate to="/app" replace />
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
+  async function submitRegisterForm(values: RegisterFormValues) {
     setError(null)
     setIsSubmitting(true)
 
     try {
       const response = await register({
-        displayName,
-        email,
-        password,
-        workspaceName,
+        displayName: values.displayName.trim(),
+        email: values.email.trim(),
+        password: values.password,
+        workspaceName: values.workspaceName.trim(),
       })
       saveAuthTokens(response)
       onAuthenticated()
@@ -54,51 +78,48 @@ export function RegisterPage({
       <section className="auth-panel auth-panel-wide">
         <p className="auth-eyebrow">FlowAI</p>
         <h1 className="auth-title">Create account</h1>
-        <form className="auth-form" onSubmit={handleSubmit}>
+        <form className="auth-form" onSubmit={handleSubmit(submitRegisterForm)} noValidate>
           <label className="auth-field">
             <span>Name</span>
             <input
               autoComplete="name"
-              name="displayName"
-              onChange={(event) => setDisplayName(event.target.value)}
-              required
               type="text"
-              value={displayName}
+              {...registerField('displayName')}
             />
           </label>
+          {errors.displayName?.message ? (
+            <p className="auth-error">{errors.displayName.message}</p>
+          ) : null}
           <label className="auth-field">
             <span>Email</span>
             <input
               autoComplete="email"
-              name="email"
-              onChange={(event) => setEmail(event.target.value)}
-              required
               type="email"
-              value={email}
+              {...registerField('email')}
             />
           </label>
+          {errors.email?.message ? <p className="auth-error">{errors.email.message}</p> : null}
           <label className="auth-field">
             <span>Password</span>
             <input
               autoComplete="new-password"
-              minLength={8}
-              name="password"
-              onChange={(event) => setPassword(event.target.value)}
-              required
               type="password"
-              value={password}
+              {...registerField('password')}
             />
           </label>
+          {errors.password?.message ? (
+            <p className="auth-error">{errors.password.message}</p>
+          ) : null}
           <label className="auth-field">
             <span>Workspace</span>
             <input
-              name="workspaceName"
-              onChange={(event) => setWorkspaceName(event.target.value)}
-              required
               type="text"
-              value={workspaceName}
+              {...registerField('workspaceName')}
             />
           </label>
+          {errors.workspaceName?.message ? (
+            <p className="auth-error">{errors.workspaceName.message}</p>
+          ) : null}
           {error ? <p className="auth-error">{error}</p> : null}
           <Button className="auth-submit" disabled={isSubmitting} type="submit">
             {isSubmitting ? (
