@@ -6,6 +6,7 @@ import com.vokyo.backend.workspace.Workspace;
 import jakarta.persistence.*;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 @Entity
@@ -34,6 +35,10 @@ public class Issue {
     @Column(columnDefinition = "text")
     private String description;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "assignee_user_id")
+    private User assigneeUser;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private IssueStatus status;
@@ -48,6 +53,9 @@ public class Issue {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "due_date")
+    private LocalDate dueDate;
+
     protected Issue() {
     }
 
@@ -57,16 +65,20 @@ public class Issue {
             User createdByUser,
             String title,
             String description,
+            User assigneeUser,
             IssueStatus status,
-            IssuePriority priority
+            IssuePriority priority,
+            LocalDate dueDate
     ) {
         this.workspace = workspace;
         this.project = project;
         this.createdByUser = createdByUser;
         this.title = title;
         this.description = description;
+        this.assigneeUser = assigneeUser;
         this.status = status == null ? IssueStatus.TODO : status;
         this.priority = priority;
+        this.dueDate = dueDate;
     }
 
     @PrePersist
@@ -109,6 +121,10 @@ public class Issue {
         return description;
     }
 
+    public User getAssigneeUser() {
+        return assigneeUser;
+    }
+
     public IssueStatus getStatus() {
         return status;
     }
@@ -125,6 +141,10 @@ public class Issue {
         return updatedAt;
     }
 
+    public LocalDate getDueDate() {
+        return dueDate;
+    }
+
     public void rename(String title) {
         this.title = title;
     }
@@ -133,11 +153,19 @@ public class Issue {
         this.description = description;
     }
 
+    public void assignTo(User assigneeUser) {
+        this.assigneeUser = assigneeUser;
+    }
+
     public void changeStatus(IssueStatus status) {
         this.status = status;
     }
 
     public void changePriority(IssuePriority priority) {
         this.priority = priority;
+    }
+
+    public void changeDueDate(LocalDate dueDate) {
+        this.dueDate = dueDate;
     }
 }

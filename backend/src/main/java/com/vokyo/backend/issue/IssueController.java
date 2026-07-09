@@ -31,9 +31,10 @@ public class IssueController {
             @RequestParam UUID projectId,
             @RequestParam(required = false) IssueStatus status,
             @RequestParam(required = false) IssuePriority priority,
+            @RequestParam(required = false) UUID assigneeUserId,
             @RequestParam(required = false) String q
     ) {
-        return issueService.listIssues(jwt, projectId, status, priority, q);
+        return issueService.listIssues(jwt, projectId, status, priority, assigneeUserId, q);
     }
 
     @PostMapping

@@ -44,6 +44,8 @@ export type IssueSummary = {
   priority?: IssuePriority | null
   creator: AuthUser
   reporter?: AuthUser | null
+  assignee?: AuthUser | null
+  dueDate?: string | null
   createdAt: string
   updatedAt: string
   commentCount?: number | null
@@ -66,6 +68,10 @@ export type ActivityEventType =
   | 'ISSUE_CREATED'
   | 'COMMENT_CREATED'
   | 'ISSUE_STATUS_CHANGED'
+  | 'ISSUE_TITLE_CHANGED'
+  | 'ISSUE_PRIORITY_CHANGED'
+  | 'ISSUE_ASSIGNEE_CHANGED'
+  | 'ISSUE_DUE_DATE_CHANGED'
   | string
 
 export type ActivityEvent = {
@@ -92,6 +98,8 @@ export type CreateIssueRequest = {
   description?: string
   status?: IssueStatus
   priority?: IssuePriority | null
+  assigneeUserId?: string | null
+  dueDate?: string | null
 }
 
 export type CreateCommentRequest = {
@@ -103,11 +111,14 @@ export type UpdateIssueRequest = {
   description?: string | null
   status?: IssueStatus
   priority?: IssuePriority | null
+  assigneeUserId?: string | null
+  dueDate?: string | null
 }
 
 export type ListIssuesFilters = {
   status?: IssueStatus
   priority?: IssuePriority
+  assigneeUserId?: string
   q?: string
 }
 
@@ -143,6 +154,9 @@ export function listIssues(projectId: string, filters: ListIssuesFilters = {}) {
   }
   if (filters.priority) {
     params.set('priority', filters.priority)
+  }
+  if (filters.assigneeUserId) {
+    params.set('assigneeUserId', filters.assigneeUserId)
   }
   if (filters.q) {
     params.set('q', filters.q)

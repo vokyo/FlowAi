@@ -3,6 +3,7 @@ package com.vokyo.backend.issue.dto;
 import com.vokyo.backend.auth.dto.UserResponse;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 public record IssueSummaryResponse(
@@ -13,6 +14,8 @@ public record IssueSummaryResponse(
         String status,
         String priority,
         UserResponse creator,
+        UserResponse assignee,
+        LocalDate dueDate,
         Instant createdAt,
         Instant updatedAt,
         long commentCount

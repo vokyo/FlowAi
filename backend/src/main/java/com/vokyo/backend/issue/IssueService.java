@@ -23,8 +23,11 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import jakarta.persistence.criteria.Predicate;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -60,6 +63,7 @@ public class IssueService {
             UUID projectId,
             IssueStatus status,
             IssuePriority priority,
+            UUID assigneeUserId,
             String query
     ) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
@@ -72,6 +76,7 @@ public class IssueService {
                         projectId,
                         status,
                         priority,
+                        assigneeUserId,
                         normalizedQuery
                 ),
                 Sort.by(Sort.Direction.DESC, "createdAt")
@@ -91,6 +96,7 @@ public class IssueService {
         if (request.status() == IssueStatus.ARCHIVED) {
             throw badRequest("Issue cannot be created as archived");
         }
+        User assignee = resolveAssignee(project, request.assigneeUserId());
 
         Issue issue = issueRepository.save(new Issue(
                 context.workspace(),
@@ -98,8 +104,10 @@ public class IssueService {
                 context.user(),
                 request.title().trim(),
                 normalizeOptionalText(request.description()),
+                assignee,
                 request.status(),
-                request.priority()
+                request.priority(),
+                request.dueDate()
         ));
 
         activityService.recordIssueCreated(issue, context.user());
@@ -154,6 +162,7 @@ public class IssueService {
             UUID projectId,
             IssueStatus status,
             IssuePriority priority,
+            UUID assigneeUserId,
             String query
     ) {
         return (root, criteriaQuery, criteriaBuilder) -> {
@@ -169,6 +178,10 @@ public class IssueService {
 
             if (priority != null) {
                 predicates.add(criteriaBuilder.equal(root.get("priority"), priority));
+            }
+
+            if (assigneeUserId != null) {
+                predicates.add(criteriaBuilder.equal(root.get("assigneeUser").get("id"), assigneeUserId));
             }
 
             if (query != null) {
@@ -210,6 +223,8 @@ public class IssueService {
                 issue.getStatus().name(),
                 issue.getPriority() == null ? null : issue.getPriority().name(),
                 toUserResponse(issue.getCreatedByUser()),
+                issue.getAssigneeUser() == null ? null : toUserResponse(issue.getAssigneeUser()),
+                issue.getDueDate(),
                 issue.getCreatedAt(),
                 issue.getUpdatedAt(),
                 commentCount
@@ -225,6 +240,8 @@ public class IssueService {
                 issue.getStatus().name(),
                 issue.getPriority() == null ? null : issue.getPriority().name(),
                 toUserResponse(issue.getCreatedByUser()),
+                issue.getAssigneeUser() == null ? null : toUserResponse(issue.getAssigneeUser()),
+                issue.getDueDate(),
                 issue.getCreatedAt(),
                 issue.getUpdatedAt(),
                 comments
@@ -254,6 +271,14 @@ public class IssueService {
         return value.trim();
     }
 
+    private User resolveAssignee(Project project, UUID assigneeUserId) {
+        if (assigneeUserId == null) {
+            return null;
+        }
+
+        return projectAccessService.requireActiveProjectMemberUser(project, assigneeUserId);
+    }
+
     @Transactional
     public IssueDetailResponse updateIssue(Jwt jwt, UUID issueId, JsonNode request) {
         if (request == null || !request.isObject()) {
@@ -263,7 +288,11 @@ public class IssueService {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Issue issue = requireIssue(issueId, context.workspace().getId());
         projectAccessService.requireIssueProjectAccess(issue, context);
+        String previousTitle = issue.getTitle();
         IssueStatus previousStatus = issue.getStatus();
+        IssuePriority previousPriority = issue.getPriority();
+        User previousAssignee = issue.getAssigneeUser();
+        LocalDate previousDueDate = issue.getDueDate();
 
         if (request.has("title")) {
             String title = requiredText(request, "title", "Title is required").trim();
@@ -289,6 +318,19 @@ public class IssueService {
             }
         }
 
+        if (request.has("assigneeUserId")) {
+            JsonNode assigneeUserId = request.get("assigneeUserId");
+            if (assigneeUserId.isNull()) {
+                issue.assignTo(null);
+            } else {
+                issue.assignTo(resolveAssignee(issue.getProject(), requiredUuid(
+                        request,
+                        "assigneeUserId",
+                        "Assignee is invalid"
+                )));
+            }
+        }
+
         IssueStatus requestedStatus = null;
         if (request.has("status")) {
             requestedStatus = requiredEnum(request, "status", IssueStatus.class, "Status is required");
@@ -304,12 +346,57 @@ public class IssueService {
             }
         }
 
+        if (request.has("dueDate")) {
+            JsonNode dueDate = request.get("dueDate");
+            if (dueDate.isNull()) {
+                issue.changeDueDate(null);
+            } else {
+                issue.changeDueDate(requiredLocalDate(request, "dueDate", "Due date is invalid"));
+            }
+        }
+
+        if (!Objects.equals(previousTitle, issue.getTitle())) {
+            activityService.recordIssueTitleChanged(
+                    issue,
+                    context.user(),
+                    previousTitle,
+                    issue.getTitle()
+            );
+        }
+
         if (requestedStatus != null && previousStatus != requestedStatus) {
             activityService.recordIssueStatusChanged(
                     issue,
                     context.user(),
                     previousStatus,
                     requestedStatus
+            );
+        }
+
+        if (!Objects.equals(previousPriority, issue.getPriority())) {
+            activityService.recordIssuePriorityChanged(
+                    issue,
+                    context.user(),
+                    previousPriority,
+                    issue.getPriority()
+            );
+        }
+
+        if (!Objects.equals(userId(previousAssignee), userId(issue.getAssigneeUser()))) {
+            activityService.recordIssueAssigneeChanged(
+                    issue,
+                    context.user(),
+                    previousAssignee,
+                    issue.getAssigneeUser()
+            );
+        }
+
+        if (!Objects.equals(previousDueDate, issue.getDueDate())) {
+            activityService.recordIssueDueDateChanged(
+                    issue,
+                    context.user(),
+                    previousDueDate,
+                    issue.getDueDate()
             );
         }
 
@@ -328,6 +415,28 @@ public class IssueService {
         }
 
         return value.asText();
+    }
+
+    private UUID requiredUuid(JsonNode request, String fieldName, String message) {
+        String value = requiredText(request, fieldName, message);
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(message);
+        }
+    }
+
+    private LocalDate requiredLocalDate(JsonNode request, String fieldName, String message) {
+        String value = requiredText(request, fieldName, message);
+        try {
+            return LocalDate.parse(value);
+        } catch (DateTimeParseException exception) {
+            throw badRequest(message);
+        }
+    }
+
+    private UUID userId(User user) {
+        return user == null ? null : user.getId();
     }
 
     private <E extends Enum<E>> E requiredEnum(

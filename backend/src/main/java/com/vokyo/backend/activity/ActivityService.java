@@ -4,12 +4,14 @@ import com.vokyo.backend.activity.dto.ActivityEventResponse;
 import com.vokyo.backend.auth.dto.UserResponse;
 import com.vokyo.backend.issue.Issue;
 import com.vokyo.backend.issue.IssueComment;
+import com.vokyo.backend.issue.IssuePriority;
 import com.vokyo.backend.issue.IssueStatus;
 import com.vokyo.backend.project.Project;
 import com.vokyo.backend.user.User;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -117,5 +119,113 @@ public class ActivityService {
                         "toStatus", toStatus.name()
                 )
         ));
+    }
+
+    @Transactional
+    public void recordIssueTitleChanged(
+            Issue issue,
+            User actor,
+            String fromTitle,
+            String toTitle
+    ) {
+        activityEventRepository.save(new ActivityEvent(
+                issue.getWorkspace(),
+                issue.getProject(),
+                issue,
+                actor,
+                ActivityEventType.ISSUE_TITLE_CHANGED,
+                metadata(
+                        "issueId", issue.getId(),
+                        "fromTitle", fromTitle,
+                        "toTitle", toTitle
+                )
+        ));
+    }
+
+    @Transactional
+    public void recordIssuePriorityChanged(
+            Issue issue,
+            User actor,
+            IssuePriority fromPriority,
+            IssuePriority toPriority
+    ) {
+        activityEventRepository.save(new ActivityEvent(
+                issue.getWorkspace(),
+                issue.getProject(),
+                issue,
+                actor,
+                ActivityEventType.ISSUE_PRIORITY_CHANGED,
+                metadata(
+                        "issueId", issue.getId(),
+                        "fromPriority", nullableName(fromPriority),
+                        "toPriority", nullableName(toPriority)
+                )
+        ));
+    }
+
+    @Transactional
+    public void recordIssueAssigneeChanged(
+            Issue issue,
+            User actor,
+            User fromAssignee,
+            User toAssignee
+    ) {
+        activityEventRepository.save(new ActivityEvent(
+                issue.getWorkspace(),
+                issue.getProject(),
+                issue,
+                actor,
+                ActivityEventType.ISSUE_ASSIGNEE_CHANGED,
+                metadata(
+                        "issueId", issue.getId(),
+                        "fromAssigneeUserId", nullableId(fromAssignee),
+                        "fromAssigneeName", nullableDisplayName(fromAssignee),
+                        "toAssigneeUserId", nullableId(toAssignee),
+                        "toAssigneeName", nullableDisplayName(toAssignee)
+                )
+        ));
+    }
+
+    @Transactional
+    public void recordIssueDueDateChanged(
+            Issue issue,
+            User actor,
+            LocalDate fromDueDate,
+            LocalDate toDueDate
+    ) {
+        activityEventRepository.save(new ActivityEvent(
+                issue.getWorkspace(),
+                issue.getProject(),
+                issue,
+                actor,
+                ActivityEventType.ISSUE_DUE_DATE_CHANGED,
+                metadata(
+                        "issueId", issue.getId(),
+                        "fromDueDate", nullableString(fromDueDate),
+                        "toDueDate", nullableString(toDueDate)
+                )
+        ));
+    }
+
+    private String nullableName(Enum<?> value) {
+        return value == null ? null : value.name();
+    }
+
+    private String nullableId(User user) {
+        return user == null ? null : user.getId().toString();
+    }
+
+    private String nullableDisplayName(User user) {
+        if (user == null) {
+            return null;
+        }
+
+        return user.getDisplayName() == null || user.getDisplayName().isBlank()
+                ? user.getEmail()
+                : user.getDisplayName();
+    }
+
+    private String nullableString(Object value) {
+        return value == null ? null : value.toString();
     }
 }

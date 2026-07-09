@@ -417,6 +417,7 @@
 .app-field textarea,
 .app-field select,
 .issue-search-field input,
+.property-field input,
 .property-field select {
   width: 100%;
   min-width: 0;
@@ -434,6 +435,7 @@
 .app-field input,
 .app-field select,
 .issue-search-field input,
+.property-field input,
 .property-field select {
   min-height: 34px;
   padding: 7px 9px;
@@ -448,6 +450,7 @@
 .app-field textarea:disabled,
 .app-field select:disabled,
 .issue-search-field input:disabled,
+.property-field input:disabled,
 .property-field select:disabled {
   cursor: not-allowed;
   opacity: 0.62;
@@ -457,6 +460,7 @@
 .app-field textarea:focus,
 .app-field select:focus,
 .issue-search-field:focus-within,
+.property-field input:focus,
 .property-field select:focus {
   border-color: var(--ring);
   box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring), transparent 78%);
@@ -471,7 +475,7 @@
 }
 
 .issue-filter-bar {
-  grid-template-columns: minmax(220px, 1fr) minmax(130px, 170px) minmax(140px, 180px) auto;
+  grid-template-columns: minmax(220px, 1fr) minmax(120px, 160px) minmax(130px, 170px) minmax(150px, 190px) auto;
 }
 
 .issue-search-field {
@@ -1022,7 +1026,8 @@
   padding-right: 5px;
 }
 
-.issue-modal-chip select {
+.issue-modal-chip select,
+.issue-modal-chip input {
   max-width: 140px;
   border: 0;
   background: transparent;
@@ -1030,6 +1035,14 @@
   font: inherit;
   outline: none;
   padding: 0;
+}
+
+.issue-modal-chip input {
+  max-width: 128px;
+}
+
+.issue-modal-chip-date {
+  padding-right: 8px;
 }
 
 .issue-modal-chip-muted {

@@ -6,6 +6,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
+import java.time.LocalDate;
 import java.util.UUID;
 
 public record CreateIssueRequest(
@@ -19,8 +20,12 @@ public record CreateIssueRequest(
         @Size(max = 10000)
         String description,
 
+        UUID assigneeUserId,
+
         IssueStatus status,
 
-        IssuePriority priority
+        IssuePriority priority,
+
+        LocalDate dueDate
 ) {
 }

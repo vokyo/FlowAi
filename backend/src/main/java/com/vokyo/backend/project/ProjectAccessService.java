@@ -84,6 +84,17 @@ public class ProjectAccessService {
         );
     }
 
+    public User requireActiveProjectMemberUser(Project project, UUID userId) {
+        return projectMemberRepository.findByWorkspace_IdAndProject_IdAndUser_IdAndStatus(
+                        project.getWorkspace().getId(),
+                        project.getId(),
+                        userId,
+                        MembershipStatus.ACTIVE
+                )
+                .map(ProjectMember::getUser)
+                .orElseThrow(() -> notFound("Project member not found"));
+    }
+
     private ProjectMember requireActiveProjectMember(UUID projectId, CurrentWorkspaceContext context) {
         Project project = projectRepository.findByIdAndWorkspace_Id(projectId, context.workspace().getId())
                 .orElseThrow(() -> notFound("Project not found"));

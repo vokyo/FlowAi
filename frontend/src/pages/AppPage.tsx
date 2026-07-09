@@ -6,6 +6,7 @@ import {
   Archive,
   ArrowLeft,
   Building2,
+  CalendarDays,
   ChevronDown,
   ChevronRight,
   CheckCircle2,
@@ -117,9 +118,12 @@ export function AppPage({ onSignOut }: AppPageProps) {
   const [issueDescription, setIssueDescription] = useState('')
   const [issueStatus, setIssueStatus] = useState<IssueStatus>('TODO')
   const [issuePriority, setIssuePriority] = useState<IssuePriority | ''>('')
+  const [issueAssigneeUserId, setIssueAssigneeUserId] = useState('')
+  const [issueDueDate, setIssueDueDate] = useState('')
   const [issueSearchQuery, setIssueSearchQuery] = useState('')
   const [issueStatusFilter, setIssueStatusFilter] = useState<IssueStatusFilter>('ACTIVE')
   const [issuePriorityFilter, setIssuePriorityFilter] = useState<IssuePriority | ''>('')
+  const [issueAssigneeFilter, setIssueAssigneeFilter] = useState('')
   const [commentBody, setCommentBody] = useState('')
   const [isProjectMembersDialogOpen, setIsProjectMembersDialogOpen] = useState(false)
   const [selectedProjectMemberUserId, setSelectedProjectMemberUserId] = useState('')
@@ -176,6 +180,10 @@ export function AppPage({ onSignOut }: AppPageProps) {
 
   const projectMembers = projectMembersQuery.data ?? EMPTY_PROJECT_MEMBERS
   const workspaceMembers = workspaceMembersQuery.data ?? EMPTY_WORKSPACE_MEMBERS
+  const activeProjectMembers = useMemo(
+    () => projectMembers.filter((member) => member.status === 'ACTIVE'),
+    [projectMembers],
+  )
   const currentProjectMember = projectMembers.find(
     (member) => member.userId === currentUser?.id && member.status === 'ACTIVE',
   )
@@ -201,12 +209,14 @@ export function AppPage({ onSignOut }: AppPageProps) {
       selectedProjectId,
       issueStatusFilter,
       issuePriorityFilter,
+      issueAssigneeFilter,
       normalizedIssueSearchQuery,
     ],
     queryFn: () =>
       listIssues(selectedProjectId ?? '', {
         status: issueStatusQuery,
         priority: issuePriorityFilter || undefined,
+        assigneeUserId: issueAssigneeFilter || undefined,
         q: normalizedIssueSearchQuery || undefined,
       }),
     enabled: Boolean(canLoadCurrentWorkspace && selectedProjectId),
@@ -219,7 +229,10 @@ export function AppPage({ onSignOut }: AppPageProps) {
     [issueStatusFilter, issues],
   )
   const hasIssueFilters = Boolean(
-    normalizedIssueSearchQuery || issueStatusFilter !== 'ACTIVE' || issuePriorityFilter,
+    normalizedIssueSearchQuery ||
+      issueStatusFilter !== 'ACTIVE' ||
+      issuePriorityFilter ||
+      issueAssigneeFilter,
   )
   const selectedIssueSummary = routeIssueId
     ? issues.find((issue) => issue.id === routeIssueId) ?? null
@@ -288,6 +301,8 @@ export function AppPage({ onSignOut }: AppPageProps) {
       setIssueDescription('')
       setIssueStatus('TODO')
       setIssuePriority('')
+      setIssueAssigneeUserId('')
+      setIssueDueDate('')
       setActiveCreateDialog(null)
       await queryClient.invalidateQueries({
         queryKey: ['issues', currentWorkspaceId, issue.projectId],
@@ -362,6 +377,8 @@ export function AppPage({ onSignOut }: AppPageProps) {
     setIssueDescription('')
     setIssueStatus(getCreatableIssueStatus(status))
     setIssuePriority('')
+    setIssueAssigneeUserId('')
+    setIssueDueDate('')
     setActiveCreateDialog('issue')
   }
 
@@ -391,6 +408,7 @@ export function AppPage({ onSignOut }: AppPageProps) {
     setIssueSearchQuery('')
     setIssueStatusFilter('ACTIVE')
     setIssuePriorityFilter('')
+    setIssueAssigneeFilter('')
   }
 
   function handleProjectSelect(projectId: string) {
@@ -437,6 +455,8 @@ export function AppPage({ onSignOut }: AppPageProps) {
       description: issueDescription.trim() || undefined,
       status: issueStatus,
       priority: issuePriority || undefined,
+      assigneeUserId: issueAssigneeUserId || undefined,
+      dueDate: issueDueDate || undefined,
     })
   }
 
@@ -533,6 +553,7 @@ export function AppPage({ onSignOut }: AppPageProps) {
             issue={activeIssue}
             issueDetail={issueDetailQuery.data}
             selectedProject={selectedProject}
+            projectMembers={activeProjectMembers}
             currentWorkspace={currentWorkspace}
             currentUser={currentUser}
             activities={activities}
@@ -571,10 +592,12 @@ export function AppPage({ onSignOut }: AppPageProps) {
             issueSearchQuery={issueSearchQuery}
             issueStatusFilter={issueStatusFilter}
             issuePriorityFilter={issuePriorityFilter}
+            issueAssigneeFilter={issueAssigneeFilter}
             hasIssueFilters={hasIssueFilters}
             onIssueSearchQueryChange={setIssueSearchQuery}
             onIssueStatusFilterChange={setIssueStatusFilter}
             onIssuePriorityFilterChange={setIssuePriorityFilter}
+            onIssueAssigneeFilterChange={setIssueAssigneeFilter}
             onClearIssueFilters={clearIssueFilters}
             onOpenProjectMembers={openProjectMembersDialog}
             onOpenCreateIssue={openCreateIssueDialog}
@@ -602,10 +625,15 @@ export function AppPage({ onSignOut }: AppPageProps) {
         issueDescription={issueDescription}
         issueStatus={issueStatus}
         issuePriority={issuePriority}
+        issueAssigneeUserId={issueAssigneeUserId}
+        issueDueDate={issueDueDate}
+        projectMembers={activeProjectMembers}
         onIssueTitleChange={setIssueTitle}
         onIssueDescriptionChange={setIssueDescription}
         onIssueStatusChange={setIssueStatus}
         onIssuePriorityChange={setIssuePriority}
+        onIssueAssigneeUserIdChange={setIssueAssigneeUserId}
+        onIssueDueDateChange={setIssueDueDate}
         onSubmit={handleCreateIssue}
         onClose={closeCreateDialog}
         isSubmitting={createIssueMutation.isPending}
@@ -773,10 +801,12 @@ function ProjectIssuesView({
   issueSearchQuery,
   issueStatusFilter,
   issuePriorityFilter,
+  issueAssigneeFilter,
   hasIssueFilters,
   onIssueSearchQueryChange,
   onIssueStatusFilterChange,
   onIssuePriorityFilterChange,
+  onIssueAssigneeFilterChange,
   onClearIssueFilters,
   onOpenProjectMembers,
   onOpenCreateIssue,
@@ -795,10 +825,12 @@ function ProjectIssuesView({
   issueSearchQuery: string
   issueStatusFilter: IssueStatusFilter
   issuePriorityFilter: IssuePriority | ''
+  issueAssigneeFilter: string
   hasIssueFilters: boolean
   onIssueSearchQueryChange: (query: string) => void
   onIssueStatusFilterChange: (status: IssueStatusFilter) => void
   onIssuePriorityFilterChange: (priority: IssuePriority | '') => void
+  onIssueAssigneeFilterChange: (assigneeUserId: string) => void
   onClearIssueFilters: () => void
   onOpenProjectMembers: () => void
   onOpenCreateIssue: (status?: IssueStatus) => void
@@ -892,6 +924,21 @@ function ProjectIssuesView({
               {ISSUE_PRIORITIES.map((priority) => (
                 <option key={priority} value={priority}>
                   {PRIORITY_LABELS[priority]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="app-field">
+            Assignee
+            <select
+              value={issueAssigneeFilter}
+              onChange={(event) => onIssueAssigneeFilterChange(event.target.value)}
+              disabled={projectMembers.length === 0}
+            >
+              <option value="">Any assignee</option>
+              {projectMembers.map((member) => (
+                <option key={member.id} value={member.userId}>
+                  {member.displayName || member.email}
                 </option>
               ))}
             </select>
@@ -1015,6 +1062,16 @@ function IssueRow({
       <span className="issue-row-meta">
         <PriorityBadge priority={issue.priority} />
         <span className="issue-comment-count">
+          <UserCircle aria-hidden="true" />
+          {issue.assignee ? issue.assignee.displayName || issue.assignee.email : 'Unassigned'}
+        </span>
+        {issue.dueDate ? (
+          <span className="issue-comment-count">
+            <CalendarDays aria-hidden="true" />
+            {formatDateOnly(issue.dueDate)}
+          </span>
+        ) : null}
+        <span className="issue-comment-count">
           <MessageSquare aria-hidden="true" />
           {issue.commentCount ?? 0}
         </span>
@@ -1028,6 +1085,7 @@ function IssueDetailView({
   issue,
   issueDetail,
   selectedProject,
+  projectMembers,
   currentWorkspace,
   currentUser,
   activities,
@@ -1050,6 +1108,7 @@ function IssueDetailView({
   issue: IssueSummary | IssueDetail | null
   issueDetail: IssueDetail | undefined
   selectedProject: Project | null
+  projectMembers: ProjectMember[]
   currentWorkspace: AuthWorkspace | null
   currentUser: AuthUser | null
   activities: ActivityEvent[]
@@ -1306,6 +1365,7 @@ function IssueDetailView({
         <IssuePropertiesPanel
           issue={issue}
           selectedProject={selectedProject}
+          projectMembers={projectMembers}
           currentUser={currentUser}
           onUpdateIssue={onUpdateIssue}
           onArchiveIssue={onArchiveIssue}
@@ -1320,6 +1380,7 @@ function IssueDetailView({
 function IssuePropertiesPanel({
   issue,
   selectedProject,
+  projectMembers,
   currentUser,
   onUpdateIssue,
   onArchiveIssue,
@@ -1328,6 +1389,7 @@ function IssuePropertiesPanel({
 }: {
   issue: IssueSummary | IssueDetail
   selectedProject: Project | null
+  projectMembers: ProjectMember[]
   currentUser: AuthUser | null
   onUpdateIssue: (request: UpdateIssueRequest) => Promise<void>
   onArchiveIssue: () => Promise<void>
@@ -1378,6 +1440,38 @@ function IssuePropertiesPanel({
               </option>
             ))}
           </select>
+        </label>
+        <label className="property-field">
+          <span>Assignee</span>
+          <select
+            value={issue.assignee?.id ?? ''}
+            onChange={(event) => {
+              void onUpdateIssue({
+                assigneeUserId: event.target.value || null,
+              }).catch(() => undefined)
+            }}
+            disabled={isUpdatingIssue}
+          >
+            <option value="">Unassigned</option>
+            {projectMembers.map((member) => (
+              <option key={member.id} value={member.userId}>
+                {member.displayName || member.email}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="property-field">
+          <span>Due date</span>
+          <input
+            type="date"
+            value={issue.dueDate ?? ''}
+            onChange={(event) => {
+              void onUpdateIssue({
+                dueDate: event.target.value || null,
+              }).catch(() => undefined)
+            }}
+            disabled={isUpdatingIssue}
+          />
         </label>
         {updateIssueError ? (
           <InlineNotice tone="warning">
@@ -1539,14 +1633,19 @@ function CreateProjectDialog({
 function CreateIssueDialog({
   isOpen,
   selectedProject,
+  projectMembers,
   issueTitle,
   issueDescription,
   issueStatus,
   issuePriority,
+  issueAssigneeUserId,
+  issueDueDate,
   onIssueTitleChange,
   onIssueDescriptionChange,
   onIssueStatusChange,
   onIssuePriorityChange,
+  onIssueAssigneeUserIdChange,
+  onIssueDueDateChange,
   onSubmit,
   onClose,
   isSubmitting,
@@ -1554,14 +1653,19 @@ function CreateIssueDialog({
 }: {
   isOpen: boolean
   selectedProject: Project | null
+  projectMembers: ProjectMember[]
   issueTitle: string
   issueDescription: string
   issueStatus: IssueStatus
   issuePriority: IssuePriority | ''
+  issueAssigneeUserId: string
+  issueDueDate: string
   onIssueTitleChange: (title: string) => void
   onIssueDescriptionChange: (description: string) => void
   onIssueStatusChange: (status: IssueStatus) => void
   onIssuePriorityChange: (priority: IssuePriority | '') => void
+  onIssueAssigneeUserIdChange: (userId: string) => void
+  onIssueDueDateChange: (dueDate: string) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onClose: () => void
   isSubmitting: boolean
@@ -1628,6 +1732,32 @@ function CreateIssueDialog({
                 </option>
               ))}
             </select>
+          </label>
+          <label className="issue-modal-chip issue-modal-chip-select">
+            <UserCircle aria-hidden="true" />
+            <select
+              value={issueAssigneeUserId}
+              onChange={(event) => onIssueAssigneeUserIdChange(event.target.value)}
+              disabled={!selectedProject || projectMembers.length === 0}
+              aria-label="Assignee"
+            >
+              <option value="">Assignee</option>
+              {projectMembers.map((member) => (
+                <option key={member.id} value={member.userId}>
+                  {member.displayName || member.email}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="issue-modal-chip issue-modal-chip-date">
+            <CalendarDays aria-hidden="true" />
+            <input
+              type="date"
+              value={issueDueDate}
+              onChange={(event) => onIssueDueDateChange(event.target.value)}
+              disabled={!selectedProject}
+              aria-label="Due date"
+            />
           </label>
           <span className="issue-modal-chip">
             <FolderKanban aria-hidden="true" />
@@ -2050,6 +2180,14 @@ function formatDate(value: string) {
   }).format(new Date(value))
 }
 
+function formatDateOnly(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(new Date(`${value}T00:00:00`))
+}
+
 function formatActivity(activity: ActivityEvent) {
   const actor = activity.actor.displayName || activity.actor.email
   const metadata = activity.metadata ?? {}
@@ -2070,9 +2208,34 @@ function formatActivity(activity: ActivityEvent) {
 
       return `${actor} changed issue status`
     }
+    case 'ISSUE_TITLE_CHANGED':
+      return `${actor} renamed this issue`
+    case 'ISSUE_PRIORITY_CHANGED': {
+      const fromPriority = readMetadata(metadata, 'fromPriority')
+      const toPriority = readMetadata(metadata, 'toPriority')
+      return `${actor} changed priority from ${formatOptionalPriority(fromPriority)} to ${formatOptionalPriority(toPriority)}`
+    }
+    case 'ISSUE_ASSIGNEE_CHANGED': {
+      const fromAssignee = readMetadata(metadata, 'fromAssigneeName')
+      const toAssignee = readMetadata(metadata, 'toAssigneeName')
+      return `${actor} changed assignee from ${fromAssignee ?? 'Unassigned'} to ${toAssignee ?? 'Unassigned'}`
+    }
+    case 'ISSUE_DUE_DATE_CHANGED': {
+      const fromDueDate = readMetadata(metadata, 'fromDueDate')
+      const toDueDate = readMetadata(metadata, 'toDueDate')
+      return `${actor} changed due date from ${formatOptionalDueDate(fromDueDate)} to ${formatOptionalDueDate(toDueDate)}`
+    }
     default:
       return `${actor} recorded ${formatStatus(activity.eventType)}`
   }
+}
+
+function formatOptionalPriority(priority: string | undefined) {
+  return priority ? formatPriority(priority) : 'No priority'
+}
+
+function formatOptionalDueDate(dueDate: string | undefined) {
+  return dueDate ? formatDateOnly(dueDate) : 'No due date'
 }
 
 function readMetadata(metadata: Record<string, unknown>, key: string) {

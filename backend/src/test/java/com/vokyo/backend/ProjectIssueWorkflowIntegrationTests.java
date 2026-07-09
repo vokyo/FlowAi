@@ -309,13 +309,19 @@ class ProjectIssueWorkflowIntegrationTests {
                         .header("Authorization", bearer(session.accessToken())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].eventType").value("ISSUE_CREATED"))
-                .andExpect(jsonPath("$[1].eventType").value("ISSUE_STATUS_CHANGED"))
-                .andExpect(jsonPath("$[1].metadata.fromStatus").value("TODO"))
-                .andExpect(jsonPath("$[1].metadata.toStatus").value("DONE"));
+                .andExpect(jsonPath("$[1].eventType").value("ISSUE_TITLE_CHANGED"))
+                .andExpect(jsonPath("$[1].metadata.fromTitle").value("Move through workflow"))
+                .andExpect(jsonPath("$[1].metadata.toTitle").value("Workflow shipped"))
+                .andExpect(jsonPath("$[2].eventType").value("ISSUE_STATUS_CHANGED"))
+                .andExpect(jsonPath("$[2].metadata.fromStatus").value("TODO"))
+                .andExpect(jsonPath("$[2].metadata.toStatus").value("DONE"))
+                .andExpect(jsonPath("$[3].eventType").value("ISSUE_PRIORITY_CHANGED"))
+                .andExpect(jsonPath("$[3].metadata.fromPriority").value("LOW"))
+                .andExpect(jsonPath("$[3].metadata.toPriority").value("URGENT"));
     }
 
     @Test
-    void patchIssuePriorityOnlyDoesNotRecordStatusActivity() throws Exception {
+    void patchIssuePriorityOnlyRecordsPriorityActivityButNotStatusActivity() throws Exception {
         AuthSession session = register("patch-priority+" + uniqueId() + "@example.com");
         String projectId = createProject(session, "Priority Project").get("id").asText();
         String issueId = postJson(
@@ -349,10 +355,14 @@ class ProjectIssueWorkflowIntegrationTests {
                         .header("Authorization", bearer(session.accessToken())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].eventType").value("ISSUE_CREATED"))
-                .andExpect(jsonPath("$[1]").doesNotExist());
+                .andExpect(jsonPath("$[1].eventType").value("ISSUE_PRIORITY_CHANGED"))
+                .andExpect(jsonPath("$[1].metadata.fromPriority").value("LOW"))
+                .andExpect(jsonPath("$[1].metadata.toPriority").value("HIGH"))
+                .andExpect(jsonPath("$[2]").doesNotExist());
 
         assertThat(activityEventRepository.findAll())
                 .extracting(activity -> activity.getEventType().name())
+                .contains("ISSUE_PRIORITY_CHANGED")
                 .doesNotContain("ISSUE_STATUS_CHANGED");
     }
 
@@ -538,6 +548,179 @@ class ProjectIssueWorkflowIntegrationTests {
                 .andReturnJson();
         assertThat(issueTitles(archivedIssues))
                 .containsExactly("Archive old import");
+    }
+
+    @Test
+    void issueAssigneeAndDueDateCanBeCreatedFilteredUpdatedAndCleared() throws Exception {
+        AuthSession owner = register("issue-assignee-owner+" + uniqueId() + "@example.com");
+        AuthSession member = createWorkspaceMember(owner, "issue-assignee-member+" + uniqueId() + "@example.com");
+        String projectId = createProject(owner, "Assigned Issue Project").get("id").asText();
+        addProjectMember(owner, projectId, userId(member));
+
+        JsonNode assignedIssue = postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Assigned issue",
+                  "assigneeUserId": "%s",
+                  "dueDate": "2026-08-01"
+                }
+                """.formatted(projectId, userId(member)),
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("Assigned issue"))
+                .andExpect(jsonPath("$.assignee.id").value(userId(member)))
+                .andExpect(jsonPath("$.assignee.email").value(member.email()))
+                .andExpect(jsonPath("$.dueDate").value("2026-08-01"))
+                .andReturnJson();
+
+        createIssue(owner, projectId, "Unassigned issue", "No owner", "TODO", "LOW");
+
+        JsonNode assignedIssues = getIssues(owner, projectId, null, null, null, userId(member))
+                .andExpect(status().isOk())
+                .andReturnJson();
+        assertThat(issueTitles(assignedIssues)).containsExactly("Assigned issue");
+
+        String issueId = assignedIssue.get("id").asText();
+        patchJson(
+                "/api/issues/%s".formatted(issueId),
+                """
+                {
+                  "title": "Assigned issue updated",
+                  "priority": "HIGH",
+                  "assigneeUserId": "%s",
+                  "dueDate": "2026-08-05"
+                }
+                """.formatted(userId(owner)),
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("Assigned issue updated"))
+                .andExpect(jsonPath("$.priority").value("HIGH"))
+                .andExpect(jsonPath("$.assignee.id").value(userId(owner)))
+                .andExpect(jsonPath("$.dueDate").value("2026-08-05"));
+
+        mockMvc.perform(get("/api/issues/{issueId}/activities", issueId)
+                        .header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].eventType").value("ISSUE_CREATED"))
+                .andExpect(jsonPath("$[1].eventType").value("ISSUE_TITLE_CHANGED"))
+                .andExpect(jsonPath("$[2].eventType").value("ISSUE_PRIORITY_CHANGED"))
+                .andExpect(jsonPath("$[3].eventType").value("ISSUE_ASSIGNEE_CHANGED"))
+                .andExpect(jsonPath("$[3].metadata.fromAssigneeUserId").value(userId(member)))
+                .andExpect(jsonPath("$[3].metadata.toAssigneeUserId").value(userId(owner)))
+                .andExpect(jsonPath("$[4].eventType").value("ISSUE_DUE_DATE_CHANGED"))
+                .andExpect(jsonPath("$[4].metadata.fromDueDate").value("2026-08-01"))
+                .andExpect(jsonPath("$[4].metadata.toDueDate").value("2026-08-05"));
+
+        JsonNode clearedIssue = patchJson(
+                "/api/issues/%s".formatted(issueId),
+                """
+                {
+                  "assigneeUserId": null,
+                  "dueDate": null
+                }
+                """,
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andReturnJson();
+
+        assertThat(isMissingOrNull(clearedIssue, "assignee")).isTrue();
+        assertThat(isMissingOrNull(clearedIssue, "dueDate")).isTrue();
+        assertThat(issueRepository.findById(UUID.fromString(issueId)))
+                .get()
+                .satisfies(issue -> {
+                    assertThat(issue.getAssigneeUser()).isNull();
+                    assertThat(issue.getDueDate()).isNull();
+                });
+    }
+
+    @Test
+    void issueAssigneeMustBeActiveProjectMember() throws Exception {
+        AuthSession owner = register("assignee-owner+" + uniqueId() + "@example.com");
+        AuthSession workspaceMember = createWorkspaceMember(owner, "assignee-workspace-member+" + uniqueId() + "@example.com");
+        AuthSession projectMember = createWorkspaceMember(owner, "assignee-project-member+" + uniqueId() + "@example.com");
+        AuthSession outsider = register("assignee-outsider+" + uniqueId() + "@example.com");
+        String projectId = createProject(owner, "Assignee Guard Project").get("id").asText();
+        addProjectMember(owner, projectId, userId(projectMember));
+        var disabledProjectMember = projectMemberRepository.findByWorkspace_IdAndProject_IdAndUser_IdAndStatus(
+                        workspaceId(owner),
+                        UUID.fromString(projectId),
+                        UUID.fromString(userId(projectMember)),
+                        MembershipStatus.ACTIVE
+                )
+                .orElseThrow();
+        disabledProjectMember.disable();
+        projectMemberRepository.save(disabledProjectMember);
+
+        postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Assign workspace member",
+                  "assigneeUserId": "%s"
+                }
+                """.formatted(projectId, userId(workspaceMember)),
+                owner.accessToken()
+        ).andExpect(status().isNotFound());
+
+        postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Assign disabled project member",
+                  "assigneeUserId": "%s"
+                }
+                """.formatted(projectId, userId(projectMember)),
+                owner.accessToken()
+        ).andExpect(status().isNotFound());
+
+        postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Assign outsider",
+                  "assigneeUserId": "%s"
+                }
+                """.formatted(projectId, userId(outsider)),
+                owner.accessToken()
+        ).andExpect(status().isNotFound());
+
+        String issueId = postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Valid issue"
+                }
+                """.formatted(projectId),
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andReturnJson()
+                .get("id").asText();
+
+        patchJson(
+                "/api/issues/%s".formatted(issueId),
+                """
+                {
+                  "assigneeUserId": "%s"
+                }
+                """.formatted(userId(workspaceMember)),
+                owner.accessToken()
+        ).andExpect(status().isNotFound());
+
+        patchJson(
+                "/api/issues/%s".formatted(issueId),
+                """
+                {
+                  "dueDate": "not-a-date"
+                }
+                """,
+                owner.accessToken()
+        ).andExpect(status().isBadRequest());
     }
 
     @Test
@@ -911,6 +1094,19 @@ class ProjectIssueWorkflowIntegrationTests {
                 .andReturnJson();
     }
 
+    private void addProjectMember(AuthSession owner, String projectId, String userId) throws Exception {
+        postJson(
+                "/api/projects/%s/members".formatted(projectId),
+                """
+                {
+                  "userId": "%s",
+                  "role": "MEMBER"
+                }
+                """.formatted(userId),
+                owner.accessToken()
+        ).andExpect(status().isOk());
+    }
+
     private AuthSession createWorkspaceMember(AuthSession ownerSession, String email) {
         User owner = userRepository.findByEmail(ownerSession.email()).orElseThrow();
         Workspace workspace = workspaceRepository.findFirstByOwner_IdOrderByCreatedAtAsc(owner.getId()).orElseThrow();
@@ -942,6 +1138,11 @@ class ProjectIssueWorkflowIntegrationTests {
         return userRepository.findByEmail(session.email()).orElseThrow().getId().toString();
     }
 
+    private UUID workspaceId(AuthSession session) {
+        User owner = userRepository.findByEmail(session.email()).orElseThrow();
+        return workspaceRepository.findFirstByOwner_IdOrderByCreatedAtAsc(owner.getId()).orElseThrow().getId();
+    }
+
     private JsonNode createIssue(
             AuthSession session,
             String projectId,
@@ -967,7 +1168,7 @@ class ProjectIssueWorkflowIntegrationTests {
     }
 
     private ResultActionsWithJson getIssues(AuthSession session, String projectId) throws Exception {
-        return getIssues(session, projectId, null, null, null);
+        return getIssues(session, projectId, null, null, null, null);
     }
 
     private ResultActionsWithJson getIssues(
@@ -976,6 +1177,17 @@ class ProjectIssueWorkflowIntegrationTests {
             String status,
             String priority,
             String query
+    ) throws Exception {
+        return getIssues(session, projectId, status, priority, query, null);
+    }
+
+    private ResultActionsWithJson getIssues(
+            AuthSession session,
+            String projectId,
+            String status,
+            String priority,
+            String query,
+            String assigneeUserId
     ) throws Exception {
         var request = get("/api/issues")
                 .queryParam("projectId", projectId)
@@ -989,6 +1201,9 @@ class ProjectIssueWorkflowIntegrationTests {
         }
         if (query != null) {
             request.queryParam("q", query);
+        }
+        if (assigneeUserId != null) {
+            request.queryParam("assigneeUserId", assigneeUserId);
         }
 
         return new ResultActionsWithJson(mockMvc.perform(request));
