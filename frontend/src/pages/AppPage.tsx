@@ -1,5 +1,25 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  closestCorners,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm, useWatch } from 'react-hook-form'
@@ -21,9 +41,11 @@ import {
   Check,
   Flag,
   FolderKanban,
+  GripVertical,
   LayoutList,
   Loader2,
   LogOut,
+  Maximize2,
   MessageSquare,
   MoreHorizontal,
   PanelRight,
@@ -50,6 +72,7 @@ import {
   createIssueComment,
   createProject,
   getProject,
+  getProjectBoard,
   getIssue,
   listIssueActivities,
   listIssues,
@@ -59,19 +82,23 @@ import {
   listProjects,
   listWorkspaceMembers,
   removeProjectMember,
+  reorderIssues,
   reorderProjectWorkflowStates,
   updateIssue,
   updateProjectMember,
   updateProjectWorkflowState,
   type ActivityEvent,
+  type BoardColumn,
   type IssueDetail,
   type IssuePriority,
   type IssueStatus,
   type IssueSummary,
   type Project,
+  type ProjectBoard,
   type ProjectLabel,
   type ProjectMember,
   type ProjectWorkflowState,
+  type ReorderIssuesRequest,
   type UpdateIssueRequest,
   type WorkflowStateCategory,
   type WorkspaceMember,
@@ -129,8 +156,37 @@ type IssueGroup = {
 }
 
 type IssueWorkflowFilter = 'ACTIVE' | 'ARCHIVED' | string
+type IssueViewMode = 'BOARD' | 'LIST'
+type BoardIssueView = 'ALL' | 'MINE' | 'UNASSIGNED'
 
 type CreateDialog = 'project' | 'issue' | null
+
+type CreateIssueDialogSeed = {
+  title?: string
+  assigneeUserId?: string | null
+}
+
+type KanbanReorder = ReorderIssuesRequest & {
+  optimisticBoard: ProjectBoard
+}
+
+type ReorderIssueMutationVariables = {
+  projectId: string
+  request: ReorderIssuesRequest
+  optimisticBoard: ProjectBoard
+}
+
+type QuickCreateIssueMutationVariables = {
+  projectId: string
+  title: string
+  workflowStateId: string
+  assigneeUserId?: string
+}
+
+type KanbanDragData = {
+  type: 'column' | 'issue'
+  workflowStateId: string
+}
 
 const requiredTrimmedString = (fieldName: string) =>
   z.string().refine((value) => value.trim().length > 0, {
@@ -161,6 +217,10 @@ const createIssueFormSchema = z.object({
   labelIds: z.array(z.string()),
   assigneeUserId: z.string(),
   dueDate: optionalDateInputSchema,
+})
+
+const quickCreateIssueFormSchema = z.object({
+  title: requiredTrimmedString('Title').max(FORM_LIMITS.issueTitle, 'Title is too long.'),
 })
 
 const createProjectLabelFormSchema = z.object({
@@ -195,6 +255,7 @@ const commentFormSchema = z.object({
 
 type CreateProjectFormValues = z.infer<typeof createProjectFormSchema>
 type CreateIssueFormValues = z.infer<typeof createIssueFormSchema>
+type QuickCreateIssueFormValues = z.infer<typeof quickCreateIssueFormSchema>
 type CreateProjectLabelFormValues = z.infer<typeof createProjectLabelFormSchema>
 type CreateProjectWorkflowStateFormValues = z.infer<typeof createProjectWorkflowStateFormSchema>
 type UpdateProjectWorkflowStateFormValues = z.infer<typeof updateProjectWorkflowStateFormSchema>
@@ -213,6 +274,10 @@ export function AppPage({ onSignOut }: AppPageProps) {
   const [activeCreateDialog, setActiveCreateDialog] = useState<CreateDialog>(null)
   const [areProjectsOpen, setAreProjectsOpen] = useState(true)
   const [createIssueDefaultWorkflowStateId, setCreateIssueDefaultWorkflowStateId] = useState('')
+  const [createIssueDefaultTitle, setCreateIssueDefaultTitle] = useState('')
+  const [createIssueDefaultAssigneeUserId, setCreateIssueDefaultAssigneeUserId] = useState('')
+  const [issueViewMode, setIssueViewMode] = useState<IssueViewMode>('BOARD')
+  const [boardIssueView, setBoardIssueView] = useState<BoardIssueView>('ALL')
   const [issueSearchQuery, setIssueSearchQuery] = useState('')
   const [issueWorkflowFilter, setIssueWorkflowFilter] = useState<IssueWorkflowFilter>('ACTIVE')
   const [issuePriorityFilter, setIssuePriorityFilter] = useState<IssuePriority | ''>('')
@@ -275,6 +340,15 @@ export function AppPage({ onSignOut }: AppPageProps) {
     queryKey: ['project-workflow-states', selectedProjectId],
     queryFn: () => listProjectWorkflowStates(selectedProjectId ?? ''),
     enabled: Boolean(canLoadCurrentWorkspace && selectedProjectId),
+    retry: false,
+  })
+
+  const projectBoardQuery = useQuery({
+    queryKey: ['project-board', currentWorkspaceId, selectedProjectId],
+    queryFn: () => getProjectBoard(selectedProjectId ?? ''),
+    enabled: Boolean(
+      canLoadCurrentWorkspace && selectedProjectId && issueViewMode === 'BOARD',
+    ),
     retry: false,
   })
 
@@ -346,6 +420,7 @@ export function AppPage({ onSignOut }: AppPageProps) {
   })
 
   const issues = issuesQuery.data ?? EMPTY_ISSUES
+  const projectBoard = projectBoardQuery.data ?? null
   const issueGroups = useMemo(
     () => groupIssuesByWorkflowState(issues, projectWorkflowStates, issueWorkflowFilter),
     [issueWorkflowFilter, issues, projectWorkflowStates],
@@ -419,12 +494,46 @@ export function AppPage({ onSignOut }: AppPageProps) {
     mutationFn: createIssue,
     onSuccess: async (issue) => {
       setActiveCreateDialog(null)
-      await queryClient.invalidateQueries({
-        queryKey: ['issues', currentWorkspaceId, issue.projectId],
-      })
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['issues', currentWorkspaceId, issue.projectId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['project-board', currentWorkspaceId, issue.projectId],
+        }),
+      ])
       if (currentWorkspaceId) {
         navigate(issuePath(currentWorkspaceId, issue.projectId, issue.id))
       }
+    },
+  })
+
+  const quickCreateIssueMutation = useMutation({
+    mutationFn: ({
+      projectId,
+      title,
+      workflowStateId,
+      assigneeUserId,
+    }: QuickCreateIssueMutationVariables) =>
+      createIssue({
+        projectId,
+        title,
+        workflowStateId,
+        assigneeUserId,
+      }),
+    onSuccess: (issue) => {
+      queryClient.setQueryData<ProjectBoard>(
+        ['project-board', currentWorkspaceId, issue.projectId],
+        (currentBoard) => appendIssueToBoard(currentBoard, issue),
+      )
+      void Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['project-board', currentWorkspaceId, issue.projectId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['issues', currentWorkspaceId, issue.projectId],
+        }),
+      ])
     },
   })
 
@@ -437,6 +546,9 @@ export function AppPage({ onSignOut }: AppPageProps) {
         queryClient.invalidateQueries({ queryKey: ['issue-activities', variables.issueId] }),
         queryClient.invalidateQueries({
           queryKey: ['issues', currentWorkspaceId, variables.projectId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['project-board', currentWorkspaceId, variables.projectId],
         }),
       ])
     },
@@ -457,6 +569,45 @@ export function AppPage({ onSignOut }: AppPageProps) {
         queryClient.invalidateQueries({ queryKey: ['issue-activities', variables.issueId] }),
         queryClient.invalidateQueries({
           queryKey: ['issues', currentWorkspaceId, issue.projectId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['project-board', currentWorkspaceId, issue.projectId],
+        }),
+      ])
+    },
+  })
+
+  const reorderIssueMutation = useMutation({
+    mutationFn: ({ request }: ReorderIssueMutationVariables) => reorderIssues(request),
+    onMutate: async (variables) => {
+      const queryKey = ['project-board', currentWorkspaceId, variables.projectId]
+      await queryClient.cancelQueries({ queryKey })
+      const previousBoard = queryClient.getQueryData<ProjectBoard>(queryKey)
+      queryClient.setQueryData(queryKey, variables.optimisticBoard)
+      return { previousBoard, queryKey }
+    },
+    onError: (_, __, context) => {
+      if (context?.previousBoard) {
+        queryClient.setQueryData(context.queryKey, context.previousBoard)
+      }
+    },
+    onSuccess: (board, variables) => {
+      queryClient.setQueryData(
+        ['project-board', currentWorkspaceId, variables.projectId],
+        board,
+      )
+    },
+    onSettled: async (_, __, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['project-board', currentWorkspaceId, variables.projectId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['issues', currentWorkspaceId, variables.projectId],
+        }),
+        queryClient.invalidateQueries({ queryKey: ['issue', variables.request.issueId] }),
+        queryClient.invalidateQueries({
+          queryKey: ['issue-activities', variables.request.issueId],
         }),
       ])
     },
@@ -495,6 +646,9 @@ export function AppPage({ onSignOut }: AppPageProps) {
         queryClient.invalidateQueries({
           queryKey: ['issues', currentWorkspaceId, workflowState.projectId],
         }),
+        queryClient.invalidateQueries({
+          queryKey: ['project-board', currentWorkspaceId, workflowState.projectId],
+        }),
       ])
     },
   })
@@ -517,6 +671,9 @@ export function AppPage({ onSignOut }: AppPageProps) {
         queryClient.invalidateQueries({
           queryKey: ['issues', currentWorkspaceId, workflowState.projectId],
         }),
+        queryClient.invalidateQueries({
+          queryKey: ['project-board', currentWorkspaceId, workflowState.projectId],
+        }),
         queryClient.invalidateQueries({ queryKey: ['issue'] }),
       ])
     },
@@ -537,6 +694,9 @@ export function AppPage({ onSignOut }: AppPageProps) {
         }),
         queryClient.invalidateQueries({
           queryKey: ['issues', currentWorkspaceId, variables.projectId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['project-board', currentWorkspaceId, variables.projectId],
         }),
         queryClient.invalidateQueries({ queryKey: ['issue'] }),
       ])
@@ -603,11 +763,16 @@ export function AppPage({ onSignOut }: AppPageProps) {
     setActiveCreateDialog('project')
   }
 
-  function openCreateIssueDialog(workflowState?: ProjectWorkflowState | null) {
+  function openCreateIssueDialog(
+    workflowState?: ProjectWorkflowState | null,
+    seed: CreateIssueDialogSeed = {},
+  ) {
     createIssueMutation.reset()
     setCreateIssueDefaultWorkflowStateId(
       workflowState?.id ?? defaultWorkflowStateIdForStatus(projectWorkflowStates, 'TODO'),
     )
+    setCreateIssueDefaultTitle(seed.title ?? '')
+    setCreateIssueDefaultAssigneeUserId(seed.assigneeUserId ?? '')
     createProjectLabelMutation.reset()
     setActiveCreateDialog('issue')
   }
@@ -682,6 +847,41 @@ export function AppPage({ onSignOut }: AppPageProps) {
     }
 
     navigate(issuePath(currentWorkspaceId, selectedProjectId, issueId))
+  }
+
+  async function handleReorderIssue({
+    optimisticBoard,
+    ...request
+  }: KanbanReorder) {
+    if (!selectedProjectId) {
+      return
+    }
+
+    reorderIssueMutation.reset()
+    await reorderIssueMutation.mutateAsync({
+      projectId: selectedProjectId,
+      request,
+      optimisticBoard,
+    })
+  }
+
+  async function handleQuickCreateIssue({
+    title,
+    workflowStateId,
+    assigneeUserId,
+  }: Omit<QuickCreateIssueMutationVariables, 'projectId'>) {
+    const trimmedTitle = title.trim()
+    if (!selectedProjectId || !trimmedTitle) {
+      return null
+    }
+
+    quickCreateIssueMutation.reset()
+    return quickCreateIssueMutation.mutateAsync({
+      projectId: selectedProjectId,
+      title: trimmedTitle,
+      workflowStateId,
+      assigneeUserId,
+    })
   }
 
   function handleCreateProject(values: CreateProjectFormValues) {
@@ -948,15 +1148,30 @@ export function AppPage({ onSignOut }: AppPageProps) {
         ) : (
           <ProjectIssuesView
             currentWorkspace={currentWorkspace}
+            currentUser={currentUser}
             selectedProject={selectedProject}
             projectMembers={projectMembers}
             projectLabels={projectLabels}
             projectWorkflowStates={projectWorkflowStates}
+            projectBoard={projectBoard}
             issues={issues}
             issueGroups={issueGroups}
+            issueViewMode={issueViewMode}
+            boardIssueView={boardIssueView}
             selectedIssueId={routeIssueId ?? null}
             isLoadingIssues={issuesQuery.isLoading}
             issuesError={issuesQuery.error}
+            isLoadingProjectBoard={projectBoardQuery.isLoading}
+            projectBoardError={projectBoardQuery.error}
+            reorderIssueError={reorderIssueMutation.error}
+            isReorderingIssue={reorderIssueMutation.isPending}
+            quickCreateIssueError={quickCreateIssueMutation.error}
+            isQuickCreatingIssue={quickCreateIssueMutation.isPending}
+            canUseQuickCreateShortcut={
+              activeCreateDialog === null &&
+              !isProjectMembersDialogOpen &&
+              !isProjectWorkflowDialogOpen
+            }
             isLoadingProjectMembers={projectMembersQuery.isLoading}
             isLoadingProjects={projectsQuery.isLoading}
             issueSearchQuery={issueSearchQuery}
@@ -970,11 +1185,16 @@ export function AppPage({ onSignOut }: AppPageProps) {
             onIssuePriorityFilterChange={setIssuePriorityFilter}
             onIssueLabelFilterChange={setIssueLabelFilter}
             onIssueAssigneeFilterChange={setIssueAssigneeFilter}
+            onIssueViewModeChange={setIssueViewMode}
+            onBoardIssueViewChange={setBoardIssueView}
             onClearIssueFilters={clearIssueFilters}
             onOpenProjectMembers={openProjectMembersDialog}
             onOpenProjectWorkflow={openProjectWorkflowDialog}
             onOpenCreateIssue={openCreateIssueDialog}
             onIssueSelect={handleIssueSelect}
+            onReorderIssue={handleReorderIssue}
+            onQuickCreateIssue={handleQuickCreateIssue}
+            onResetQuickCreateIssue={() => quickCreateIssueMutation.reset()}
           />
         )}
       </section>
@@ -992,6 +1212,8 @@ export function AppPage({ onSignOut }: AppPageProps) {
         selectedProject={selectedProject}
         projectWorkflowStates={projectWorkflowStates}
         initialWorkflowStateId={createIssueDefaultWorkflowStateId}
+        initialTitle={createIssueDefaultTitle}
+        initialAssigneeUserId={createIssueDefaultAssigneeUserId}
         projectLabels={projectLabels}
         projectMembers={activeProjectMembers}
         onCreateLabel={handleCreateIssueLabel}
@@ -1189,15 +1411,26 @@ function ProjectList({
 
 function ProjectIssuesView({
   currentWorkspace,
+  currentUser,
   selectedProject,
   projectMembers,
   projectLabels,
   projectWorkflowStates,
+  projectBoard,
   issues,
   issueGroups,
+  issueViewMode,
+  boardIssueView,
   selectedIssueId,
   isLoadingIssues,
   issuesError,
+  isLoadingProjectBoard,
+  projectBoardError,
+  reorderIssueError,
+  isReorderingIssue,
+  quickCreateIssueError,
+  isQuickCreatingIssue,
+  canUseQuickCreateShortcut,
   isLoadingProjectMembers,
   isLoadingProjects,
   issueSearchQuery,
@@ -1211,22 +1444,38 @@ function ProjectIssuesView({
   onIssuePriorityFilterChange,
   onIssueLabelFilterChange,
   onIssueAssigneeFilterChange,
+  onIssueViewModeChange,
+  onBoardIssueViewChange,
   onClearIssueFilters,
   onOpenProjectMembers,
   onOpenProjectWorkflow,
   onOpenCreateIssue,
   onIssueSelect,
+  onReorderIssue,
+  onQuickCreateIssue,
+  onResetQuickCreateIssue,
 }: {
   currentWorkspace: AuthWorkspace | null
+  currentUser: AuthUser | null
   selectedProject: Project | null
   projectMembers: ProjectMember[]
   projectLabels: ProjectLabel[]
   projectWorkflowStates: ProjectWorkflowState[]
+  projectBoard: ProjectBoard | null
   issues: IssueSummary[]
   issueGroups: IssueGroup[]
+  issueViewMode: IssueViewMode
+  boardIssueView: BoardIssueView
   selectedIssueId: string | null
   isLoadingIssues: boolean
   issuesError: Error | null
+  isLoadingProjectBoard: boolean
+  projectBoardError: Error | null
+  reorderIssueError: Error | null
+  isReorderingIssue: boolean
+  quickCreateIssueError: Error | null
+  isQuickCreatingIssue: boolean
+  canUseQuickCreateShortcut: boolean
   isLoadingProjectMembers: boolean
   isLoadingProjects: boolean
   issueSearchQuery: string
@@ -1240,13 +1489,38 @@ function ProjectIssuesView({
   onIssuePriorityFilterChange: (priority: IssuePriority | '') => void
   onIssueLabelFilterChange: (labelId: string) => void
   onIssueAssigneeFilterChange: (assigneeUserId: string) => void
+  onIssueViewModeChange: (viewMode: IssueViewMode) => void
+  onBoardIssueViewChange: (view: BoardIssueView) => void
   onClearIssueFilters: () => void
   onOpenProjectMembers: () => void
   onOpenProjectWorkflow: () => void
-  onOpenCreateIssue: (workflowState?: ProjectWorkflowState | null) => void
+  onOpenCreateIssue: (
+    workflowState?: ProjectWorkflowState | null,
+    seed?: CreateIssueDialogSeed,
+  ) => void
   onIssueSelect: (issueId: string) => void
+  onReorderIssue: (reorder: KanbanReorder) => Promise<void>
+  onQuickCreateIssue: (
+    variables: Omit<QuickCreateIssueMutationVariables, 'projectId'>,
+  ) => Promise<IssueSummary | null>
+  onResetQuickCreateIssue: () => void
 }) {
-  const shouldShowEmptyIssues = selectedProject && !isLoadingIssues && !issuesError && issues.length === 0
+  const shouldShowEmptyIssues =
+    issueViewMode === 'LIST' &&
+    selectedProject &&
+    !isLoadingIssues &&
+    !issuesError &&
+    issues.length === 0
+  const visibleProjectBoard = useMemo(
+    () => filterProjectBoard(projectBoard, boardIssueView, currentUser?.id ?? null),
+    [boardIssueView, currentUser?.id, projectBoard],
+  )
+  const boardIssueCount =
+    visibleProjectBoard?.columns.reduce(
+      (count, column) => count + column.issues.length,
+      0,
+    ) ?? 0
+  const visibleIssueCount = issueViewMode === 'BOARD' ? boardIssueCount : issues.length
 
   return (
     <div className="content-page">
@@ -1260,9 +1534,37 @@ function ProjectIssuesView({
         </div>
         <div className="content-header-actions">
           {selectedProject ? (
+            <div className="issue-view-switch" role="group" aria-label="Issue view">
+              <Button
+                type="button"
+                variant={issueViewMode === 'BOARD' ? 'secondary' : 'ghost'}
+                size="sm"
+                aria-pressed={issueViewMode === 'BOARD'}
+                onClick={() => onIssueViewModeChange('BOARD')}
+              >
+                <FolderKanban aria-hidden="true" />
+                Board
+              </Button>
+              <Button
+                type="button"
+                variant={issueViewMode === 'LIST' ? 'secondary' : 'ghost'}
+                size="sm"
+                aria-pressed={issueViewMode === 'LIST'}
+                onClick={() => onIssueViewModeChange('LIST')}
+              >
+                <LayoutList aria-hidden="true" />
+                List
+              </Button>
+            </div>
+          ) : null}
+          {selectedProject ? (
             <span className="app-pill">
-              <LayoutList aria-hidden="true" />
-              {issues.length} issues
+              {issueViewMode === 'BOARD' ? (
+                <FolderKanban aria-hidden="true" />
+              ) : (
+                <LayoutList aria-hidden="true" />
+              )}
+              {visibleIssueCount} issues
             </span>
           ) : null}
           {selectedProject ? (
@@ -1307,10 +1609,52 @@ function ProjectIssuesView({
           body="Create or select a project from the sidebar to start tracking issues."
         />
       ) : null}
-      {isLoadingIssues ? <InlineState>Loading issues.</InlineState> : null}
-      {issuesError ? <ErrorState error={issuesError} /> : null}
+      {selectedProject && issueViewMode === 'BOARD' ? (
+        <div className="board-view-switch" role="group" aria-label="Board issue view">
+          <Button
+            type="button"
+            variant={boardIssueView === 'ALL' ? 'secondary' : 'ghost'}
+            size="sm"
+            aria-pressed={boardIssueView === 'ALL'}
+            onClick={() => onBoardIssueViewChange('ALL')}
+          >
+            <FolderKanban aria-hidden="true" />
+            All
+          </Button>
+          <Button
+            type="button"
+            variant={boardIssueView === 'MINE' ? 'secondary' : 'ghost'}
+            size="sm"
+            aria-pressed={boardIssueView === 'MINE'}
+            onClick={() => onBoardIssueViewChange('MINE')}
+          >
+            <UserCircle aria-hidden="true" />
+            My issues
+          </Button>
+          <Button
+            type="button"
+            variant={boardIssueView === 'UNASSIGNED' ? 'secondary' : 'ghost'}
+            size="sm"
+            aria-pressed={boardIssueView === 'UNASSIGNED'}
+            onClick={() => onBoardIssueViewChange('UNASSIGNED')}
+          >
+            <Circle aria-hidden="true" />
+            Unassigned
+          </Button>
+        </div>
+      ) : null}
+      {issueViewMode === 'LIST' && isLoadingIssues ? (
+        <InlineState>Loading issues.</InlineState>
+      ) : null}
+      {issueViewMode === 'LIST' && issuesError ? <ErrorState error={issuesError} /> : null}
+      {issueViewMode === 'BOARD' && isLoadingProjectBoard && !projectBoard ? (
+        <BoardLoadingState workflowStates={projectWorkflowStates} />
+      ) : null}
+      {issueViewMode === 'BOARD' && projectBoardError ? (
+        <ErrorState error={projectBoardError} />
+      ) : null}
 
-      {selectedProject ? (
+      {selectedProject && issueViewMode === 'LIST' ? (
         <div className="issue-filter-bar" aria-label="Issue filters">
           <label className="issue-search-field">
             <Search aria-hidden="true" />
@@ -1402,7 +1746,29 @@ function ProjectIssuesView({
         />
       ) : null}
 
-      {selectedProject && !issuesError && issues.length > 0 ? (
+      {selectedProject &&
+      issueViewMode === 'BOARD' &&
+      visibleProjectBoard ? (
+        <KanbanBoard
+          board={visibleProjectBoard}
+          boardIssueView={boardIssueView}
+          currentUserId={currentUser?.id ?? null}
+          selectedIssueId={selectedIssueId}
+          isReordering={isReorderingIssue}
+          isQuickCreating={isQuickCreatingIssue}
+          canUseQuickCreateShortcut={canUseQuickCreateShortcut}
+          reorderError={reorderIssueError}
+          quickCreateError={quickCreateIssueError}
+          key={`${visibleProjectBoard.projectId}-${boardIssueView}`}
+          onIssueSelect={onIssueSelect}
+          onOpenFullCreate={onOpenCreateIssue}
+          onReorder={onReorderIssue}
+          onQuickCreate={onQuickCreateIssue}
+          onResetQuickCreate={onResetQuickCreateIssue}
+        />
+      ) : null}
+
+      {selectedProject && issueViewMode === 'LIST' && !issuesError && issues.length > 0 ? (
         <div className="status-list" aria-label="Issues grouped by status">
           {issueGroups.map((group) => (
             <IssueStatusSection
@@ -1416,6 +1782,585 @@ function ProjectIssuesView({
         </div>
       ) : null}
     </div>
+  )
+}
+
+function BoardLoadingState({
+  workflowStates,
+}: {
+  workflowStates: ProjectWorkflowState[]
+}) {
+  const loadingColumns =
+    workflowStates.length > 0 ? workflowStates : Array<ProjectWorkflowState | null>(3).fill(null)
+
+  return (
+    <section className="kanban-board-region" aria-label="Loading project board" role="status">
+      <p className="kanban-save-state">
+        <Loader2 className="auth-spin" aria-hidden="true" />
+        Loading board
+      </p>
+      <div className="kanban-board-scroll">
+        <div className="kanban-board" aria-hidden="true">
+          {loadingColumns.map((workflowState, index) => (
+            <section className="kanban-column kanban-column-loading" key={workflowState?.id ?? index}>
+              <header className="kanban-column-header">
+                <span className="kanban-column-title">
+                  <Circle aria-hidden="true" className="status-icon" />
+                  <strong>{workflowState?.name ?? 'Status'}</strong>
+                </span>
+              </header>
+              <div className="kanban-loading-block" />
+            </section>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function KanbanBoard({
+  board,
+  boardIssueView,
+  currentUserId,
+  selectedIssueId,
+  isReordering,
+  isQuickCreating,
+  canUseQuickCreateShortcut,
+  reorderError,
+  quickCreateError,
+  onIssueSelect,
+  onOpenFullCreate,
+  onReorder,
+  onQuickCreate,
+  onResetQuickCreate,
+}: {
+  board: ProjectBoard
+  boardIssueView: BoardIssueView
+  currentUserId: string | null
+  selectedIssueId: string | null
+  isReordering: boolean
+  isQuickCreating: boolean
+  canUseQuickCreateShortcut: boolean
+  reorderError: Error | null
+  quickCreateError: Error | null
+  onIssueSelect: (issueId: string) => void
+  onOpenFullCreate: (
+    workflowState?: ProjectWorkflowState | null,
+    seed?: CreateIssueDialogSeed,
+  ) => void
+  onReorder: (reorder: KanbanReorder) => Promise<void>
+  onQuickCreate: (
+    variables: Omit<QuickCreateIssueMutationVariables, 'projectId'>,
+  ) => Promise<IssueSummary | null>
+  onResetQuickCreate: () => void
+}) {
+  const [activeIssueId, setActiveIssueId] = useState<string | null>(null)
+  const [composerWorkflowStateId, setComposerWorkflowStateId] = useState<string | null>(null)
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 6 },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  )
+  const activeIssue = activeIssueId ? findBoardIssue(board, activeIssueId) : null
+  const isSortingEnabled = boardIssueView === 'ALL'
+  const defaultAssigneeUserId =
+    boardIssueView === 'MINE' ? (currentUserId ?? undefined) : undefined
+  const emptyColumnLabel = boardEmptyColumnLabel(boardIssueView)
+
+  useEffect(() => {
+    if (!canUseQuickCreateShortcut || isReordering || isQuickCreating) {
+      return
+    }
+
+    function handleQuickCreateShortcut(event: KeyboardEvent) {
+      const target = event.target
+      const isEditing =
+        target instanceof HTMLElement &&
+        (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+      if (
+        event.isComposing ||
+        isEditing ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        event.key.toLowerCase() !== 'n'
+      ) {
+        return
+      }
+
+      const defaultColumn =
+        board.columns.find((column) => column.workflowState.category === 'TODO') ??
+        board.columns[0]
+      if (!defaultColumn) {
+        return
+      }
+
+      event.preventDefault()
+      onResetQuickCreate()
+      setComposerWorkflowStateId(defaultColumn.workflowState.id)
+    }
+
+    document.addEventListener('keydown', handleQuickCreateShortcut)
+    return () => document.removeEventListener('keydown', handleQuickCreateShortcut)
+  }, [
+    board.columns,
+    canUseQuickCreateShortcut,
+    isQuickCreating,
+    isReordering,
+    onResetQuickCreate,
+  ])
+
+  function openQuickCreate(workflowStateId: string) {
+    if (isReordering || isQuickCreating) {
+      return
+    }
+
+    onResetQuickCreate()
+    setComposerWorkflowStateId(workflowStateId)
+  }
+
+  function closeQuickCreate() {
+    if (!isQuickCreating) {
+      setComposerWorkflowStateId(null)
+    }
+  }
+
+  function expandQuickCreate(workflowState: ProjectWorkflowState, title: string) {
+    if (isQuickCreating) {
+      return
+    }
+
+    setComposerWorkflowStateId(null)
+    onResetQuickCreate()
+    onOpenFullCreate(workflowState, {
+      title,
+      assigneeUserId: defaultAssigneeUserId,
+    })
+  }
+
+  function handleDragStart(event: DragStartEvent) {
+    setActiveIssueId(String(event.active.id))
+  }
+
+  async function handleDragEnd(event: DragEndEvent) {
+    setActiveIssueId(null)
+    if (!event.over || isReordering || !isSortingEnabled) {
+      return
+    }
+
+    const overData = event.over.data.current as KanbanDragData | undefined
+    if (!overData) {
+      return
+    }
+
+    const issueId = String(event.active.id)
+    const overIssueId = overData.type === 'issue' ? String(event.over.id) : null
+    const optimisticBoard = buildOptimisticBoard(
+      board,
+      issueId,
+      overData.workflowStateId,
+      overIssueId,
+    )
+    if (!optimisticBoard) {
+      return
+    }
+
+    const targetColumn = optimisticBoard.columns.find(
+      (column) => column.workflowState.id === overData.workflowStateId,
+    )
+    if (!targetColumn) {
+      return
+    }
+
+    try {
+      await onReorder({
+        issueId,
+        workflowStateId: overData.workflowStateId,
+        orderedIssueIds: targetColumn.issues.map((issue) => issue.id),
+        optimisticBoard,
+      })
+    } catch {
+      // The mutation restores the previous board and renders the request error.
+    }
+  }
+
+  return (
+    <section
+      className="kanban-board-region"
+      aria-label="Project board"
+      aria-busy={isReordering || isQuickCreating}
+    >
+      {reorderError ? <ErrorState error={reorderError} /> : null}
+      {isReordering ? (
+        <p className="kanban-save-state" role="status">
+          <Loader2 className="auth-spin" aria-hidden="true" />
+          Saving board
+        </p>
+      ) : null}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={handleDragStart}
+        onDragCancel={() => setActiveIssueId(null)}
+        onDragEnd={handleDragEnd}
+      >
+        <div className="kanban-board-scroll">
+          <div className="kanban-board">
+            {board.columns.map((column) => (
+              <KanbanColumn
+                column={column}
+                defaultAssigneeUserId={defaultAssigneeUserId}
+                emptyLabel={emptyColumnLabel}
+                isReordering={isReordering}
+                isSortingEnabled={isSortingEnabled}
+                isComposerOpen={composerWorkflowStateId === column.workflowState.id}
+                isQuickCreating={isQuickCreating}
+                quickCreateError={
+                  composerWorkflowStateId === column.workflowState.id
+                    ? quickCreateError
+                    : null
+                }
+                selectedIssueId={selectedIssueId}
+                key={column.workflowState.id}
+                onIssueSelect={onIssueSelect}
+                onOpenQuickCreate={openQuickCreate}
+                onCloseQuickCreate={closeQuickCreate}
+                onExpandQuickCreate={expandQuickCreate}
+                onQuickCreate={onQuickCreate}
+              />
+            ))}
+          </div>
+        </div>
+        <DragOverlay>
+          {activeIssue ? (
+            <article className="kanban-card kanban-card-overlay">
+              <KanbanIssueCardContent issue={activeIssue} />
+            </article>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+    </section>
+  )
+}
+
+function KanbanColumn({
+  column,
+  defaultAssigneeUserId,
+  emptyLabel,
+  selectedIssueId,
+  isReordering,
+  isSortingEnabled,
+  isComposerOpen,
+  isQuickCreating,
+  quickCreateError,
+  onIssueSelect,
+  onOpenQuickCreate,
+  onCloseQuickCreate,
+  onExpandQuickCreate,
+  onQuickCreate,
+}: {
+  column: BoardColumn
+  defaultAssigneeUserId?: string
+  emptyLabel: string
+  selectedIssueId: string | null
+  isReordering: boolean
+  isSortingEnabled: boolean
+  isComposerOpen: boolean
+  isQuickCreating: boolean
+  quickCreateError: Error | null
+  onIssueSelect: (issueId: string) => void
+  onOpenQuickCreate: (workflowStateId: string) => void
+  onCloseQuickCreate: () => void
+  onExpandQuickCreate: (workflowState: ProjectWorkflowState, title: string) => void
+  onQuickCreate: (
+    variables: Omit<QuickCreateIssueMutationVariables, 'projectId'>,
+  ) => Promise<IssueSummary | null>
+}) {
+  const { isOver, setNodeRef } = useDroppable({
+    id: kanbanColumnId(column.workflowState.id),
+    data: {
+      type: 'column',
+      workflowStateId: column.workflowState.id,
+    } satisfies KanbanDragData,
+    disabled: !isSortingEnabled || isReordering,
+  })
+
+  return (
+    <section className="kanban-column" aria-label={`${column.workflowState.name} issues`}>
+      <header className="kanban-column-header">
+        <span className="kanban-column-title">
+          <StatusIcon status={column.workflowState.category} />
+          <strong>{column.workflowState.name}</strong>
+          <small>{column.issues.length}</small>
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          disabled={isReordering || isQuickCreating}
+          onClick={() => onOpenQuickCreate(column.workflowState.id)}
+          aria-label={`Quick create issue in ${column.workflowState.name}`}
+          title="Quick create issue"
+        >
+          <Plus aria-hidden="true" />
+        </Button>
+      </header>
+      <div className="kanban-column-body" data-over={isOver} ref={setNodeRef}>
+        <SortableContext
+          items={column.issues.map((issue) => issue.id)}
+          strategy={verticalListSortingStrategy}
+        >
+          {column.issues.map((issue) => (
+            <SortableIssueCard
+              issue={issue}
+              workflowStateId={column.workflowState.id}
+              isActive={issue.id === selectedIssueId}
+              isReordering={isReordering}
+              isSortingEnabled={isSortingEnabled}
+              key={issue.id}
+              onIssueSelect={onIssueSelect}
+            />
+          ))}
+        </SortableContext>
+        {isComposerOpen ? (
+          <InlineIssueComposer
+            workflowState={column.workflowState}
+            defaultAssigneeUserId={defaultAssigneeUserId}
+            isSubmitting={isQuickCreating}
+            error={quickCreateError}
+            onSubmit={onQuickCreate}
+            onClose={onCloseQuickCreate}
+            onExpand={onExpandQuickCreate}
+          />
+        ) : null}
+        {column.issues.length === 0 && !isComposerOpen ? (
+          <p className="kanban-column-empty">{emptyLabel}</p>
+        ) : null}
+      </div>
+    </section>
+  )
+}
+
+function InlineIssueComposer({
+  workflowState,
+  defaultAssigneeUserId,
+  isSubmitting,
+  error,
+  onSubmit,
+  onClose,
+  onExpand,
+}: {
+  workflowState: ProjectWorkflowState
+  defaultAssigneeUserId?: string
+  isSubmitting: boolean
+  error: Error | null
+  onSubmit: (
+    variables: Omit<QuickCreateIssueMutationVariables, 'projectId'>,
+  ) => Promise<IssueSummary | null>
+  onClose: () => void
+  onExpand: (workflowState: ProjectWorkflowState, title: string) => void
+}) {
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setFocus,
+    control,
+    formState: { errors },
+  } = useForm<QuickCreateIssueFormValues>({
+    resolver: zodResolver(quickCreateIssueFormSchema),
+    defaultValues: { title: '' },
+  })
+  const title = useWatch({ control, name: 'title' }) ?? ''
+
+  async function submitQuickIssue(values: QuickCreateIssueFormValues) {
+    try {
+      const issue = await onSubmit({
+        title: values.title.trim(),
+        workflowStateId: workflowState.id,
+        assigneeUserId: defaultAssigneeUserId,
+      })
+      if (!issue) {
+        return
+      }
+
+      reset({ title: '' })
+      setFocus('title')
+    } catch {
+      // The request error is rendered below and the draft title is retained.
+    }
+  }
+
+  return (
+    <form
+      className="kanban-inline-composer"
+      onSubmit={handleSubmit(submitQuickIssue)}
+      aria-busy={isSubmitting}
+      noValidate
+    >
+      <input
+        autoFocus
+        aria-label={`Issue title for ${workflowState.name}`}
+        placeholder="Issue title"
+        disabled={isSubmitting}
+        {...register('title')}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && event.nativeEvent.isComposing) {
+            event.preventDefault()
+          }
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            event.stopPropagation()
+            onClose()
+          }
+        }}
+      />
+      {errors.title?.message ? (
+        <InlineNotice tone="warning">{errors.title.message}</InlineNotice>
+      ) : null}
+      {error ? <InlineNotice tone="warning">{getErrorMessage(error)}</InlineNotice> : null}
+      <div className="kanban-inline-composer-actions">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          disabled={isSubmitting}
+          onClick={() => onExpand(workflowState, title.trim())}
+          aria-label="Open full issue form"
+          title="Open full issue form"
+        >
+          <Maximize2 aria-hidden="true" />
+        </Button>
+        <span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            disabled={isSubmitting}
+            onClick={onClose}
+            aria-label="Close quick create"
+            title="Close"
+          >
+            <X aria-hidden="true" />
+          </Button>
+          <Button
+            type="submit"
+            size="icon-xs"
+            disabled={!title.trim() || isSubmitting}
+            aria-label="Create issue"
+            title="Create issue"
+          >
+            {isSubmitting ? (
+              <Loader2 aria-hidden="true" className="auth-spin" />
+            ) : (
+              <Plus aria-hidden="true" />
+            )}
+          </Button>
+        </span>
+      </div>
+    </form>
+  )
+}
+
+function SortableIssueCard({
+  issue,
+  workflowStateId,
+  isActive,
+  isReordering,
+  isSortingEnabled,
+  onIssueSelect,
+}: {
+  issue: IssueSummary
+  workflowStateId: string
+  isActive: boolean
+  isReordering: boolean
+  isSortingEnabled: boolean
+  onIssueSelect: (issueId: string) => void
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: issue.id,
+    data: {
+      type: 'issue',
+      workflowStateId,
+    } satisfies KanbanDragData,
+    disabled: isReordering || !isSortingEnabled,
+  })
+
+  return (
+    <article
+      className="kanban-card"
+      data-active={isActive}
+      data-dragging={isDragging}
+      data-sortable={isSortingEnabled}
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+      }}
+    >
+      {isSortingEnabled ? (
+        <button
+          className="kanban-drag-handle"
+          type="button"
+          disabled={isReordering}
+          aria-label={`Move ${issue.title}`}
+          title="Move issue"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical aria-hidden="true" />
+        </button>
+      ) : null}
+      <button
+        className="kanban-card-open"
+        type="button"
+        onClick={() => onIssueSelect(issue.id)}
+      >
+        <KanbanIssueCardContent issue={issue} />
+      </button>
+    </article>
+  )
+}
+
+function KanbanIssueCardContent({ issue }: { issue: IssueSummary }) {
+  return (
+    <span className="kanban-card-content">
+      <strong>{issue.title}</strong>
+      {issue.labels.length > 0 ? (
+        <span className="issue-label-row">
+          {issue.labels.map((label) => (
+            <LabelBadge label={label} key={label.id} />
+          ))}
+        </span>
+      ) : null}
+      <span className="kanban-card-meta">
+        <PriorityBadge priority={issue.priority} />
+        <span title={issue.assignee?.email ?? 'Unassigned'}>
+          <UserCircle aria-hidden="true" />
+          {issue.assignee ? issue.assignee.displayName || issue.assignee.email : 'Unassigned'}
+        </span>
+        {issue.dueDate ? (
+          <span>
+            <CalendarDays aria-hidden="true" />
+            {formatDateOnly(issue.dueDate)}
+          </span>
+        ) : null}
+        <span>
+          <MessageSquare aria-hidden="true" />
+          {issue.commentCount ?? 0}
+        </span>
+      </span>
+    </span>
   )
 }
 
@@ -2208,6 +3153,8 @@ function CreateIssueDialog({
   projectWorkflowStates,
   projectLabels,
   initialWorkflowStateId,
+  initialTitle,
+  initialAssigneeUserId,
   onCreateLabel,
   onSubmit,
   onClose,
@@ -2222,6 +3169,8 @@ function CreateIssueDialog({
   projectWorkflowStates: ProjectWorkflowState[]
   projectLabels: ProjectLabel[]
   initialWorkflowStateId: string
+  initialTitle: string
+  initialAssigneeUserId: string
   onCreateLabel: (values: CreateProjectLabelFormValues) => Promise<ProjectLabel | null>
   onSubmit: (values: CreateIssueFormValues) => void
   onClose: () => void
@@ -2241,12 +3190,12 @@ function CreateIssueDialog({
   } = useForm<CreateIssueFormValues>({
     resolver: zodResolver(createIssueFormSchema),
     defaultValues: {
-      title: '',
+      title: initialTitle,
       description: '',
       workflowStateId: initialWorkflowStateId,
       priority: '',
       labelIds: [],
-      assigneeUserId: '',
+      assigneeUserId: initialAssigneeUserId,
       dueDate: '',
     },
   })
@@ -2274,12 +3223,12 @@ function CreateIssueDialog({
   useEffect(() => {
     if (isOpen) {
       reset({
-        title: '',
+        title: initialTitle,
         description: '',
         workflowStateId: initialWorkflowStateId,
         priority: '',
         labelIds: [],
-        assigneeUserId: '',
+        assigneeUserId: initialAssigneeUserId,
         dueDate: '',
       })
       resetLabelForm({
@@ -2287,7 +3236,14 @@ function CreateIssueDialog({
         color: DEFAULT_LABEL_COLOR,
       })
     }
-  }, [initialWorkflowStateId, isOpen, reset, resetLabelForm])
+  }, [
+    initialAssigneeUserId,
+    initialTitle,
+    initialWorkflowStateId,
+    isOpen,
+    reset,
+    resetLabelForm,
+  ])
 
   function handleIssueLabelToggle(labelId: string) {
     const nextLabelIds = issueLabelIds.includes(labelId)
@@ -3225,6 +4181,163 @@ function ProjectMemberMutationErrorState({
   action: 'add' | 'update' | 'remove'
 }) {
   return <p className="app-error">{getProjectMemberMutationErrorMessage(error, action)}</p>
+}
+
+function kanbanColumnId(workflowStateId: string) {
+  return `kanban-column-${workflowStateId}`
+}
+
+function filterProjectBoard(
+  board: ProjectBoard | null,
+  view: BoardIssueView,
+  currentUserId: string | null,
+) {
+  if (!board || view === 'ALL') {
+    return board
+  }
+
+  return {
+    ...board,
+    columns: board.columns.map((column) => ({
+      ...column,
+      issues: column.issues.filter((issue) =>
+        view === 'MINE'
+          ? Boolean(currentUserId && issue.assignee?.id === currentUserId)
+          : !issue.assignee,
+      ),
+    })),
+  }
+}
+
+function boardEmptyColumnLabel(view: BoardIssueView) {
+  if (view === 'MINE') {
+    return 'No issues assigned to you'
+  }
+
+  if (view === 'UNASSIGNED') {
+    return 'No unassigned issues'
+  }
+
+  return 'No issues'
+}
+
+function appendIssueToBoard(
+  board: ProjectBoard | undefined,
+  issue: IssueSummary,
+) {
+  if (!board || board.projectId !== issue.projectId) {
+    return board
+  }
+
+  return {
+    ...board,
+    columns: board.columns.map((column) => {
+      if (
+        column.workflowState.id !== issue.workflowState.id ||
+        column.issues.some((currentIssue) => currentIssue.id === issue.id)
+      ) {
+        return column
+      }
+
+      return {
+        ...column,
+        issues: [...column.issues, issue].sort(
+          (left, right) => left.boardPosition - right.boardPosition,
+        ),
+      }
+    }),
+  }
+}
+
+function findBoardIssue(board: ProjectBoard, issueId: string) {
+  for (const column of board.columns) {
+    const issue = column.issues.find((candidate) => candidate.id === issueId)
+    if (issue) {
+      return issue
+    }
+  }
+
+  return null
+}
+
+function buildOptimisticBoard(
+  board: ProjectBoard,
+  issueId: string,
+  targetWorkflowStateId: string,
+  overIssueId: string | null,
+) {
+  const sourceColumnIndex = board.columns.findIndex((column) =>
+    column.issues.some((issue) => issue.id === issueId),
+  )
+  const targetColumnIndex = board.columns.findIndex(
+    (column) => column.workflowState.id === targetWorkflowStateId,
+  )
+  if (sourceColumnIndex < 0 || targetColumnIndex < 0) {
+    return null
+  }
+
+  const sourceColumn = board.columns[sourceColumnIndex]
+  const targetColumn = board.columns[targetColumnIndex]
+  const sourceIssueIndex = sourceColumn.issues.findIndex((issue) => issue.id === issueId)
+  const draggedIssue = sourceColumn.issues[sourceIssueIndex]
+  if (!draggedIssue) {
+    return null
+  }
+
+  if (sourceColumnIndex === targetColumnIndex) {
+    const targetIssueIndex = overIssueId
+      ? sourceColumn.issues.findIndex((issue) => issue.id === overIssueId)
+      : sourceColumn.issues.length - 1
+    if (targetIssueIndex < 0 || targetIssueIndex === sourceIssueIndex) {
+      return null
+    }
+
+    const reorderedIssues = normalizeBoardPositions(
+      arrayMove(sourceColumn.issues, sourceIssueIndex, targetIssueIndex),
+    )
+    return {
+      ...board,
+      columns: board.columns.map((column, index) =>
+        index === sourceColumnIndex ? { ...column, issues: reorderedIssues } : column,
+      ),
+    }
+  }
+
+  const targetIssueIndex = overIssueId
+    ? targetColumn.issues.findIndex((issue) => issue.id === overIssueId)
+    : targetColumn.issues.length
+  if (targetIssueIndex < 0) {
+    return null
+  }
+
+  const nextTargetIssues = [...targetColumn.issues]
+  nextTargetIssues.splice(targetIssueIndex, 0, {
+    ...draggedIssue,
+    status: targetColumn.workflowState.category,
+    workflowState: targetColumn.workflowState,
+  })
+  const reorderedTargetIssues = normalizeBoardPositions(nextTargetIssues)
+  const nextSourceIssues = sourceColumn.issues.filter((issue) => issue.id !== issueId)
+
+  return {
+    ...board,
+    columns: board.columns.map((column, index) => {
+      if (index === sourceColumnIndex) {
+        return { ...column, issues: nextSourceIssues }
+      }
+      if (index === targetColumnIndex) {
+        return { ...column, issues: reorderedTargetIssues }
+      }
+      return column
+    }),
+  }
+}
+
+function normalizeBoardPositions(issues: IssueSummary[]) {
+  return issues.map((issue, index) => ({
+    ...issue,
+    boardPosition: (index + 1) * 10_000,
+  }))
 }
 
 function groupIssuesByWorkflowState(
