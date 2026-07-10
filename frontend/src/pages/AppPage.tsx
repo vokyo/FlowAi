@@ -60,7 +60,7 @@ import {
   Users,
   X,
 } from 'lucide-react'
-import { useNavigate, useParams } from 'react-router'
+import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { ApiError } from '@/api/client'
 import { getCurrentSession, type AuthUser, type AuthWorkspace } from '@/auth/auth-api'
 import { Button } from '@/components/ui/button'
@@ -266,6 +266,7 @@ type CommentFormValues = z.infer<typeof commentFormSchema>
 export function AppPage({ onSignOut }: AppPageProps) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const {
     workspaceId: routeWorkspaceId,
     projectId: routeProjectId,
@@ -276,8 +277,6 @@ export function AppPage({ onSignOut }: AppPageProps) {
   const [createIssueDefaultWorkflowStateId, setCreateIssueDefaultWorkflowStateId] = useState('')
   const [createIssueDefaultTitle, setCreateIssueDefaultTitle] = useState('')
   const [createIssueDefaultAssigneeUserId, setCreateIssueDefaultAssigneeUserId] = useState('')
-  const [issueViewMode, setIssueViewMode] = useState<IssueViewMode>('BOARD')
-  const [boardIssueView, setBoardIssueView] = useState<BoardIssueView>('ALL')
   const [issueSearchQuery, setIssueSearchQuery] = useState('')
   const [issueWorkflowFilter, setIssueWorkflowFilter] = useState<IssueWorkflowFilter>('ACTIVE')
   const [issuePriorityFilter, setIssuePriorityFilter] = useState<IssuePriority | ''>('')
@@ -285,6 +284,17 @@ export function AppPage({ onSignOut }: AppPageProps) {
   const [issueAssigneeFilter, setIssueAssigneeFilter] = useState('')
   const [isProjectMembersDialogOpen, setIsProjectMembersDialogOpen] = useState(false)
   const [isProjectWorkflowDialogOpen, setIsProjectWorkflowDialogOpen] = useState(false)
+  const issueViewMode = issueViewModeFromSearchParams(searchParams)
+  const boardIssueView = boardIssueViewFromSearchParams(searchParams)
+  const normalizedWorkViewSearchParams = normalizeWorkViewSearchParams(searchParams)
+  const rawSearchString = searchParams.toString()
+  const normalizedSearchString = normalizedWorkViewSearchParams.toString()
+
+  useEffect(() => {
+    if (rawSearchString !== normalizedSearchString) {
+      setSearchParams(new URLSearchParams(normalizedSearchString), { replace: true })
+    }
+  }, [normalizedSearchString, rawSearchString, setSearchParams])
 
   const currentSessionQuery = useQuery({
     queryKey: ['current-session'],
@@ -457,7 +467,7 @@ export function AppPage({ onSignOut }: AppPageProps) {
 
     if (projects.length === 0) {
       if (routeProjectId || routeIssueId) {
-        navigate('/app', { replace: true })
+        navigate(pathWithSearchParams('/app', normalizedSearchString), { replace: true })
       }
       return
     }
@@ -467,12 +477,19 @@ export function AppPage({ onSignOut }: AppPageProps) {
     )
 
     if (!routeProjectId || !hasRouteProject) {
-      navigate(projectPath(currentWorkspaceId, projects[0].id), { replace: true })
+      navigate(
+        pathWithSearchParams(
+          projectPath(currentWorkspaceId, projects[0].id),
+          normalizedSearchString,
+        ),
+        { replace: true },
+      )
     }
   }, [
     canLoadCurrentWorkspace,
     currentWorkspaceId,
     navigate,
+    normalizedSearchString,
     projects,
     projectsQuery.isSuccess,
     routeIssueId,
@@ -485,7 +502,12 @@ export function AppPage({ onSignOut }: AppPageProps) {
       setActiveCreateDialog(null)
       await queryClient.invalidateQueries({ queryKey: ['projects', currentWorkspaceId] })
       if (currentWorkspaceId) {
-        navigate(projectPath(currentWorkspaceId, project.id))
+        navigate(
+          pathWithSearchParams(
+            projectPath(currentWorkspaceId, project.id),
+            normalizedWorkViewSearchParams,
+          ),
+        )
       }
     },
   })
@@ -503,7 +525,12 @@ export function AppPage({ onSignOut }: AppPageProps) {
         }),
       ])
       if (currentWorkspaceId) {
-        navigate(issuePath(currentWorkspaceId, issue.projectId, issue.id))
+        navigate(
+          pathWithSearchParams(
+            issuePath(currentWorkspaceId, issue.projectId, issue.id),
+            normalizedWorkViewSearchParams,
+          ),
+        )
       }
     },
   })
@@ -833,12 +860,43 @@ export function AppPage({ onSignOut }: AppPageProps) {
     setIssueAssigneeFilter('')
   }
 
+  function handleIssueViewModeChange(nextLayout: IssueViewMode) {
+    setSearchParams(
+      workViewSearchParams(searchParams, nextLayout, boardIssueView),
+    )
+  }
+
+  function handleBoardIssueViewChange(nextView: BoardIssueView) {
+    setSearchParams(
+      workViewSearchParams(searchParams, issueViewMode, nextView),
+    )
+  }
+
+  function handleSidebarViewSelect(nextView: BoardIssueView) {
+    if (!currentWorkspaceId || !selectedProjectId) {
+      return
+    }
+
+    const nextSearchParams = workViewSearchParams(searchParams, 'BOARD', nextView)
+    navigate(
+      pathWithSearchParams(
+        projectPath(currentWorkspaceId, selectedProjectId),
+        nextSearchParams,
+      ),
+    )
+  }
+
   function handleProjectSelect(projectId: string) {
     if (!currentWorkspaceId) {
       return
     }
 
-    navigate(projectPath(currentWorkspaceId, projectId))
+    navigate(
+      pathWithSearchParams(
+        projectPath(currentWorkspaceId, projectId),
+        normalizedWorkViewSearchParams,
+      ),
+    )
   }
 
   function handleIssueSelect(issueId: string) {
@@ -846,7 +904,12 @@ export function AppPage({ onSignOut }: AppPageProps) {
       return
     }
 
-    navigate(issuePath(currentWorkspaceId, selectedProjectId, issueId))
+    navigate(
+      pathWithSearchParams(
+        issuePath(currentWorkspaceId, selectedProjectId, issueId),
+        normalizedWorkViewSearchParams,
+      ),
+    )
   }
 
   async function handleReorderIssue({
@@ -1100,12 +1163,16 @@ export function AppPage({ onSignOut }: AppPageProps) {
         isLoadingWorkspace={currentSessionQuery.isLoading}
         projects={projects}
         selectedProjectId={selectedProjectId}
+        issueViewMode={issueViewMode}
+        boardIssueView={boardIssueView}
         isLoadingProjects={projectsQuery.isLoading}
         projectsError={projectsQuery.error}
         areProjectsOpen={areProjectsOpen}
         onToggleProjects={() => setAreProjectsOpen((isOpen) => !isOpen)}
         onOpenCreateProject={openCreateProjectDialog}
         canCreateProject={canLoadCurrentWorkspace}
+        canSelectViews={Boolean(selectedProjectId)}
+        onViewSelect={handleSidebarViewSelect}
         onProjectSelect={handleProjectSelect}
         onSignOut={onSignOut}
       />
@@ -1136,7 +1203,12 @@ export function AppPage({ onSignOut }: AppPageProps) {
             commentError={createCommentMutation.error}
             onBackToProject={() => {
               if (currentWorkspaceId && selectedProjectId) {
-                navigate(projectPath(currentWorkspaceId, selectedProjectId))
+                navigate(
+                  pathWithSearchParams(
+                    projectPath(currentWorkspaceId, selectedProjectId),
+                    normalizedWorkViewSearchParams,
+                  ),
+                )
               }
             }}
             onUpdateIssue={handleUpdateIssue}
@@ -1185,8 +1257,8 @@ export function AppPage({ onSignOut }: AppPageProps) {
             onIssuePriorityFilterChange={setIssuePriorityFilter}
             onIssueLabelFilterChange={setIssueLabelFilter}
             onIssueAssigneeFilterChange={setIssueAssigneeFilter}
-            onIssueViewModeChange={setIssueViewMode}
-            onBoardIssueViewChange={setBoardIssueView}
+            onIssueViewModeChange={handleIssueViewModeChange}
+            onBoardIssueViewChange={handleBoardIssueViewChange}
             onClearIssueFilters={clearIssueFilters}
             onOpenProjectMembers={openProjectMembersDialog}
             onOpenProjectWorkflow={openProjectWorkflowDialog}
@@ -1288,12 +1360,16 @@ function WorkspaceSidebar({
   isLoadingWorkspace,
   projects,
   selectedProjectId,
+  issueViewMode,
+  boardIssueView,
   isLoadingProjects,
   projectsError,
   areProjectsOpen,
   onToggleProjects,
   onOpenCreateProject,
   canCreateProject,
+  canSelectViews,
+  onViewSelect,
   onProjectSelect,
   onSignOut,
 }: {
@@ -1301,12 +1377,16 @@ function WorkspaceSidebar({
   isLoadingWorkspace: boolean
   projects: Project[]
   selectedProjectId: string | null
+  issueViewMode: IssueViewMode
+  boardIssueView: BoardIssueView
   isLoadingProjects: boolean
   projectsError: Error | null
   areProjectsOpen: boolean
   onToggleProjects: () => void
   onOpenCreateProject: () => void
   canCreateProject: boolean
+  canSelectViews: boolean
+  onViewSelect: (view: BoardIssueView) => void
   onProjectSelect: (projectId: string) => void
   onSignOut: () => void
 }) {
@@ -1326,6 +1406,64 @@ function WorkspaceSidebar({
           <LogOut aria-hidden="true" />
         </Button>
       </div>
+
+      <nav className="sidebar-section" aria-label="Views">
+        <div className="sidebar-section-header">
+          <span>
+            <PanelRight aria-hidden="true" />
+            Views
+          </span>
+        </div>
+        <div className="sidebar-list sidebar-view-list">
+          <button
+            className="sidebar-list-item sidebar-view-item"
+            data-active={issueViewMode === 'BOARD' && boardIssueView === 'ALL'}
+            type="button"
+            disabled={!canSelectViews}
+            onClick={() => onViewSelect('ALL')}
+            aria-current={
+              issueViewMode === 'BOARD' && boardIssueView === 'ALL' ? 'page' : undefined
+            }
+          >
+            <LayoutList aria-hidden="true" />
+            <span>
+              <strong>All issues</strong>
+            </span>
+          </button>
+          <button
+            className="sidebar-list-item sidebar-view-item"
+            data-active={issueViewMode === 'BOARD' && boardIssueView === 'MINE'}
+            type="button"
+            disabled={!canSelectViews}
+            onClick={() => onViewSelect('MINE')}
+            aria-current={
+              issueViewMode === 'BOARD' && boardIssueView === 'MINE' ? 'page' : undefined
+            }
+          >
+            <UserCircle aria-hidden="true" />
+            <span>
+              <strong>My issues</strong>
+            </span>
+          </button>
+          <button
+            className="sidebar-list-item sidebar-view-item"
+            data-active={issueViewMode === 'BOARD' && boardIssueView === 'UNASSIGNED'}
+            type="button"
+            disabled={!canSelectViews}
+            onClick={() => onViewSelect('UNASSIGNED')}
+            aria-current={
+              issueViewMode === 'BOARD' && boardIssueView === 'UNASSIGNED'
+                ? 'page'
+                : undefined
+            }
+          >
+            <Circle aria-hidden="true" />
+            <span>
+              <strong>Unassigned</strong>
+            </span>
+          </button>
+        </div>
+      </nav>
 
       <nav className="sidebar-section" aria-label="Projects">
         <div className="sidebar-section-header sidebar-section-header-interactive">
@@ -4401,6 +4539,66 @@ function defaultWorkflowStateIdForStatus(
 
 function statusForIcon(issue: IssueSummary | IssueDetail) {
   return issue.status === 'ARCHIVED' ? 'ARCHIVED' : issue.workflowState.category
+}
+
+function issueViewModeFromSearchParams(searchParams: URLSearchParams): IssueViewMode {
+  return searchParams.get('layout') === 'list' ? 'LIST' : 'BOARD'
+}
+
+function boardIssueViewFromSearchParams(searchParams: URLSearchParams): BoardIssueView {
+  const view = searchParams.get('view')
+  if (view === 'mine') {
+    return 'MINE'
+  }
+  if (view === 'unassigned') {
+    return 'UNASSIGNED'
+  }
+  return 'ALL'
+}
+
+function normalizeWorkViewSearchParams(searchParams: URLSearchParams) {
+  const normalized = new URLSearchParams(searchParams)
+  if (normalized.get('layout') !== 'list') {
+    normalized.delete('layout')
+  }
+
+  const view = normalized.get('view')
+  if (view !== 'mine' && view !== 'unassigned') {
+    normalized.delete('view')
+  }
+
+  return normalized
+}
+
+function workViewSearchParams(
+  searchParams: URLSearchParams,
+  layout: IssueViewMode,
+  view: BoardIssueView,
+) {
+  const next = new URLSearchParams(searchParams)
+  if (layout === 'LIST') {
+    next.set('layout', 'list')
+  } else {
+    next.delete('layout')
+  }
+
+  if (view === 'MINE') {
+    next.set('view', 'mine')
+  } else if (view === 'UNASSIGNED') {
+    next.set('view', 'unassigned')
+  } else {
+    next.delete('view')
+  }
+
+  return next
+}
+
+function pathWithSearchParams(path: string, searchParams: URLSearchParams | string) {
+  const searchString =
+    typeof searchParams === 'string'
+      ? searchParams.replace(/^\?/, '')
+      : searchParams.toString()
+  return searchString ? `${path}?${searchString}` : path
 }
 
 function projectPath(workspaceId: string, projectId: string) {
