@@ -70,6 +70,7 @@ export type IssueSummary = {
   assignee?: AuthUser | null
   dueDate?: string | null
   archivedAt?: string | null
+  boardPosition: number
   createdAt: string
   updatedAt: string
   commentCount?: number | null
@@ -85,6 +86,16 @@ export type IssueComment = {
 
 export type IssueDetail = IssueSummary & {
   comments: IssueComment[]
+}
+
+export type BoardColumn = {
+  workflowState: ProjectWorkflowState
+  issues: IssueSummary[]
+}
+
+export type ProjectBoard = {
+  projectId: string
+  columns: BoardColumn[]
 }
 
 export type ActivityEventType =
@@ -164,6 +175,16 @@ export type UpdateIssueRequest = {
   labelIds?: string[]
   assigneeUserId?: string | null
   dueDate?: string | null
+}
+
+export type MoveIssueStateRequest = {
+  workflowStateId: string
+}
+
+export type ReorderIssuesRequest = {
+  issueId: string
+  workflowStateId: string
+  orderedIssueIds: string[]
 }
 
 export type ListIssuesFilters = {
@@ -276,12 +297,25 @@ export function listIssues(projectId: string, filters: ListIssuesFilters = {}) {
   return api.get<IssueSummary[]>(`/issues?${params.toString()}`)
 }
 
+export function getProjectBoard(projectId: string) {
+  const params = new URLSearchParams({ projectId })
+  return api.get<ProjectBoard>(`/issues/board?${params.toString()}`)
+}
+
 export function createIssue(request: CreateIssueRequest) {
   return api.post<IssueSummary>('/issues', request)
 }
 
 export function updateIssue(issueId: string, request: UpdateIssueRequest) {
   return api.patch<IssueDetail>(`/issues/${issueId}`, request)
+}
+
+export function moveIssueState(issueId: string, request: MoveIssueStateRequest) {
+  return api.patch<IssueSummary>(`/issues/${issueId}/state`, request)
+}
+
+export function reorderIssues(request: ReorderIssuesRequest) {
+  return api.patch<ProjectBoard>('/issues/reorder', request)
 }
 
 export function getIssue(issueId: string) {

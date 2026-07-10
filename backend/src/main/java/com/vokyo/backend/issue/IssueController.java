@@ -7,6 +7,9 @@ import com.vokyo.backend.issue.dto.CreateIssueRequest;
 import com.vokyo.backend.issue.dto.IssueCommentResponse;
 import com.vokyo.backend.issue.dto.IssueDetailResponse;
 import com.vokyo.backend.issue.dto.IssueSummaryResponse;
+import com.vokyo.backend.issue.dto.MoveIssueStateRequest;
+import com.vokyo.backend.issue.dto.ProjectBoardResponse;
+import com.vokyo.backend.issue.dto.ReorderIssuesRequest;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -39,6 +42,14 @@ public class IssueController {
         return issueService.listIssues(jwt, projectId, status, workflowStateId, priority, assigneeUserId, labelId, q);
     }
 
+    @GetMapping("/board")
+    public ProjectBoardResponse getBoard(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam UUID projectId
+    ) {
+        return issueService.getBoard(jwt, projectId);
+    }
+
     @PostMapping
     public IssueSummaryResponse createIssue(
             @AuthenticationPrincipal Jwt jwt,
@@ -53,6 +64,23 @@ public class IssueController {
             @PathVariable UUID issueId
     ) {
         return issueService.getIssue(jwt, issueId);
+    }
+
+    @PatchMapping("/{issueId}/state")
+    public IssueSummaryResponse moveIssueState(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID issueId,
+            @Valid @RequestBody MoveIssueStateRequest request
+    ) {
+        return issueService.moveIssueState(jwt, issueId, request);
+    }
+
+    @PatchMapping("/reorder")
+    public ProjectBoardResponse reorderIssues(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody ReorderIssuesRequest request
+    ) {
+        return issueService.reorderIssues(jwt, request);
     }
 
     @PostMapping("/{issueId}/comments")

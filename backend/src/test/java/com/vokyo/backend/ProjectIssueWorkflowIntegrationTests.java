@@ -1275,6 +1275,486 @@ class ProjectIssueWorkflowIntegrationTests {
     }
 
     @Test
+    void boardReturnsOrderedColumnsAndAppendsNewIssues() throws Exception {
+        AuthSession owner = register("board-owner+" + uniqueId() + "@example.com");
+        String projectId = createProject(owner, "Board Project").get("id").asText();
+        JsonNode workflowStates = workflowStates(owner, projectId);
+        String todoStateId = workflowStateIdByName(workflowStates, "Todo");
+        String doneStateId = workflowStateIdByName(workflowStates, "Done");
+
+        JsonNode firstIssue = postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "First board issue"
+                }
+                """.formatted(projectId),
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.boardPosition").value(10000))
+                .andReturnJson();
+        JsonNode secondIssue = postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Second board issue"
+                }
+                """.formatted(projectId),
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.boardPosition").value(20000))
+                .andReturnJson();
+        postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Done board issue",
+                  "workflowStateId": "%s"
+                }
+                """.formatted(projectId, doneStateId),
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.boardPosition").value(10000));
+
+        mockMvc.perform(get("/api/issues/board")
+                        .queryParam("projectId", projectId)
+                        .header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.projectId").value(projectId))
+                .andExpect(jsonPath("$.columns[0].workflowState.id").value(todoStateId))
+                .andExpect(jsonPath("$.columns[0].issues[0].title").value("First board issue"))
+                .andExpect(jsonPath("$.columns[0].issues[0].boardPosition").value(10000))
+                .andExpect(jsonPath("$.columns[0].issues[1].title").value("Second board issue"))
+                .andExpect(jsonPath("$.columns[0].issues[1].boardPosition").value(20000))
+                .andExpect(jsonPath("$.columns[1].workflowState.name").value("In progress"))
+                .andExpect(jsonPath("$.columns[1].issues").isEmpty())
+                .andExpect(jsonPath("$.columns[2].workflowState.id").value(doneStateId))
+                .andExpect(jsonPath("$.columns[2].issues[0].title").value("Done board issue"));
+
+        JsonNode listIssues = getIssues(owner, projectId)
+                .andExpect(status().isOk())
+                .andReturnJson();
+        assertThat(issueTitles(listIssues))
+                .containsExactly("Done board issue", "Second board issue", "First board issue");
+
+        patchJson(
+                "/api/issues/%s".formatted(secondIssue.get("id").asText()),
+                """
+                {
+                  "status": "ARCHIVED"
+                }
+                """,
+                owner.accessToken()
+        ).andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/issues/board")
+                        .queryParam("projectId", projectId)
+                        .header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.columns[0].issues.length()").value(1))
+                .andExpect(jsonPath("$.columns[0].issues[0].id").value(firstIssue.get("id").asText()));
+    }
+
+    @Test
+    void projectMemberCanMoveIssueStateToColumnEndWithoutDuplicateActivity() throws Exception {
+        AuthSession owner = register("board-state-owner+" + uniqueId() + "@example.com");
+        AuthSession member = createWorkspaceMember(owner, "board-state-member+" + uniqueId() + "@example.com");
+        String projectId = createProject(owner, "Board State Project").get("id").asText();
+        addProjectMember(owner, projectId, userId(member));
+        JsonNode workflowStates = workflowStates(owner, projectId);
+        String inProgressStateId = workflowStateIdByName(workflowStates, "In progress");
+
+        postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Existing in progress",
+                  "workflowStateId": "%s"
+                }
+                """.formatted(projectId, inProgressStateId),
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.boardPosition").value(10000));
+        JsonNode movedIssue = postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Move to in progress"
+                }
+                """.formatted(projectId),
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andReturnJson();
+        String movedIssueId = movedIssue.get("id").asText();
+
+        patchJson(
+                "/api/issues/%s/state".formatted(movedIssueId),
+                """
+                {
+                  "workflowStateId": "%s"
+                }
+                """.formatted(inProgressStateId),
+                member.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.workflowState.id").value(inProgressStateId))
+                .andExpect(jsonPath("$.boardPosition").value(20000));
+
+        patchJson(
+                "/api/issues/%s/state".formatted(movedIssueId),
+                """
+                {
+                  "workflowStateId": "%s"
+                }
+                """.formatted(inProgressStateId),
+                member.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.boardPosition").value(20000));
+
+        mockMvc.perform(get("/api/issues/{issueId}/activities", movedIssueId)
+                        .header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].eventType").value("ISSUE_CREATED"))
+                .andExpect(jsonPath("$[1].eventType").value("ISSUE_STATUS_CHANGED"))
+                .andExpect(jsonPath("$[1].metadata.toWorkflowStateId").value(inProgressStateId));
+    }
+
+    @Test
+    void issueReorderSupportsSameColumnAndAtomicCrossColumnMove() throws Exception {
+        AuthSession owner = register("board-reorder-owner+" + uniqueId() + "@example.com");
+        AuthSession member = createWorkspaceMember(owner, "board-reorder-member+" + uniqueId() + "@example.com");
+        String projectId = createProject(owner, "Board Reorder Project").get("id").asText();
+        addProjectMember(owner, projectId, userId(member));
+        JsonNode workflowStates = workflowStates(owner, projectId);
+        String todoStateId = workflowStateIdByName(workflowStates, "Todo");
+        String inProgressStateId = workflowStateIdByName(workflowStates, "In progress");
+        JsonNode issueA = createIssue(owner, projectId, "Board A", "A", "TODO", "LOW");
+        JsonNode issueB = createIssue(owner, projectId, "Board B", "B", "TODO", "LOW");
+        JsonNode issueC = createIssue(owner, projectId, "Board C", "C", "TODO", "LOW");
+        JsonNode issueD = postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Board D",
+                  "workflowStateId": "%s"
+                }
+                """.formatted(projectId, inProgressStateId),
+                member.accessToken()
+        ).andExpect(status().isOk())
+                .andReturnJson();
+
+        patchJson(
+                "/api/issues/reorder",
+                """
+                {
+                  "issueId": "%s",
+                  "workflowStateId": "%s",
+                  "orderedIssueIds": ["%s", "%s", "%s"]
+                }
+                """.formatted(
+                        issueB.get("id").asText(),
+                        todoStateId,
+                        issueB.get("id").asText(),
+                        issueA.get("id").asText(),
+                        issueC.get("id").asText()
+                ),
+                member.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.columns[0].issues[0].id").value(issueB.get("id").asText()))
+                .andExpect(jsonPath("$.columns[0].issues[0].boardPosition").value(10000))
+                .andExpect(jsonPath("$.columns[0].issues[1].id").value(issueA.get("id").asText()))
+                .andExpect(jsonPath("$.columns[0].issues[1].boardPosition").value(20000))
+                .andExpect(jsonPath("$.columns[0].issues[2].id").value(issueC.get("id").asText()))
+                .andExpect(jsonPath("$.columns[0].issues[2].boardPosition").value(30000));
+
+        patchJson(
+                "/api/issues/reorder",
+                """
+                {
+                  "issueId": "%s",
+                  "workflowStateId": "%s",
+                  "orderedIssueIds": ["%s", "%s"]
+                }
+                """.formatted(
+                        issueC.get("id").asText(),
+                        inProgressStateId,
+                        issueC.get("id").asText(),
+                        issueD.get("id").asText()
+                ),
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.columns[0].issues.length()").value(2))
+                .andExpect(jsonPath("$.columns[0].issues[0].id").value(issueB.get("id").asText()))
+                .andExpect(jsonPath("$.columns[0].issues[1].id").value(issueA.get("id").asText()))
+                .andExpect(jsonPath("$.columns[1].issues[0].id").value(issueC.get("id").asText()))
+                .andExpect(jsonPath("$.columns[1].issues[0].workflowState.id").value(inProgressStateId))
+                .andExpect(jsonPath("$.columns[1].issues[0].boardPosition").value(10000))
+                .andExpect(jsonPath("$.columns[1].issues[1].id").value(issueD.get("id").asText()))
+                .andExpect(jsonPath("$.columns[1].issues[1].boardPosition").value(20000));
+
+        mockMvc.perform(get("/api/issues/{issueId}/activities", issueB.get("id").asText())
+                        .header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1));
+        mockMvc.perform(get("/api/issues/{issueId}/activities", issueC.get("id").asText())
+                        .header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[1].eventType").value("ISSUE_STATUS_CHANGED"));
+    }
+
+    @Test
+    void boardMovementValidatesAccessPayloadAndArchivedIssues() throws Exception {
+        AuthSession owner = register("board-validation-owner+" + uniqueId() + "@example.com");
+        AuthSession nonProjectMember = createWorkspaceMember(
+                owner,
+                "board-validation-member+" + uniqueId() + "@example.com"
+        );
+        AuthSession outsider = register("board-validation-outsider+" + uniqueId() + "@example.com");
+        String projectId = createProject(owner, "Board Validation Project").get("id").asText();
+        String otherProjectId = createProject(owner, "Other Board Validation Project").get("id").asText();
+        JsonNode workflowStates = workflowStates(owner, projectId);
+        String todoStateId = workflowStateIdByName(workflowStates, "Todo");
+        String otherProjectStateId = workflowStateIdByName(workflowStates(owner, otherProjectId), "Todo");
+        JsonNode issueA = createIssue(owner, projectId, "Validation A", "A", "TODO", "LOW");
+        JsonNode issueB = createIssue(owner, projectId, "Validation B", "B", "TODO", "LOW");
+        JsonNode otherIssue = createIssue(owner, otherProjectId, "Other validation", "Other", "TODO", "LOW");
+
+        mockMvc.perform(get("/api/issues/board")
+                        .queryParam("projectId", projectId)
+                        .header("Authorization", bearer(nonProjectMember.accessToken())))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/issues/board")
+                        .queryParam("projectId", projectId)
+                        .header("Authorization", bearer(outsider.accessToken())))
+                .andExpect(status().isNotFound());
+
+        patchJson(
+                "/api/issues/%s/state".formatted(issueA.get("id").asText()),
+                """
+                {
+                  "workflowStateId": "%s"
+                }
+                """.formatted(todoStateId),
+                nonProjectMember.accessToken()
+        ).andExpect(status().isNotFound());
+        patchJson(
+                "/api/issues/%s/state".formatted(issueA.get("id").asText()),
+                """
+                {
+                  "workflowStateId": "%s"
+                }
+                """.formatted(todoStateId),
+                outsider.accessToken()
+        ).andExpect(status().isNotFound());
+        patchJson(
+                "/api/issues/%s/state".formatted(issueA.get("id").asText()),
+                """
+                {
+                  "workflowStateId": "%s"
+                }
+                """.formatted(otherProjectStateId),
+                owner.accessToken()
+        ).andExpect(status().isNotFound());
+
+        patchJson(
+                "/api/issues/reorder",
+                """
+                {
+                  "issueId": "%s",
+                  "workflowStateId": "%s",
+                  "orderedIssueIds": ["%s", "%s"]
+                }
+                """.formatted(
+                        issueA.get("id").asText(),
+                        todoStateId,
+                        issueA.get("id").asText(),
+                        issueB.get("id").asText()
+                ),
+                nonProjectMember.accessToken()
+        ).andExpect(status().isNotFound());
+
+        patchJson(
+                "/api/issues/reorder",
+                """
+                {
+                  "issueId": "%s",
+                  "workflowStateId": "%s",
+                  "orderedIssueIds": ["%s", "%s"]
+                }
+                """.formatted(
+                        issueA.get("id").asText(),
+                        todoStateId,
+                        issueA.get("id").asText(),
+                        issueA.get("id").asText()
+                ),
+                owner.accessToken()
+        ).andExpect(status().isBadRequest());
+        patchJson(
+                "/api/issues/reorder",
+                """
+                {
+                  "issueId": "%s",
+                  "workflowStateId": "%s",
+                  "orderedIssueIds": ["%s"]
+                }
+                """.formatted(issueA.get("id").asText(), todoStateId, issueA.get("id").asText()),
+                owner.accessToken()
+        ).andExpect(status().isBadRequest());
+        patchJson(
+                "/api/issues/reorder",
+                """
+                {
+                  "issueId": "%s",
+                  "workflowStateId": "%s",
+                  "orderedIssueIds": ["%s", "%s", "%s"]
+                }
+                """.formatted(
+                        issueA.get("id").asText(),
+                        todoStateId,
+                        issueA.get("id").asText(),
+                        issueB.get("id").asText(),
+                        otherIssue.get("id").asText()
+                ),
+                owner.accessToken()
+        ).andExpect(status().isNotFound());
+        patchJson(
+                "/api/issues/reorder",
+                """
+                {
+                  "issueId": "%s",
+                  "workflowStateId": "%s",
+                  "orderedIssueIds": ["%s", "%s", "%s"]
+                }
+                """.formatted(
+                        issueA.get("id").asText(),
+                        todoStateId,
+                        issueA.get("id").asText(),
+                        issueB.get("id").asText(),
+                        UUID.randomUUID()
+                ),
+                owner.accessToken()
+        ).andExpect(status().isNotFound());
+
+        patchJson(
+                "/api/issues/%s".formatted(issueA.get("id").asText()),
+                """
+                {
+                  "status": "ARCHIVED"
+                }
+                """,
+                owner.accessToken()
+        ).andExpect(status().isOk());
+        patchJson(
+                "/api/issues/%s/state".formatted(issueA.get("id").asText()),
+                """
+                {
+                  "workflowStateId": "%s"
+                }
+                """.formatted(todoStateId),
+                owner.accessToken()
+        ).andExpect(status().isConflict());
+        patchJson(
+                "/api/issues/reorder",
+                """
+                {
+                  "issueId": "%s",
+                  "workflowStateId": "%s",
+                  "orderedIssueIds": ["%s", "%s"]
+                }
+                """.formatted(
+                        issueA.get("id").asText(),
+                        todoStateId,
+                        issueA.get("id").asText(),
+                        issueB.get("id").asText()
+                ),
+                owner.accessToken()
+        ).andExpect(status().isConflict());
+    }
+
+    @Test
+    void genericIssuePatchAppendsOnStateChangeAndUnarchive() throws Exception {
+        AuthSession owner = register("board-compat-owner+" + uniqueId() + "@example.com");
+        String projectId = createProject(owner, "Board Compatibility Project").get("id").asText();
+        String inProgressStateId = workflowStateIdByName(workflowStates(owner, projectId), "In progress");
+        postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Existing target issue",
+                  "workflowStateId": "%s"
+                }
+                """.formatted(projectId, inProgressStateId),
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.boardPosition").value(10000));
+        JsonNode movedIssue = createIssue(owner, projectId, "Generic patch move", "Move", "TODO", "LOW");
+        String movedIssueId = movedIssue.get("id").asText();
+
+        patchJson(
+                "/api/issues/%s".formatted(movedIssueId),
+                """
+                {
+                  "workflowStateId": "%s"
+                }
+                """.formatted(inProgressStateId),
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.boardPosition").value(20000));
+
+        patchJson(
+                "/api/issues/%s".formatted(movedIssueId),
+                """
+                {
+                  "status": "ARCHIVED"
+                }
+                """,
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.boardPosition").value(20000));
+        postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "New target issue",
+                  "workflowStateId": "%s"
+                }
+                """.formatted(projectId, inProgressStateId),
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.boardPosition").value(20000));
+
+        patchJson(
+                "/api/issues/%s".formatted(movedIssueId),
+                """
+                {
+                  "status": "IN_PROGRESS"
+                }
+                """,
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.archivedAt").doesNotExist())
+                .andExpect(jsonPath("$.boardPosition").value(30000));
+
+        mockMvc.perform(get("/api/issues/board")
+                        .queryParam("projectId", projectId)
+                        .header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.columns[1].issues[0].title").value("Existing target issue"))
+                .andExpect(jsonPath("$.columns[1].issues[1].title").value("New target issue"))
+                .andExpect(jsonPath("$.columns[1].issues[2].id").value(movedIssueId));
+    }
+
+    @Test
     void rejectsCrossWorkspaceProjectAndIssueAccess() throws Exception {
         AuthSession owner = register("owner+" + uniqueId() + "@example.com");
         AuthSession outsider = register("outsider+" + uniqueId() + "@example.com");

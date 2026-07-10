@@ -22,6 +22,7 @@ public record IssueSummaryResponse(
         UserResponse assignee,
         LocalDate dueDate,
         Instant archivedAt,
+        long boardPosition,
         Instant createdAt,
         Instant updatedAt,
         long commentCount

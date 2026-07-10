@@ -77,6 +77,9 @@ public class Issue {
     @Column(name = "archived_at")
     private Instant archivedAt;
 
+    @Column(name = "board_position", nullable = false)
+    private long boardPosition;
+
     protected Issue() {
     }
 
@@ -89,7 +92,8 @@ public class Issue {
             User assigneeUser,
             ProjectWorkflowState workflowState,
             IssuePriority priority,
-            LocalDate dueDate
+            LocalDate dueDate,
+            long boardPosition
     ) {
         this.workspace = workspace;
         this.project = project;
@@ -101,6 +105,7 @@ public class Issue {
         this.status = statusFromWorkflowState(workflowState);
         this.priority = priority;
         this.dueDate = dueDate;
+        this.boardPosition = boardPosition;
     }
 
     @PrePersist
@@ -179,6 +184,10 @@ public class Issue {
         return archivedAt;
     }
 
+    public long getBoardPosition() {
+        return boardPosition;
+    }
+
     public void rename(String title) {
         this.title = title;
     }
@@ -221,6 +230,10 @@ public class Issue {
 
     public void changeDueDate(LocalDate dueDate) {
         this.dueDate = dueDate;
+    }
+
+    public void moveOnBoard(long boardPosition) {
+        this.boardPosition = boardPosition;
     }
 
     private IssueStatus statusFromWorkflowState(ProjectWorkflowState workflowState) {

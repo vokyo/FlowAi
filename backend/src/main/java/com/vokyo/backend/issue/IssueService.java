@@ -4,11 +4,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.vokyo.backend.activity.ActivityService;
 import com.vokyo.backend.activity.dto.ActivityEventResponse;
 import com.vokyo.backend.auth.dto.UserResponse;
+import com.vokyo.backend.issue.dto.BoardColumnResponse;
 import com.vokyo.backend.issue.dto.CreateCommentRequest;
 import com.vokyo.backend.issue.dto.CreateIssueRequest;
 import com.vokyo.backend.issue.dto.IssueCommentResponse;
 import com.vokyo.backend.issue.dto.IssueDetailResponse;
 import com.vokyo.backend.issue.dto.IssueSummaryResponse;
+import com.vokyo.backend.issue.dto.MoveIssueStateRequest;
+import com.vokyo.backend.issue.dto.ProjectBoardResponse;
+import com.vokyo.backend.issue.dto.ReorderIssuesRequest;
 import com.vokyo.backend.project.Project;
 import com.vokyo.backend.project.ProjectAccessService;
 import com.vokyo.backend.project.ProjectLabel;
@@ -32,6 +36,9 @@ import org.springframework.web.server.ResponseStatusException;
 import jakarta.persistence.criteria.Predicate;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -44,6 +51,7 @@ public class IssueService {
 
     private static final int MAX_TITLE_LENGTH = 240;
     private static final int MAX_DESCRIPTION_LENGTH = 10000;
+    private static final long BOARD_POSITION_STEP = 10_000L;
 
     private final IssueRepository issueRepository;
     private final IssueCommentRepository issueCommentRepository;
@@ -107,16 +115,24 @@ public class IssueService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public ProjectBoardResponse getBoard(Jwt jwt, UUID projectId) {
+        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
+        Project project = projectAccessService.requireAccessibleProject(projectId, context);
+        return loadBoard(project);
+    }
+
     @Transactional
     public IssueSummaryResponse createIssue(Jwt jwt, CreateIssueRequest request) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
-        Project project = projectAccessService.requireAccessibleProject(request.projectId(), context);
+        Project project = projectAccessService.requireAccessibleProjectForUpdate(request.projectId(), context);
         if (request.status() == IssueStatus.ARCHIVED) {
             throw badRequest("Issue cannot be created as archived");
         }
         User assignee = resolveAssignee(project, request.assigneeUserId());
         List<ProjectLabel> labels = resolveProjectLabels(project, request.labelIds());
         ProjectWorkflowState workflowState = resolveWorkflowStateForCreate(project, request.workflowStateId(), request.status());
+        long boardPosition = nextBoardPosition(project, workflowState);
 
         Issue issue = issueRepository.save(new Issue(
                 context.workspace(),
@@ -127,12 +143,117 @@ public class IssueService {
                 assignee,
                 workflowState,
                 request.priority(),
-                request.dueDate()
+                request.dueDate(),
+                boardPosition
         ));
         issue.replaceLabels(labels);
 
         activityService.recordIssueCreated(issue, context.user());
         return toSummaryResponse(issue, 0L);
+    }
+
+    @Transactional
+    public IssueSummaryResponse moveIssueState(Jwt jwt, UUID issueId, MoveIssueStateRequest request) {
+        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
+        Project project = requireIssueProjectForUpdate(issueId, context);
+        Issue issue = requireIssue(issueId, context.workspace().getId());
+        if (issue.getArchivedAt() != null) {
+            throw conflict("Archived issue cannot be moved");
+        }
+
+        ProjectWorkflowState targetWorkflowState = requireProjectWorkflowState(project, request.workflowStateId());
+        ProjectWorkflowState previousWorkflowState = issue.getWorkflowState();
+        if (previousWorkflowState.getId().equals(targetWorkflowState.getId())) {
+            return toSummaryResponse(issue, loadCommentCount(issue));
+        }
+
+        String previousStatus = displayStatus(issue);
+        long boardPosition = nextBoardPosition(project, targetWorkflowState);
+        issue.changeWorkflowState(targetWorkflowState);
+        issue.moveOnBoard(boardPosition);
+        activityService.recordIssueStatusChanged(
+                issue,
+                context.user(),
+                previousStatus,
+                displayStatus(issue),
+                previousWorkflowState.getId(),
+                targetWorkflowState.getId()
+        );
+
+        return toSummaryResponse(issue, loadCommentCount(issue));
+    }
+
+    @Transactional
+    public ProjectBoardResponse reorderIssues(Jwt jwt, ReorderIssuesRequest request) {
+        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
+        Project project = requireIssueProjectForUpdate(request.issueId(), context);
+        Issue movedIssue = requireIssue(request.issueId(), context.workspace().getId());
+        if (movedIssue.getArchivedAt() != null) {
+            throw conflict("Archived issue cannot be reordered");
+        }
+
+        ProjectWorkflowState targetWorkflowState = requireProjectWorkflowState(project, request.workflowStateId());
+        List<UUID> orderedIssueIds = request.orderedIssueIds();
+        LinkedHashSet<UUID> requestedIssueIds = new LinkedHashSet<>(orderedIssueIds);
+        if (requestedIssueIds.size() != orderedIssueIds.size()) {
+            throw badRequest("Issue order cannot contain duplicates");
+        }
+
+        List<Issue> requestedIssues = issueRepository.findByWorkspace_IdAndProject_IdAndIdIn(
+                project.getWorkspace().getId(),
+                project.getId(),
+                requestedIssueIds
+        );
+        if (requestedIssues.size() != requestedIssueIds.size()) {
+            throw notFound("Issue not found");
+        }
+        if (requestedIssues.stream().anyMatch(issue -> issue.getArchivedAt() != null)) {
+            throw badRequest("Archived issues cannot be reordered");
+        }
+
+        LinkedHashSet<UUID> expectedIssueIds = issueRepository.findActiveIssuesInWorkflowState(
+                        project.getWorkspace().getId(),
+                        project.getId(),
+                        targetWorkflowState.getId()
+                )
+                .stream()
+                .map(Issue::getId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        expectedIssueIds.add(movedIssue.getId());
+        if (!requestedIssueIds.equals(expectedIssueIds)) {
+            throw badRequest("Issue order must include every issue in the target workflow state");
+        }
+
+        Map<UUID, Issue> requestedIssuesById = requestedIssues
+                .stream()
+                .collect(Collectors.toMap(Issue::getId, issue -> issue));
+        ProjectWorkflowState previousWorkflowState = movedIssue.getWorkflowState();
+        String previousStatus = displayStatus(movedIssue);
+        boolean workflowStateChanged = !previousWorkflowState.getId().equals(targetWorkflowState.getId());
+        if (workflowStateChanged) {
+            movedIssue.changeWorkflowState(targetWorkflowState);
+        }
+
+        List<Issue> orderedIssues = new ArrayList<>(orderedIssueIds.size());
+        for (int index = 0; index < orderedIssueIds.size(); index++) {
+            Issue issue = requestedIssuesById.get(orderedIssueIds.get(index));
+            issue.moveOnBoard((index + 1L) * BOARD_POSITION_STEP);
+            orderedIssues.add(issue);
+        }
+        issueRepository.saveAll(orderedIssues);
+
+        if (workflowStateChanged) {
+            activityService.recordIssueStatusChanged(
+                    movedIssue,
+                    context.user(),
+                    previousStatus,
+                    displayStatus(movedIssue),
+                    previousWorkflowState.getId(),
+                    targetWorkflowState.getId()
+            );
+        }
+
+        return loadBoard(project);
     }
 
     @Transactional(readOnly = true)
@@ -176,6 +297,15 @@ public class IssueService {
     private Issue requireIssue(UUID issueId, UUID workspaceId) {
         return issueRepository.findByIdAndWorkspace_Id(issueId, workspaceId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Issue not found"));
+    }
+
+    private Project requireIssueProjectForUpdate(UUID issueId, CurrentWorkspaceContext context) {
+        UUID projectId = issueRepository.findProjectIdByIdAndWorkspaceId(
+                        issueId,
+                        context.workspace().getId()
+                )
+                .orElseThrow(() -> notFound("Issue not found"));
+        return projectAccessService.requireAccessibleProjectForUpdate(projectId, context);
     }
 
     private Specification<Issue> issueListSpecification(
@@ -248,6 +378,69 @@ public class IssueService {
                 ));
     }
 
+    private long loadCommentCount(Issue issue) {
+        return loadCommentCounts(List.of(issue)).getOrDefault(issue.getId(), 0L);
+    }
+
+    private ProjectBoardResponse loadBoard(Project project) {
+        List<ProjectWorkflowState> workflowStates = projectWorkflowStateRepository
+                .findByWorkspace_IdAndProject_IdOrderByPositionAscNameAsc(
+                        project.getWorkspace().getId(),
+                        project.getId()
+                );
+        List<Issue> issues = issueRepository.findActiveBoardIssues(
+                project.getWorkspace().getId(),
+                project.getId()
+        );
+        Map<UUID, Long> commentCounts = loadCommentCounts(issues);
+        Map<UUID, List<Issue>> issuesByWorkflowState = new LinkedHashMap<>();
+        for (ProjectWorkflowState workflowState : workflowStates) {
+            issuesByWorkflowState.put(workflowState.getId(), new ArrayList<>());
+        }
+        for (Issue issue : issues) {
+            issuesByWorkflowState.computeIfAbsent(
+                    issue.getWorkflowState().getId(),
+                    ignored -> new ArrayList<>()
+            ).add(issue);
+        }
+
+        List<BoardColumnResponse> columns = workflowStates
+                .stream()
+                .map(workflowState -> new BoardColumnResponse(
+                        toWorkflowStateResponse(workflowState),
+                        issuesByWorkflowState.getOrDefault(workflowState.getId(), List.of())
+                                .stream()
+                                .map(issue -> toSummaryResponse(
+                                        issue,
+                                        commentCounts.getOrDefault(issue.getId(), 0L)
+                                ))
+                                .toList()
+                ))
+                .toList();
+        return new ProjectBoardResponse(project.getId(), columns);
+    }
+
+    private long nextBoardPosition(Project project, ProjectWorkflowState workflowState) {
+        return issueRepository.findMaxActiveBoardPosition(
+                project.getWorkspace().getId(),
+                project.getId(),
+                workflowState.getId()
+        ) + BOARD_POSITION_STEP;
+    }
+
+    private long nextBoardPositionExcludingIssue(
+            Project project,
+            ProjectWorkflowState workflowState,
+            UUID issueId
+    ) {
+        return issueRepository.findMaxActiveBoardPositionExcludingIssue(
+                project.getWorkspace().getId(),
+                project.getId(),
+                workflowState.getId(),
+                issueId
+        ) + BOARD_POSITION_STEP;
+    }
+
     private IssueSummaryResponse toSummaryResponse(Issue issue, long commentCount) {
         return new IssueSummaryResponse(
                 issue.getId(),
@@ -262,6 +455,7 @@ public class IssueService {
                 issue.getAssigneeUser() == null ? null : toUserResponse(issue.getAssigneeUser()),
                 issue.getDueDate(),
                 issue.getArchivedAt(),
+                issue.getBoardPosition(),
                 issue.getCreatedAt(),
                 issue.getUpdatedAt(),
                 commentCount
@@ -282,6 +476,7 @@ public class IssueService {
                 issue.getAssigneeUser() == null ? null : toUserResponse(issue.getAssigneeUser()),
                 issue.getDueDate(),
                 issue.getArchivedAt(),
+                issue.getBoardPosition(),
                 issue.getCreatedAt(),
                 issue.getUpdatedAt(),
                 comments
@@ -419,12 +614,13 @@ public class IssueService {
         }
 
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
+        Project project = requireIssueProjectForUpdate(issueId, context);
         Issue issue = requireIssue(issueId, context.workspace().getId());
-        projectAccessService.requireIssueProjectAccess(issue, context);
         String previousTitle = issue.getTitle();
         ProjectWorkflowState previousWorkflowState = issue.getWorkflowState();
         String previousStatus = displayStatus(issue);
         UUID previousWorkflowStateId = issue.getWorkflowState().getId();
+        boolean wasArchived = issue.getArchivedAt() != null;
         IssuePriority previousPriority = issue.getPriority();
         User previousAssignee = issue.getAssigneeUser();
         LocalDate previousDueDate = issue.getDueDate();
@@ -513,6 +709,16 @@ public class IssueService {
             }
         }
 
+        UUID currentWorkflowStateId = issue.getWorkflowState().getId();
+        boolean workflowStateChanged = !Objects.equals(previousWorkflowStateId, currentWorkflowStateId);
+        if (issue.getArchivedAt() == null && (workflowStateChanged || wasArchived)) {
+            issue.moveOnBoard(nextBoardPositionExcludingIssue(
+                    project,
+                    issue.getWorkflowState(),
+                    issue.getId()
+            ));
+        }
+
         if (!Objects.equals(previousTitle, issue.getTitle())) {
             activityService.recordIssueTitleChanged(
                     issue,
@@ -523,9 +729,8 @@ public class IssueService {
         }
 
         String currentStatus = displayStatus(issue);
-        UUID currentWorkflowStateId = issue.getWorkflowState().getId();
         if (!Objects.equals(previousStatus, currentStatus)
-                || !Objects.equals(previousWorkflowStateId, currentWorkflowStateId)) {
+                || workflowStateChanged) {
             activityService.recordIssueStatusChanged(
                     issue,
                     context.user(),
@@ -660,6 +865,10 @@ public class IssueService {
 
     private ResponseStatusException badRequest(String message) {
         return new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
+    }
+
+    private ResponseStatusException conflict(String message) {
+        return new ResponseStatusException(HttpStatus.CONFLICT, message);
     }
 
     private ResponseStatusException notFound(String message) {

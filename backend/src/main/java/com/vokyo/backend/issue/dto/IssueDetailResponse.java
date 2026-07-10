@@ -22,6 +22,7 @@ public record IssueDetailResponse(
         UserResponse assignee,
         LocalDate dueDate,
         Instant archivedAt,
+        long boardPosition,
         Instant createdAt,
         Instant updatedAt,
         List<IssueCommentResponse> comments

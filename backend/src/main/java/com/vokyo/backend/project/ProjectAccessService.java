@@ -51,24 +51,19 @@ public class ProjectAccessService {
     }
 
     public Project requireOwnedProjectForUpdate(UUID projectId, CurrentWorkspaceContext context) {
-        Project project = projectRepository.findByIdAndWorkspaceIdForUpdate(
-                        projectId,
-                        context.workspace().getId()
-                )
-                .orElseThrow(() -> notFound("Project not found"));
-        ProjectMember member = projectMemberRepository
-                .findByWorkspace_IdAndProject_IdAndUser_IdAndStatus(
-                        context.workspace().getId(),
-                        project.getId(),
-                        context.user().getId(),
-                        MembershipStatus.ACTIVE
-                )
-                .orElseThrow(() -> notFound("Project not found"));
+        Project project = lockProject(projectId, context);
+        ProjectMember member = requireActiveProjectMember(project, context);
 
         if (member.getRole() != ProjectRole.OWNER) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Project owner role is required");
         }
 
+        return project;
+    }
+
+    public Project requireAccessibleProjectForUpdate(UUID projectId, CurrentWorkspaceContext context) {
+        Project project = lockProject(projectId, context);
+        requireActiveProjectMember(project, context);
         return project;
     }
 
@@ -154,11 +149,23 @@ public class ProjectAccessService {
         Project project = projectRepository.findByIdAndWorkspace_Id(projectId, context.workspace().getId())
                 .orElseThrow(() -> notFound("Project not found"));
 
+        return requireActiveProjectMember(project, context);
+    }
+
+    private ProjectMember requireActiveProjectMember(Project project, CurrentWorkspaceContext context) {
         return projectMemberRepository.findByWorkspace_IdAndProject_IdAndUser_IdAndStatus(
                         context.workspace().getId(),
                         project.getId(),
                         context.user().getId(),
                         MembershipStatus.ACTIVE
+                )
+                .orElseThrow(() -> notFound("Project not found"));
+    }
+
+    private Project lockProject(UUID projectId, CurrentWorkspaceContext context) {
+        return projectRepository.findByIdAndWorkspaceIdForUpdate(
+                        projectId,
+                        context.workspace().getId()
                 )
                 .orElseThrow(() -> notFound("Project not found"));
     }
