@@ -33,6 +33,7 @@ import {
   Send,
   Tag,
   UserCircle,
+  UserMinus,
   UserPlus,
   Users,
   X,
@@ -57,8 +58,10 @@ import {
   listProjectWorkflowStates,
   listProjects,
   listWorkspaceMembers,
+  removeProjectMember,
   reorderProjectWorkflowStates,
   updateIssue,
+  updateProjectMember,
   updateProjectWorkflowState,
   type ActivityEvent,
   type IssueDetail,
@@ -293,17 +296,23 @@ export function AppPage({ onSignOut }: AppPageProps) {
   const currentProjectMember = projectMembers.find(
     (member) => member.userId === currentUser?.id && member.status === 'ACTIVE',
   )
-  const canAddProjectMembers = currentProjectMember?.role === 'OWNER'
-  const projectMemberUserIds = useMemo(
-    () => new Set(projectMembers.map((member) => member.userId)),
+  const canManageProjectMembers = currentProjectMember?.role === 'OWNER'
+  const activeProjectMemberUserIds = useMemo(
+    () =>
+      new Set(
+        projectMembers
+          .filter((member) => member.status === 'ACTIVE')
+          .map((member) => member.userId),
+      ),
     [projectMembers],
   )
   const addableWorkspaceMembers = useMemo(
     () =>
       workspaceMembers.filter(
-        (member) => member.status === 'ACTIVE' && !projectMemberUserIds.has(member.userId),
+        (member) =>
+          member.status === 'ACTIVE' && !activeProjectMemberUserIds.has(member.userId),
       ),
-    [projectMemberUserIds, workspaceMembers],
+    [activeProjectMemberUserIds, workspaceMembers],
   )
   const normalizedIssueSearchQuery = issueSearchQuery.trim()
   const issueStatusQuery = issueWorkflowFilter === 'ARCHIVED' ? 'ARCHIVED' : undefined
@@ -537,17 +546,57 @@ export function AppPage({ onSignOut }: AppPageProps) {
   const addProjectMemberMutation = useMutation({
     mutationFn: ({ projectId, userId }: { projectId: string; userId: string }) =>
       addProjectMember(projectId, { userId, role: 'MEMBER' }),
+    onSuccess: async (_, variables) => invalidateProjectMemberQueries(variables.projectId),
+  })
+
+  const updateProjectMemberMutation = useMutation({
+    mutationFn: ({
+      projectId,
+      memberId,
+      role,
+    }: {
+      projectId: string
+      memberId: string
+      role: 'OWNER' | 'MEMBER'
+    }) => updateProjectMember(projectId, memberId, { role }),
+    onSuccess: async (_, variables) => invalidateProjectMemberQueries(variables.projectId),
+  })
+
+  const removeProjectMemberMutation = useMutation({
+    mutationFn: ({
+      projectId,
+      memberId,
+    }: {
+      projectId: string
+      memberId: string
+      userId: string
+    }) => removeProjectMember(projectId, memberId),
     onSuccess: async (_, variables) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['project', variables.projectId] }),
-        queryClient.invalidateQueries({ queryKey: ['project-members', variables.projectId] }),
-        queryClient.invalidateQueries({ queryKey: ['projects', currentWorkspaceId] }),
-        queryClient.invalidateQueries({
-          queryKey: ['issues', currentWorkspaceId, variables.projectId],
-        }),
-      ])
+      if (variables.userId === currentUser?.id) {
+        setIsProjectMembersDialogOpen(false)
+      }
+
+      await invalidateProjectMemberQueries(variables.projectId)
     },
   })
+
+  function invalidateProjectMemberQueries(projectId: string) {
+    return Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] }),
+      queryClient.invalidateQueries({ queryKey: ['project-members', projectId] }),
+      queryClient.invalidateQueries({ queryKey: ['projects', currentWorkspaceId] }),
+      queryClient.invalidateQueries({
+        queryKey: ['issues', currentWorkspaceId, projectId],
+      }),
+      queryClient.invalidateQueries({ queryKey: ['issue'] }),
+    ])
+  }
+
+  function resetProjectMemberMutations() {
+    addProjectMemberMutation.reset()
+    updateProjectMemberMutation.reset()
+    removeProjectMemberMutation.reset()
+  }
 
   function openCreateProjectDialog() {
     createProjectMutation.reset()
@@ -576,12 +625,16 @@ export function AppPage({ onSignOut }: AppPageProps) {
   }
 
   function openProjectMembersDialog() {
-    addProjectMemberMutation.reset()
+    resetProjectMemberMutations()
     setIsProjectMembersDialogOpen(true)
   }
 
   function closeProjectMembersDialog() {
-    if (addProjectMemberMutation.isPending) {
+    if (
+      addProjectMemberMutation.isPending ||
+      updateProjectMemberMutation.isPending ||
+      removeProjectMemberMutation.isPending
+    ) {
       return
     }
 
@@ -744,10 +797,50 @@ export function AppPage({ onSignOut }: AppPageProps) {
       return
     }
 
-    addProjectMemberMutation.reset()
+    resetProjectMemberMutations()
     await addProjectMemberMutation.mutateAsync({
       projectId: selectedProjectId,
       userId,
+    })
+  }
+
+  async function handleUpdateProjectMemberRole(
+    memberId: string,
+    role: 'OWNER' | 'MEMBER',
+  ) {
+    if (!selectedProjectId) {
+      return
+    }
+
+    resetProjectMemberMutations()
+    await updateProjectMemberMutation.mutateAsync({
+      projectId: selectedProjectId,
+      memberId,
+      role,
+    })
+  }
+
+  async function handleRemoveProjectMember(member: ProjectMember) {
+    if (!selectedProjectId) {
+      return
+    }
+
+    const memberName = member.displayName || member.email
+    const isRemovingSelf = member.userId === currentUser?.id
+    const confirmed = window.confirm(
+      isRemovingSelf
+        ? 'Remove yourself from this project? You will lose access immediately.'
+        : `Remove ${memberName} from this project?`,
+    )
+    if (!confirmed) {
+      return
+    }
+
+    resetProjectMemberMutations()
+    await removeProjectMemberMutation.mutateAsync({
+      projectId: selectedProjectId,
+      memberId: member.id,
+      userId: member.userId,
     })
   }
 
@@ -916,14 +1009,33 @@ export function AppPage({ onSignOut }: AppPageProps) {
         workspaceMembers={workspaceMembers}
         addableWorkspaceMembers={addableWorkspaceMembers}
         onSubmit={handleAddProjectMember}
+        onUpdateRole={handleUpdateProjectMemberRole}
+        onRemove={handleRemoveProjectMember}
         onClose={closeProjectMembersDialog}
-        canAddMembers={canAddProjectMembers}
+        canManageMembers={canManageProjectMembers}
         isLoadingProjectMembers={projectMembersQuery.isLoading}
         isLoadingWorkspaceMembers={workspaceMembersQuery.isLoading}
         projectMembersError={projectMembersQuery.error}
         workspaceMembersError={workspaceMembersQuery.error}
         isSubmitting={addProjectMemberMutation.isPending}
-        error={addProjectMemberMutation.error}
+        isMutating={
+          addProjectMemberMutation.isPending ||
+          updateProjectMemberMutation.isPending ||
+          removeProjectMemberMutation.isPending
+        }
+        updatingMemberId={
+          updateProjectMemberMutation.isPending
+            ? (updateProjectMemberMutation.variables?.memberId ?? null)
+            : null
+        }
+        removingMemberId={
+          removeProjectMemberMutation.isPending
+            ? (removeProjectMemberMutation.variables?.memberId ?? null)
+            : null
+        }
+        addError={addProjectMemberMutation.error}
+        updateError={updateProjectMemberMutation.error}
+        removeError={removeProjectMemberMutation.error}
       />
       <ProjectWorkflowDialog
         isOpen={isProjectWorkflowDialogOpen}
@@ -933,7 +1045,7 @@ export function AppPage({ onSignOut }: AppPageProps) {
         onUpdate={handleUpdateProjectWorkflowState}
         onReorder={handleReorderProjectWorkflowState}
         onClose={closeProjectWorkflowDialog}
-        canCreateWorkflowStates={canAddProjectMembers}
+        canCreateWorkflowStates={canManageProjectMembers}
         isLoadingWorkflowStates={projectWorkflowStatesQuery.isLoading}
         workflowStatesError={projectWorkflowStatesQuery.error}
         isSubmitting={createProjectWorkflowStateMutation.isPending}
@@ -2725,14 +2837,21 @@ function ProjectMembersDialog({
   workspaceMembers,
   addableWorkspaceMembers,
   onSubmit,
+  onUpdateRole,
+  onRemove,
   onClose,
-  canAddMembers,
+  canManageMembers,
   isLoadingProjectMembers,
   isLoadingWorkspaceMembers,
   projectMembersError,
   workspaceMembersError,
   isSubmitting,
-  error,
+  isMutating,
+  updatingMemberId,
+  removingMemberId,
+  addError,
+  updateError,
+  removeError,
 }: {
   isOpen: boolean
   selectedProject: Project | null
@@ -2740,14 +2859,21 @@ function ProjectMembersDialog({
   workspaceMembers: WorkspaceMember[]
   addableWorkspaceMembers: WorkspaceMember[]
   onSubmit: (values: AddProjectMemberFormValues) => Promise<void>
+  onUpdateRole: (memberId: string, role: 'OWNER' | 'MEMBER') => Promise<void>
+  onRemove: (member: ProjectMember) => Promise<void>
   onClose: () => void
-  canAddMembers: boolean
+  canManageMembers: boolean
   isLoadingProjectMembers: boolean
   isLoadingWorkspaceMembers: boolean
   projectMembersError: Error | null
   workspaceMembersError: Error | null
   isSubmitting: boolean
-  error: Error | null
+  isMutating: boolean
+  updatingMemberId: string | null
+  removingMemberId: string | null
+  addError: Error | null
+  updateError: Error | null
+  removeError: Error | null
 }) {
   const {
     register,
@@ -2785,7 +2911,10 @@ function ProjectMembersDialog({
   const activeWorkspaceMemberCount = workspaceMembers.filter(
     (member) => member.status === 'ACTIVE',
   ).length
-  const canSubmit = canAddMembers && Boolean(selectedUserId) && !isSubmitting
+  const activeOwnerCount = projectMembers.filter(
+    (member) => member.status === 'ACTIVE' && member.role === 'OWNER',
+  ).length
+  const canSubmit = canManageMembers && Boolean(selectedUserId) && !isMutating
   const workspaceMemberCountLabel = isLoadingWorkspaceMembers
     ? 'Loading workspace members'
     : `${activeWorkspaceMemberCount} active workspace members`
@@ -2802,26 +2931,94 @@ function ProjectMembersDialog({
         {projectMembersError ? <ErrorState error={projectMembersError} /> : null}
         {!isLoadingProjectMembers && !projectMembersError ? (
           <div className="project-member-list" aria-label="Project members">
-            {projectMembers.map((member) => (
-              <div className="project-member-row" key={member.id}>
-                <span className="workspace-avatar project-member-avatar" aria-hidden="true">
-                  {getInitials(member.displayName || member.email)}
-                </span>
-                <span className="project-member-person">
-                  <strong>{member.displayName || member.email}</strong>
-                  <small>
-                    {member.email} - Joined {formatDate(member.joinedAt)}
-                  </small>
-                </span>
-                <span className="project-member-meta">
-                  <span className="project-role-badge" data-role={member.role}>
-                    {formatProjectRole(member.role)}
+            {projectMembers.map((member) => {
+              const isActive = member.status === 'ACTIVE'
+              const isLastActiveOwner =
+                isActive && member.role === 'OWNER' && activeOwnerCount === 1
+              const isUpdating = updatingMemberId === member.id
+              const isRemoving = removingMemberId === member.id
+
+              return (
+                <div className="project-member-row" key={member.id}>
+                  <span className="workspace-avatar project-member-avatar" aria-hidden="true">
+                    {getInitials(member.displayName || member.email)}
                   </span>
-                  <span className="project-member-status">{formatStatus(member.status)}</span>
-                </span>
-              </div>
-            ))}
+                  <span className="project-member-person">
+                    <strong>{member.displayName || member.email}</strong>
+                    <small>
+                      {member.email} - Joined {formatDate(member.joinedAt)}
+                    </small>
+                  </span>
+                  <span className="project-member-meta">
+                    {canManageMembers && isActive ? (
+                      <select
+                        className="project-member-role-select"
+                        value={member.role}
+                        disabled={isMutating || isLastActiveOwner}
+                        onChange={(event) => {
+                          const role = event.target.value as 'OWNER' | 'MEMBER'
+                          if (role === member.role) {
+                            return
+                          }
+
+                          void onUpdateRole(member.id, role).catch(() => {
+                            // The mutation error is rendered below the member list.
+                          })
+                        }}
+                        aria-label={`Role for ${member.displayName || member.email}`}
+                        title={
+                          isLastActiveOwner
+                            ? 'A project must have at least one active owner'
+                            : 'Project role'
+                        }
+                      >
+                        <option value="OWNER">Owner</option>
+                        <option value="MEMBER">Member</option>
+                      </select>
+                    ) : (
+                      <span className="project-role-badge" data-role={member.role}>
+                        {formatProjectRole(member.role)}
+                      </span>
+                    )}
+                    <span className="project-member-status">{formatStatus(member.status)}</span>
+                    {canManageMembers && isActive ? (
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="icon-sm"
+                        disabled={isMutating || isLastActiveOwner}
+                        onClick={() => {
+                          void onRemove(member).catch(() => {
+                            // The mutation error is rendered below the member list.
+                          })
+                        }}
+                        aria-label={`Remove ${member.displayName || member.email}`}
+                        title={
+                          isLastActiveOwner
+                            ? 'A project must have at least one active owner'
+                            : 'Remove member'
+                        }
+                      >
+                        {isRemoving ? (
+                          <Loader2 aria-hidden="true" className="auth-spin" />
+                        ) : (
+                          <UserMinus aria-hidden="true" />
+                        )}
+                      </Button>
+                    ) : null}
+                    {isUpdating ? <Loader2 aria-hidden="true" className="auth-spin" /> : null}
+                  </span>
+                </div>
+              )
+            })}
           </div>
+        ) : null}
+
+        {updateError ? (
+          <ProjectMemberMutationErrorState error={updateError} action="update" />
+        ) : null}
+        {removeError ? (
+          <ProjectMemberMutationErrorState error={removeError} action="remove" />
         ) : null}
 
         <section className="project-member-add-section">
@@ -2831,7 +3028,7 @@ function ProjectMembersDialog({
           </div>
           {isLoadingProjectMembers ? (
             <InlineNotice>Checking project role.</InlineNotice>
-          ) : !canAddMembers ? (
+          ) : !canManageMembers ? (
             <InlineNotice>Only project owners can add members.</InlineNotice>
           ) : (
             <form
@@ -2843,7 +3040,7 @@ function ProjectMembersDialog({
                 Workspace member
                 <select
                   disabled={
-                    isSubmitting ||
+                    isMutating ||
                     isLoadingWorkspaceMembers ||
                     Boolean(workspaceMembersError) ||
                     addableWorkspaceMembers.length === 0
@@ -2874,13 +3071,13 @@ function ProjectMembersDialog({
             </form>
           )}
           {workspaceMembersError ? <ErrorState error={workspaceMembersError} /> : null}
-          {canAddMembers &&
+          {canManageMembers &&
           !isLoadingWorkspaceMembers &&
           !workspaceMembersError &&
           addableWorkspaceMembers.length === 0 ? (
-            <InlineNotice>All active workspace members are already in this project.</InlineNotice>
+            <InlineNotice>All active workspace members are active in this project.</InlineNotice>
           ) : null}
-          {error ? <ProjectMemberMutationErrorState error={error} /> : null}
+          {addError ? <ProjectMemberMutationErrorState error={addError} action="add" /> : null}
         </section>
       </div>
     </ModalShell>
@@ -3020,8 +3217,14 @@ function ErrorState({ error }: { error: Error }) {
   return <p className="app-error">{getErrorMessage(error)}</p>
 }
 
-function ProjectMemberMutationErrorState({ error }: { error: Error }) {
-  return <p className="app-error">{getProjectMemberMutationErrorMessage(error)}</p>
+function ProjectMemberMutationErrorState({
+  error,
+  action,
+}: {
+  error: Error
+  action: 'add' | 'update' | 'remove'
+}) {
+  return <p className="app-error">{getProjectMemberMutationErrorMessage(error, action)}</p>
 }
 
 function groupIssuesByWorkflowState(
@@ -3112,21 +3315,36 @@ function getErrorMessage(error: Error) {
   return 'Unable to load this workspace data.'
 }
 
-function getProjectMemberMutationErrorMessage(error: Error) {
+function getProjectMemberMutationErrorMessage(
+  error: Error,
+  action: 'add' | 'update' | 'remove',
+) {
   if (error instanceof ApiError) {
     if (error.status === 409) {
-      return 'This member is already in the project.'
+      return action === 'add'
+        ? 'This member is already active in the project.'
+        : 'A project must have at least one active owner.'
     }
 
     if (error.status === 403) {
-      return 'You do not have permission to add project members.'
+      return 'You do not have permission to manage project members.'
     }
 
     if (error.status === 404) {
-      return 'This project or workspace member is no longer available.'
+      return action === 'add'
+        ? 'This project or workspace member is no longer available.'
+        : 'This project member is no longer available.'
     }
 
     return error.message
+  }
+
+  if (action === 'update') {
+    return 'Unable to update this project member.'
+  }
+
+  if (action === 'remove') {
+    return 'Unable to remove this project member.'
   }
 
   return 'Unable to add this project member.'

@@ -11,6 +11,7 @@ import com.vokyo.backend.project.dto.ProjectResponse;
 import com.vokyo.backend.project.dto.ProjectWorkflowStateResponse;
 import com.vokyo.backend.project.dto.ReorderProjectWorkflowStatesRequest;
 import com.vokyo.backend.project.dto.UpdateProjectWorkflowStateRequest;
+import com.vokyo.backend.project.dto.UpdateProjectMemberRequest;
 import com.vokyo.backend.workspace.CurrentWorkspaceContext;
 import com.vokyo.backend.workspace.MembershipStatus;
 import com.vokyo.backend.workspace.WorkspaceAccessService;
@@ -275,12 +276,62 @@ public class ProjectService {
                 .filter(membership -> membership.getStatus() == MembershipStatus.ACTIVE)
                 .orElseThrow(() -> notFound("Workspace member not found"));
 
-        if (projectAccessService.hasProjectMembership(project, targetMembership.getUser())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Project member already exists");
+        var existingMembership = projectAccessService.findProjectMembership(project, targetMembership.getUser());
+        if (existingMembership.isPresent()) {
+            ProjectMember member = existingMembership.get();
+            if (member.getStatus() != MembershipStatus.DISABLED) {
+                throw conflict("Project member already exists");
+            }
+
+            member.reactivate(ProjectRole.MEMBER);
+            return toMemberResponse(member);
         }
 
         ProjectMember member = projectAccessService.createMemberMembership(project, targetMembership.getUser());
         return toMemberResponse(member);
+    }
+
+    @Transactional
+    public ProjectMemberResponse updateProjectMember(
+            Jwt jwt,
+            UUID projectId,
+            UUID memberId,
+            UpdateProjectMemberRequest request
+    ) {
+        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
+        Project project = projectAccessService.requireOwnedProjectForUpdate(projectId, context);
+        ProjectMember member = projectAccessService.requireActiveProjectMember(project, memberId);
+
+        if (member.getRole() == request.role()) {
+            return toMemberResponse(member);
+        }
+
+        if (member.getRole() == ProjectRole.OWNER
+                && request.role() == ProjectRole.MEMBER
+                && projectAccessService.countActiveProjectOwners(project) <= 1) {
+            throw conflict("A project must have at least one active owner");
+        }
+
+        member.changeRole(request.role());
+        return toMemberResponse(member);
+    }
+
+    @Transactional
+    public void removeProjectMember(Jwt jwt, UUID projectId, UUID memberId) {
+        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
+        Project project = projectAccessService.requireOwnedProjectForUpdate(projectId, context);
+        ProjectMember member = projectAccessService.requireProjectMember(project, memberId);
+
+        if (member.getStatus() == MembershipStatus.DISABLED) {
+            return;
+        }
+
+        if (member.getRole() == ProjectRole.OWNER
+                && projectAccessService.countActiveProjectOwners(project) <= 1) {
+            throw conflict("A project must have at least one active owner");
+        }
+
+        member.disable();
     }
 
     private ProjectResponse toResponse(Project project) {
@@ -403,6 +454,10 @@ public class ProjectService {
 
     private ResponseStatusException badRequest(String message) {
         return new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
+    }
+
+    private ResponseStatusException conflict(String message) {
+        return new ResponseStatusException(HttpStatus.CONFLICT, message);
     }
 
     private ResponseStatusException notFound(String message) {

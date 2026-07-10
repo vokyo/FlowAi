@@ -116,4 +116,10 @@ public class ProjectMember {
     public void disable() {
         this.status = MembershipStatus.DISABLED;
     }
+
+    public void reactivate(ProjectRole role) {
+        this.role = role;
+        this.status = MembershipStatus.ACTIVE;
+        this.joinedAt = Instant.now();
+    }
 }

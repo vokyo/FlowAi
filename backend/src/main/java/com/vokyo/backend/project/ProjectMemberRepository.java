@@ -40,7 +40,31 @@ public interface ProjectMemberRepository extends JpaRepository<ProjectMember, UU
             MembershipStatus status
     );
 
-    boolean existsByProject_IdAndUser_Id(UUID projectId, UUID userId);
+    Optional<ProjectMember> findByWorkspace_IdAndProject_IdAndUser_Id(
+            UUID workspaceId,
+            UUID projectId,
+            UUID userId
+    );
+
+    Optional<ProjectMember> findByWorkspace_IdAndProject_IdAndId(
+            UUID workspaceId,
+            UUID projectId,
+            UUID id
+    );
+
+    Optional<ProjectMember> findByWorkspace_IdAndProject_IdAndIdAndStatus(
+            UUID workspaceId,
+            UUID projectId,
+            UUID id,
+            MembershipStatus status
+    );
+
+    long countByWorkspace_IdAndProject_IdAndRoleAndStatus(
+            UUID workspaceId,
+            UUID projectId,
+            ProjectRole role,
+            MembershipStatus status
+    );
 
     @Query("""
             select member

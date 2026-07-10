@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -49,6 +50,28 @@ public class ProjectAccessService {
         return member.getProject();
     }
 
+    public Project requireOwnedProjectForUpdate(UUID projectId, CurrentWorkspaceContext context) {
+        Project project = projectRepository.findByIdAndWorkspaceIdForUpdate(
+                        projectId,
+                        context.workspace().getId()
+                )
+                .orElseThrow(() -> notFound("Project not found"));
+        ProjectMember member = projectMemberRepository
+                .findByWorkspace_IdAndProject_IdAndUser_IdAndStatus(
+                        context.workspace().getId(),
+                        project.getId(),
+                        context.user().getId(),
+                        MembershipStatus.ACTIVE
+                )
+                .orElseThrow(() -> notFound("Project not found"));
+
+        if (member.getRole() != ProjectRole.OWNER) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Project owner role is required");
+        }
+
+        return project;
+    }
+
     public void requireIssueProjectAccess(Issue issue, CurrentWorkspaceContext context) {
         if (!hasActiveProjectMembership(issue.getProject().getId(), context)) {
             throw notFound("Issue not found");
@@ -64,8 +87,12 @@ public class ProjectAccessService {
         ));
     }
 
-    public boolean hasProjectMembership(Project project, User user) {
-        return projectMemberRepository.existsByProject_IdAndUser_Id(project.getId(), user.getId());
+    public Optional<ProjectMember> findProjectMembership(Project project, User user) {
+        return projectMemberRepository.findByWorkspace_IdAndProject_IdAndUser_Id(
+                project.getWorkspace().getId(),
+                project.getId(),
+                user.getId()
+        );
     }
 
     public ProjectMember createMemberMembership(Project project, User user) {
@@ -81,6 +108,34 @@ public class ProjectAccessService {
         return projectMemberRepository.findByProjectForMemberList(
                 project.getWorkspace().getId(),
                 project.getId()
+        );
+    }
+
+    public ProjectMember requireProjectMember(Project project, UUID memberId) {
+        return projectMemberRepository.findByWorkspace_IdAndProject_IdAndId(
+                        project.getWorkspace().getId(),
+                        project.getId(),
+                        memberId
+                )
+                .orElseThrow(() -> notFound("Project member not found"));
+    }
+
+    public ProjectMember requireActiveProjectMember(Project project, UUID memberId) {
+        return projectMemberRepository.findByWorkspace_IdAndProject_IdAndIdAndStatus(
+                        project.getWorkspace().getId(),
+                        project.getId(),
+                        memberId,
+                        MembershipStatus.ACTIVE
+                )
+                .orElseThrow(() -> notFound("Project member not found"));
+    }
+
+    public long countActiveProjectOwners(Project project) {
+        return projectMemberRepository.countByWorkspace_IdAndProject_IdAndRoleAndStatus(
+                project.getWorkspace().getId(),
+                project.getId(),
+                ProjectRole.OWNER,
+                MembershipStatus.ACTIVE
         );
     }
 

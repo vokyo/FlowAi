@@ -10,9 +10,12 @@ import com.vokyo.backend.project.dto.ProjectResponse;
 import com.vokyo.backend.project.dto.ProjectWorkflowStateResponse;
 import com.vokyo.backend.project.dto.ReorderProjectWorkflowStatesRequest;
 import com.vokyo.backend.project.dto.UpdateProjectWorkflowStateRequest;
+import com.vokyo.backend.project.dto.UpdateProjectMemberRequest;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -20,6 +23,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.ResponseStatus;
 
 import java.util.List;
 import java.util.UUID;
@@ -70,6 +74,26 @@ public class ProjectController {
             @Valid @RequestBody AddProjectMemberRequest request
     ) {
         return projectService.addProjectMember(jwt, projectId, request);
+    }
+
+    @PatchMapping("/{projectId}/members/{memberId}")
+    public ProjectMemberResponse updateProjectMember(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID projectId,
+            @PathVariable UUID memberId,
+            @Valid @RequestBody UpdateProjectMemberRequest request
+    ) {
+        return projectService.updateProjectMember(jwt, projectId, memberId, request);
+    }
+
+    @DeleteMapping("/{projectId}/members/{memberId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeProjectMember(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID projectId,
+            @PathVariable UUID memberId
+    ) {
+        projectService.removeProjectMember(jwt, projectId, memberId);
     }
 
     @GetMapping("/{projectId}/labels")

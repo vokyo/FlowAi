@@ -33,11 +33,13 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -1609,6 +1611,340 @@ class ProjectIssueWorkflowIntegrationTests {
         ).andExpect(status().isNotFound());
     }
 
+    @Test
+    void projectOwnerCanUpdateMemberRolesAndSelfDemoteWhenAnotherOwnerExists() throws Exception {
+        AuthSession owner = register("role-owner+" + uniqueId() + "@example.com");
+        AuthSession member = createWorkspaceMember(owner, "role-member+" + uniqueId() + "@example.com");
+        String projectId = createProject(owner, "Role Managed Project").get("id").asText();
+        addProjectMember(owner, projectId, userId(member));
+        String ownerMemberId = projectMemberId(owner, projectId, userId(owner));
+        String memberId = projectMemberId(owner, projectId, userId(member));
+
+        patchJson(
+                "/api/projects/%s/members/%s".formatted(projectId, memberId),
+                """
+                {
+                  "role": "OWNER"
+                }
+                """,
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("OWNER"));
+
+        patchJson(
+                "/api/projects/%s/members/%s".formatted(projectId, ownerMemberId),
+                """
+                {
+                  "role": "MEMBER"
+                }
+                """,
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("MEMBER"));
+
+        patchJson(
+                "/api/projects/%s/members/%s".formatted(projectId, ownerMemberId),
+                """
+                {
+                  "role": "OWNER"
+                }
+                """,
+                member.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("OWNER"));
+    }
+
+    @Test
+    void projectMemberManagementRequiresOwnerAndHidesCrossProjectMemberships() throws Exception {
+        AuthSession owner = register("manage-permission-owner+" + uniqueId() + "@example.com");
+        AuthSession member = createWorkspaceMember(owner, "manage-permission-member+" + uniqueId() + "@example.com");
+        AuthSession otherProjectMember = createWorkspaceMember(
+                owner,
+                "manage-permission-other+" + uniqueId() + "@example.com"
+        );
+        String projectId = createProject(owner, "Managed Project").get("id").asText();
+        String otherProjectId = createProject(owner, "Other Managed Project").get("id").asText();
+        addProjectMember(owner, projectId, userId(member));
+        addProjectMember(owner, otherProjectId, userId(otherProjectMember));
+        String ownerMemberId = projectMemberId(owner, projectId, userId(owner));
+        String crossProjectMemberId = projectMemberId(owner, otherProjectId, userId(otherProjectMember));
+
+        patchJson(
+                "/api/projects/%s/members/%s".formatted(projectId, ownerMemberId),
+                """
+                {
+                  "role": "MEMBER"
+                }
+                """,
+                member.accessToken()
+        ).andExpect(status().isForbidden());
+
+        mockMvc.perform(delete("/api/projects/{projectId}/members/{memberId}", projectId, ownerMemberId)
+                        .header("Authorization", bearer(member.accessToken())))
+                .andExpect(status().isForbidden());
+
+        patchJson(
+                "/api/projects/%s/members/%s".formatted(projectId, ownerMemberId),
+                """
+                {
+                  "role": "MEMBER"
+                }
+                """,
+                otherProjectMember.accessToken()
+        ).andExpect(status().isNotFound());
+
+        mockMvc.perform(delete("/api/projects/{projectId}/members/{memberId}", projectId, ownerMemberId)
+                        .header("Authorization", bearer(otherProjectMember.accessToken())))
+                .andExpect(status().isNotFound());
+
+        patchJson(
+                "/api/projects/%s/members/%s".formatted(projectId, crossProjectMemberId),
+                """
+                {
+                  "role": "OWNER"
+                }
+                """,
+                owner.accessToken()
+        ).andExpect(status().isNotFound());
+
+        mockMvc.perform(delete(
+                        "/api/projects/{projectId}/members/{memberId}",
+                        projectId,
+                        crossProjectMemberId
+                ).header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void lastActiveProjectOwnerCannotBeDemotedOrRemoved() throws Exception {
+        AuthSession owner = register("last-owner+" + uniqueId() + "@example.com");
+        String projectId = createProject(owner, "Last Owner Project").get("id").asText();
+        String ownerMemberId = projectMemberId(owner, projectId, userId(owner));
+
+        patchJson(
+                "/api/projects/%s/members/%s".formatted(projectId, ownerMemberId),
+                """
+                {
+                  "role": "MEMBER"
+                }
+                """,
+                owner.accessToken()
+        ).andExpect(status().isConflict());
+
+        mockMvc.perform(delete("/api/projects/{projectId}/members/{memberId}", projectId, ownerMemberId)
+                        .header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isConflict());
+
+        mockMvc.perform(get("/api/projects/{projectId}/members", projectId)
+                        .header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].role").value("OWNER"))
+                .andExpect(jsonPath("$[0].status").value("ACTIVE"));
+    }
+
+    @Test
+    void removedProjectMemberLosesAccessAndCanBeReactivated() throws Exception {
+        AuthSession owner = register("remove-owner+" + uniqueId() + "@example.com");
+        AuthSession member = createWorkspaceMember(owner, "remove-member+" + uniqueId() + "@example.com");
+        String projectId = createProject(owner, "Reactivation Project").get("id").asText();
+        JsonNode addedMember = postJson(
+                "/api/projects/%s/members".formatted(projectId),
+                """
+                {
+                  "userId": "%s",
+                  "role": "MEMBER"
+                }
+                """.formatted(userId(member)),
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andReturnJson();
+        String memberId = addedMember.get("id").asText();
+        Instant firstJoinedAt = Instant.parse(addedMember.get("joinedAt").asText());
+
+        patchJson(
+                "/api/projects/%s/members/%s".formatted(projectId, memberId),
+                """
+                {
+                  "role": "OWNER"
+                }
+                """,
+                owner.accessToken()
+        ).andExpect(status().isOk());
+
+        JsonNode issue = postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "Keep historical assignee",
+                  "assigneeUserId": "%s"
+                }
+                """.formatted(projectId, userId(member)),
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andReturnJson();
+        String issueId = issue.get("id").asText();
+
+        postJson(
+                "/api/issues/%s/comments".formatted(issueId),
+                """
+                {
+                  "body": "Comment before removal"
+                }
+                """,
+                member.accessToken()
+        ).andExpect(status().isOk());
+
+        mockMvc.perform(delete("/api/projects/{projectId}/members/{memberId}", projectId, memberId)
+                        .header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(delete("/api/projects/{projectId}/members/{memberId}", projectId, memberId)
+                        .header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/projects/{projectId}/members", projectId)
+                        .header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[1].id").value(memberId))
+                .andExpect(jsonPath("$[1].status").value("DISABLED"));
+
+        patchJson(
+                "/api/projects/%s/members/%s".formatted(projectId, memberId),
+                """
+                {
+                  "role": "MEMBER"
+                }
+                """,
+                owner.accessToken()
+        ).andExpect(status().isNotFound());
+
+        mockMvc.perform(get("/api/issues/{issueId}", issueId)
+                        .header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assignee.id").value(userId(member)));
+
+        mockMvc.perform(get("/api/projects")
+                        .header("Authorization", bearer(member.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isEmpty());
+        mockMvc.perform(get("/api/projects/{projectId}", projectId)
+                        .header("Authorization", bearer(member.accessToken())))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/projects/{projectId}/members", projectId)
+                        .header("Authorization", bearer(member.accessToken())))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/issues")
+                        .queryParam("projectId", projectId)
+                        .header("Authorization", bearer(member.accessToken())))
+                .andExpect(status().isNotFound());
+        postJson(
+                "/api/issues",
+                """
+                {
+                  "projectId": "%s",
+                  "title": "No longer allowed"
+                }
+                """.formatted(projectId),
+                member.accessToken()
+        ).andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/issues/{issueId}", issueId)
+                        .header("Authorization", bearer(member.accessToken())))
+                .andExpect(status().isNotFound());
+        patchJson(
+                "/api/issues/%s".formatted(issueId),
+                """
+                {
+                  "title": "No longer editable"
+                }
+                """,
+                member.accessToken()
+        ).andExpect(status().isNotFound());
+        postJson(
+                "/api/issues/%s/comments".formatted(issueId),
+                """
+                {
+                  "body": "No longer allowed"
+                }
+                """,
+                member.accessToken()
+        ).andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/issues/{issueId}/activities", issueId)
+                        .header("Authorization", bearer(member.accessToken())))
+                .andExpect(status().isNotFound());
+
+        JsonNode reactivatedMember = postJson(
+                "/api/projects/%s/members".formatted(projectId),
+                """
+                {
+                  "userId": "%s",
+                  "role": "MEMBER"
+                }
+                """.formatted(userId(member)),
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(memberId))
+                .andExpect(jsonPath("$.role").value("MEMBER"))
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andReturnJson();
+        assertThat(Instant.parse(reactivatedMember.get("joinedAt").asText()))
+                .isAfterOrEqualTo(firstJoinedAt);
+
+        mockMvc.perform(get("/api/projects/{projectId}", projectId)
+                        .header("Authorization", bearer(member.accessToken())))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/issues/{issueId}", issueId)
+                        .header("Authorization", bearer(member.accessToken())))
+                .andExpect(status().isOk());
+
+        postJson(
+                "/api/projects/%s/members".formatted(projectId),
+                """
+                {
+                  "userId": "%s",
+                  "role": "MEMBER"
+                }
+                """.formatted(userId(member)),
+                owner.accessToken()
+        ).andExpect(status().isConflict());
+    }
+
+    @Test
+    void disabledWorkspaceMemberCannotBeReactivatedInProject() throws Exception {
+        AuthSession owner = register("reactivate-owner+" + uniqueId() + "@example.com");
+        AuthSession member = createWorkspaceMember(owner, "reactivate-member+" + uniqueId() + "@example.com");
+        String projectId = createProject(owner, "Disabled Reactivation Project").get("id").asText();
+        addProjectMember(owner, projectId, userId(member));
+        String memberId = projectMemberId(owner, projectId, userId(member));
+
+        mockMvc.perform(delete("/api/projects/{projectId}/members/{memberId}", projectId, memberId)
+                        .header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isNoContent());
+
+        WorkspaceMembership workspaceMembership = membershipRepository.findByWorkspace_IdAndUser_Id(
+                        workspaceId(owner),
+                        UUID.fromString(userId(member))
+                )
+                .orElseThrow();
+        workspaceMembership.disable();
+        membershipRepository.save(workspaceMembership);
+
+        postJson(
+                "/api/projects/%s/members".formatted(projectId),
+                """
+                {
+                  "userId": "%s",
+                  "role": "MEMBER"
+                }
+                """.formatted(userId(member)),
+                owner.accessToken()
+        ).andExpect(status().isNotFound());
+
+        assertThat(projectMemberRepository.findById(UUID.fromString(memberId)))
+                .get()
+                .extracting(memberRecord -> memberRecord.getStatus())
+                .isEqualTo(MembershipStatus.DISABLED);
+    }
+
     private AuthSession register(String email) throws Exception {
         JsonNode response = postJson(
                 "/api/auth/register",
@@ -1654,6 +1990,17 @@ class ProjectIssueWorkflowIntegrationTests {
                 """.formatted(userId),
                 owner.accessToken()
         ).andExpect(status().isOk());
+    }
+
+    private String projectMemberId(AuthSession owner, String projectId, String userId) {
+        return projectMemberRepository.findByWorkspace_IdAndProject_IdAndUser_Id(
+                        workspaceId(owner),
+                        UUID.fromString(projectId),
+                        UUID.fromString(userId)
+                )
+                .orElseThrow()
+                .getId()
+                .toString();
     }
 
     private JsonNode createProjectLabel(AuthSession session, String projectId, String name, String color) throws Exception {

@@ -116,6 +116,10 @@ export type AddProjectMemberRequest = {
   role: 'MEMBER'
 }
 
+export type UpdateProjectMemberRequest = {
+  role: 'OWNER' | 'MEMBER'
+}
+
 export type CreateProjectLabelRequest = {
   name: string
   color?: string
@@ -189,6 +193,18 @@ export function listProjectMembers(projectId: string) {
 
 export function addProjectMember(projectId: string, request: AddProjectMemberRequest) {
   return api.post<ProjectMember>(`/projects/${projectId}/members`, request)
+}
+
+export function updateProjectMember(
+  projectId: string,
+  memberId: string,
+  request: UpdateProjectMemberRequest,
+) {
+  return api.patch<ProjectMember>(`/projects/${projectId}/members/${memberId}`, request)
+}
+
+export function removeProjectMember(projectId: string, memberId: string) {
+  return api.delete<void>(`/projects/${projectId}/members/${memberId}`)
 }
 
 export function listWorkspaceMembers() {
