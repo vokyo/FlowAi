@@ -102,6 +102,10 @@ function AppRoutes() {
         element={renderAppPage()}
       />
       <Route
+        path="/app/workspaces/:workspaceId/projects/:projectId/analytics"
+        element={renderAppPage()}
+      />
+      <Route
         path="/app/workspaces/:workspaceId/projects/:projectId/issues/:issueId"
         element={renderAppPage()}
       />

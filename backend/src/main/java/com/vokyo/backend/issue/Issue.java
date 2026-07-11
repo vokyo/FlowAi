@@ -3,6 +3,7 @@ package com.vokyo.backend.issue;
 import com.vokyo.backend.project.Project;
 import com.vokyo.backend.project.ProjectLabel;
 import com.vokyo.backend.project.ProjectWorkflowState;
+import com.vokyo.backend.project.WorkflowStateCategory;
 import com.vokyo.backend.user.User;
 import com.vokyo.backend.workspace.Workspace;
 import jakarta.persistence.*;
@@ -77,6 +78,9 @@ public class Issue {
     @Column(name = "archived_at")
     private Instant archivedAt;
 
+    @Column(name = "completed_at")
+    private Instant completedAt;
+
     @Column(name = "board_position", nullable = false)
     private long boardPosition;
 
@@ -103,6 +107,7 @@ public class Issue {
         this.assigneeUser = assigneeUser;
         this.workflowState = workflowState;
         this.status = statusFromWorkflowState(workflowState);
+        this.completedAt = isDone(workflowState) ? Instant.now() : null;
         this.priority = priority;
         this.dueDate = dueDate;
         this.boardPosition = boardPosition;
@@ -184,6 +189,10 @@ public class Issue {
         return archivedAt;
     }
 
+    public Instant getCompletedAt() {
+        return completedAt;
+    }
+
     public long getBoardPosition() {
         return boardPosition;
     }
@@ -206,9 +215,11 @@ public class Issue {
     }
 
     public void changeWorkflowState(ProjectWorkflowState workflowState) {
+        boolean wasDone = isDone(this.workflowState);
         this.workflowState = workflowState;
         if (this.archivedAt == null) {
             this.status = statusFromWorkflowState(workflowState);
+            synchronizeCompletion(wasDone);
         }
     }
 
@@ -222,6 +233,7 @@ public class Issue {
     public void unarchive() {
         this.archivedAt = null;
         this.status = statusFromWorkflowState(this.workflowState);
+        synchronizeCompletion(isDone(this.workflowState));
     }
 
     public void changePriority(IssuePriority priority) {
@@ -242,5 +254,21 @@ public class Issue {
         }
 
         return workflowState.getCategory().toIssueStatus();
+    }
+
+    private void synchronizeCompletion(boolean wasDone) {
+        if (isDone(this.workflowState)) {
+            if (!wasDone || this.completedAt == null) {
+                this.completedAt = Instant.now();
+            }
+            return;
+        }
+
+        this.completedAt = null;
+    }
+
+    private boolean isDone(ProjectWorkflowState workflowState) {
+        return workflowState != null
+                && workflowState.getCategory() == WorkflowStateCategory.DONE;
     }
 }

@@ -1,6 +1,7 @@
 package com.vokyo.backend.project;
 
 import com.vokyo.backend.activity.ActivityService;
+import com.vokyo.backend.issue.IssueRepository;
 import com.vokyo.backend.project.dto.AddProjectMemberRequest;
 import com.vokyo.backend.project.dto.CreateProjectLabelRequest;
 import com.vokyo.backend.project.dto.CreateProjectRequest;
@@ -23,10 +24,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.List;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.time.Instant;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -41,6 +43,7 @@ public class ProjectService {
     private final ProjectRepository projectRepository;
     private final ProjectLabelRepository projectLabelRepository;
     private final ProjectWorkflowStateRepository projectWorkflowStateRepository;
+    private final IssueRepository issueRepository;
     private final ProjectAccessService projectAccessService;
     private final WorkspaceAccessService workspaceAccessService;
     private final WorkspaceMembershipRepository workspaceMembershipRepository;
@@ -50,6 +53,7 @@ public class ProjectService {
             ProjectRepository projectRepository,
             ProjectLabelRepository projectLabelRepository,
             ProjectWorkflowStateRepository projectWorkflowStateRepository,
+            IssueRepository issueRepository,
             ProjectAccessService projectAccessService,
             WorkspaceAccessService workspaceAccessService,
             WorkspaceMembershipRepository workspaceMembershipRepository,
@@ -58,6 +62,7 @@ public class ProjectService {
         this.projectRepository = projectRepository;
         this.projectLabelRepository = projectLabelRepository;
         this.projectWorkflowStateRepository = projectWorkflowStateRepository;
+        this.issueRepository = issueRepository;
         this.projectAccessService = projectAccessService;
         this.workspaceAccessService = workspaceAccessService;
         this.workspaceMembershipRepository = workspaceMembershipRepository;
@@ -195,9 +200,10 @@ public class ProjectService {
             UpdateProjectWorkflowStateRequest request
     ) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
-        Project project = projectAccessService.requireOwnedProject(projectId, context);
+        Project project = projectAccessService.requireOwnedProjectForUpdate(projectId, context);
         ProjectWorkflowState workflowState = requireProjectWorkflowState(project, workflowStateId);
         String name = request.name().trim();
+        WorkflowStateCategory previousCategory = workflowState.getCategory();
 
         if (projectWorkflowStateRepository.existsByWorkspace_IdAndProject_IdAndNameIgnoreCaseAndIdNot(
                 project.getWorkspace().getId(),
@@ -210,6 +216,10 @@ public class ProjectService {
 
         workflowState.rename(name);
         workflowState.changeCategory(request.category());
+
+        if (previousCategory != request.category()) {
+            synchronizeWorkflowStateIssueCompletion(project, workflowState, previousCategory);
+        }
         return toWorkflowStateResponse(workflowState);
     }
 
@@ -435,6 +445,30 @@ public class ProjectService {
                         workflowStateId
                 )
                 .orElseThrow(() -> notFound("Project workflow state not found"));
+    }
+
+    private void synchronizeWorkflowStateIssueCompletion(
+            Project project,
+            ProjectWorkflowState workflowState,
+            WorkflowStateCategory previousCategory
+    ) {
+        if (workflowState.getCategory() == WorkflowStateCategory.DONE) {
+            issueRepository.markActiveWorkflowStateIssuesCompleted(
+                    project.getWorkspace().getId(),
+                    project.getId(),
+                    workflowState.getId(),
+                    Instant.now()
+            );
+            return;
+        }
+
+        if (previousCategory == WorkflowStateCategory.DONE) {
+            issueRepository.clearWorkflowStateIssueCompletion(
+                    project.getWorkspace().getId(),
+                    project.getId(),
+                    workflowState.getId()
+            );
+        }
     }
 
     private String normalizeOptionalText(String value) {

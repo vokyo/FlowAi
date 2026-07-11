@@ -32,6 +32,7 @@ import {
   ArrowUp,
   Building2,
   CalendarDays,
+  ChartColumn,
   ChevronDown,
   ChevronRight,
   CheckCircle2,
@@ -64,8 +65,13 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { useNavigate, useParams, useSearchParams } from 'react-router'
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
 import { ApiError } from '@/api/client'
+import {
+  getProjectAnalytics,
+  type AnalyticsRangeDays,
+} from '@/analytics/analytics-api'
+import { ProjectAnalyticsView } from '@/analytics/ProjectAnalyticsView'
 import { getCurrentSession, type AuthUser, type AuthWorkspace } from '@/auth/auth-api'
 import { getRefreshToken, saveAuthTokens } from '@/auth/token-storage'
 import { Button } from '@/components/ui/button'
@@ -305,6 +311,7 @@ type CommentFormValues = z.infer<typeof commentFormSchema>
 
 export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
   const queryClient = useQueryClient()
+  const location = useLocation()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const {
@@ -328,11 +335,17 @@ export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
   const [isCreateWorkspaceDialogOpen, setIsCreateWorkspaceDialogOpen] = useState(false)
   const [isWorkspaceInvitationsDialogOpen, setIsWorkspaceInvitationsDialogOpen] = useState(false)
   const [latestInvitationLink, setLatestInvitationLink] = useState<string | null>(null)
+  const isAnalyticsRoute = isProjectAnalyticsPath(location.pathname)
   const issueViewMode = issueViewModeFromSearchParams(searchParams)
   const boardIssueView = boardIssueViewFromSearchParams(searchParams)
-  const normalizedWorkViewSearchParams = normalizeWorkViewSearchParams(searchParams)
+  const analyticsRangeDays = analyticsRangeFromSearchParams(searchParams)
+  const normalizedWorkViewSearchParams = issueViewSearchParams(searchParams)
+  const normalizedAppSearchParams = normalizeAppSearchParams(
+    searchParams,
+    isAnalyticsRoute,
+  )
   const rawSearchString = searchParams.toString()
-  const normalizedSearchString = normalizedWorkViewSearchParams.toString()
+  const normalizedSearchString = normalizedAppSearchParams.toString()
 
   useEffect(() => {
     if (rawSearchString !== normalizedSearchString) {
@@ -412,8 +425,23 @@ export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
     queryKey: ['project-board', currentWorkspaceId, selectedProjectId],
     queryFn: () => getProjectBoard(selectedProjectId ?? ''),
     enabled: Boolean(
-      canLoadCurrentWorkspace && selectedProjectId && issueViewMode === 'BOARD',
+      canLoadCurrentWorkspace &&
+      selectedProjectId &&
+      issueViewMode === 'BOARD' &&
+      !isAnalyticsRoute,
     ),
+    retry: false,
+  })
+
+  const projectAnalyticsQuery = useQuery({
+    queryKey: [
+      'project-analytics',
+      currentWorkspaceId,
+      selectedProjectId,
+      analyticsRangeDays,
+    ],
+    queryFn: () => getProjectAnalytics(selectedProjectId ?? '', analyticsRangeDays),
+    enabled: Boolean(canLoadCurrentWorkspace && selectedProjectId && isAnalyticsRoute),
     retry: false,
   })
 
@@ -493,7 +521,7 @@ export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
         assigneeUserId: issueAssigneeFilter || undefined,
         q: normalizedIssueSearchQuery || undefined,
       }),
-    enabled: Boolean(canLoadCurrentWorkspace && selectedProjectId),
+    enabled: Boolean(canLoadCurrentWorkspace && selectedProjectId && !isAnalyticsRoute),
     retry: false,
   })
 
@@ -545,9 +573,12 @@ export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
     )
 
     if (!routeProjectId || !hasRouteProject) {
+      const firstProjectPath = isAnalyticsRoute
+        ? projectAnalyticsPath(currentWorkspaceId, projects[0].id)
+        : projectPath(currentWorkspaceId, projects[0].id)
       navigate(
         pathWithSearchParams(
-          projectPath(currentWorkspaceId, projects[0].id),
+          firstProjectPath,
           normalizedSearchString,
         ),
         { replace: true },
@@ -556,6 +587,7 @@ export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
   }, [
     canLoadCurrentWorkspace,
     currentWorkspaceId,
+    isAnalyticsRoute,
     navigate,
     normalizedSearchString,
     projects,
@@ -660,6 +692,7 @@ export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
         queryClient.invalidateQueries({
           queryKey: ['project-board', currentWorkspaceId, issue.projectId],
         }),
+        invalidateProjectAnalytics(issue.projectId),
       ])
       if (currentWorkspaceId) {
         navigate(
@@ -697,6 +730,7 @@ export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
         queryClient.invalidateQueries({
           queryKey: ['issues', currentWorkspaceId, issue.projectId],
         }),
+        invalidateProjectAnalytics(issue.projectId),
       ])
     },
   })
@@ -737,6 +771,7 @@ export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
         queryClient.invalidateQueries({
           queryKey: ['project-board', currentWorkspaceId, issue.projectId],
         }),
+        invalidateProjectAnalytics(issue.projectId),
       ])
     },
   })
@@ -773,6 +808,7 @@ export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
         queryClient.invalidateQueries({
           queryKey: ['issue-activities', variables.request.issueId],
         }),
+        invalidateProjectAnalytics(variables.projectId),
       ])
     },
   })
@@ -839,6 +875,7 @@ export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
           queryKey: ['project-board', currentWorkspaceId, workflowState.projectId],
         }),
         queryClient.invalidateQueries({ queryKey: ['issue'] }),
+        invalidateProjectAnalytics(workflowState.projectId),
       ])
     },
   })
@@ -914,6 +951,12 @@ export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
       }),
       queryClient.invalidateQueries({ queryKey: ['issue'] }),
     ])
+  }
+
+  function invalidateProjectAnalytics(projectId: string) {
+    return queryClient.invalidateQueries({
+      queryKey: ['project-analytics', currentWorkspaceId, projectId],
+    })
   }
 
   function resetProjectMemberMutations() {
@@ -1065,17 +1108,36 @@ export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
     )
   }
 
-  function handleProjectSelect(projectId: string) {
-    if (!currentWorkspaceId) {
+  function handleAnalyticsSelect() {
+    if (!currentWorkspaceId || !selectedProjectId) {
       return
     }
 
     navigate(
       pathWithSearchParams(
-        projectPath(currentWorkspaceId, projectId),
-        normalizedWorkViewSearchParams,
+        projectAnalyticsPath(currentWorkspaceId, selectedProjectId),
+        analyticsSearchParams(searchParams, analyticsRangeDays),
       ),
     )
+  }
+
+  function handleAnalyticsRangeChange(nextRangeDays: AnalyticsRangeDays) {
+    setSearchParams(analyticsSearchParams(searchParams, nextRangeDays))
+  }
+
+  function handleProjectSelect(projectId: string) {
+    if (!currentWorkspaceId) {
+      return
+    }
+
+    const nextPath = isAnalyticsRoute
+      ? projectAnalyticsPath(currentWorkspaceId, projectId)
+      : projectPath(currentWorkspaceId, projectId)
+    const nextSearchParams = isAnalyticsRoute
+      ? normalizedAppSearchParams
+      : normalizedWorkViewSearchParams
+
+    navigate(pathWithSearchParams(nextPath, nextSearchParams))
   }
 
   function handleIssueSelect(issueId: string) {
@@ -1353,6 +1415,7 @@ export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
         canManageWorkspaceInvitations={canManageWorkspaceInvitations}
         projects={projects}
         selectedProjectId={selectedProjectId}
+        isAnalyticsRoute={isAnalyticsRoute}
         issueViewMode={issueViewMode}
         boardIssueView={boardIssueView}
         isLoadingProjects={projectsQuery.isLoading}
@@ -1363,6 +1426,7 @@ export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
         canCreateProject={canLoadCurrentWorkspace && currentWorkspace?.role !== 'GUEST'}
         canSelectViews={Boolean(selectedProjectId)}
         onViewSelect={handleSidebarViewSelect}
+        onAnalyticsSelect={handleAnalyticsSelect}
         onProjectSelect={handleProjectSelect}
         onSignOut={onSignOut}
       />
@@ -1406,6 +1470,15 @@ export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
             isUpdatingIssue={updateIssueMutation.isPending}
             updateIssueError={updateIssueMutation.error}
             onResetUpdateIssueError={() => updateIssueMutation.reset()}
+          />
+        ) : isAnalyticsRoute ? (
+          <ProjectAnalyticsView
+            project={selectedProject}
+            overview={projectAnalyticsQuery.data ?? null}
+            rangeDays={analyticsRangeDays}
+            isLoading={projectAnalyticsQuery.isLoading}
+            error={projectAnalyticsQuery.error}
+            onRangeChange={handleAnalyticsRangeChange}
           />
         ) : (
           <ProjectIssuesView
@@ -1594,6 +1667,7 @@ function WorkspaceSidebar({
   canManageWorkspaceInvitations,
   projects,
   selectedProjectId,
+  isAnalyticsRoute,
   issueViewMode,
   boardIssueView,
   isLoadingProjects,
@@ -1604,6 +1678,7 @@ function WorkspaceSidebar({
   canCreateProject,
   canSelectViews,
   onViewSelect,
+  onAnalyticsSelect,
   onProjectSelect,
   onSignOut,
 }: {
@@ -1622,6 +1697,7 @@ function WorkspaceSidebar({
   canManageWorkspaceInvitations: boolean
   projects: Project[]
   selectedProjectId: string | null
+  isAnalyticsRoute: boolean
   issueViewMode: IssueViewMode
   boardIssueView: BoardIssueView
   isLoadingProjects: boolean
@@ -1632,6 +1708,7 @@ function WorkspaceSidebar({
   canCreateProject: boolean
   canSelectViews: boolean
   onViewSelect: (view: BoardIssueView) => void
+  onAnalyticsSelect: () => void
   onProjectSelect: (projectId: string) => void
   onSignOut: () => void
 }) {
@@ -1668,12 +1745,16 @@ function WorkspaceSidebar({
         <div className="sidebar-list sidebar-view-list">
           <button
             className="sidebar-list-item sidebar-view-item"
-            data-active={issueViewMode === 'BOARD' && boardIssueView === 'ALL'}
+            data-active={
+              !isAnalyticsRoute && issueViewMode === 'BOARD' && boardIssueView === 'ALL'
+            }
             type="button"
             disabled={!canSelectViews}
             onClick={() => onViewSelect('ALL')}
             aria-current={
-              issueViewMode === 'BOARD' && boardIssueView === 'ALL' ? 'page' : undefined
+              !isAnalyticsRoute && issueViewMode === 'BOARD' && boardIssueView === 'ALL'
+                ? 'page'
+                : undefined
             }
           >
             <LayoutList aria-hidden="true" />
@@ -1683,12 +1764,16 @@ function WorkspaceSidebar({
           </button>
           <button
             className="sidebar-list-item sidebar-view-item"
-            data-active={issueViewMode === 'BOARD' && boardIssueView === 'MINE'}
+            data-active={
+              !isAnalyticsRoute && issueViewMode === 'BOARD' && boardIssueView === 'MINE'
+            }
             type="button"
             disabled={!canSelectViews}
             onClick={() => onViewSelect('MINE')}
             aria-current={
-              issueViewMode === 'BOARD' && boardIssueView === 'MINE' ? 'page' : undefined
+              !isAnalyticsRoute && issueViewMode === 'BOARD' && boardIssueView === 'MINE'
+                ? 'page'
+                : undefined
             }
           >
             <UserCircle aria-hidden="true" />
@@ -1698,12 +1783,18 @@ function WorkspaceSidebar({
           </button>
           <button
             className="sidebar-list-item sidebar-view-item"
-            data-active={issueViewMode === 'BOARD' && boardIssueView === 'UNASSIGNED'}
+            data-active={
+              !isAnalyticsRoute &&
+              issueViewMode === 'BOARD' &&
+              boardIssueView === 'UNASSIGNED'
+            }
             type="button"
             disabled={!canSelectViews}
             onClick={() => onViewSelect('UNASSIGNED')}
             aria-current={
-              issueViewMode === 'BOARD' && boardIssueView === 'UNASSIGNED'
+              !isAnalyticsRoute &&
+              issueViewMode === 'BOARD' &&
+              boardIssueView === 'UNASSIGNED'
                 ? 'page'
                 : undefined
             }
@@ -1711,6 +1802,19 @@ function WorkspaceSidebar({
             <Circle aria-hidden="true" />
             <span>
               <strong>Unassigned</strong>
+            </span>
+          </button>
+          <button
+            className="sidebar-list-item sidebar-view-item"
+            data-active={isAnalyticsRoute}
+            type="button"
+            disabled={!canSelectViews}
+            onClick={onAnalyticsSelect}
+            aria-current={isAnalyticsRoute ? 'page' : undefined}
+          >
+            <ChartColumn aria-hidden="true" />
+            <span>
+              <strong>Analytics</strong>
             </span>
           </button>
         </div>
@@ -5166,6 +5270,37 @@ function boardIssueViewFromSearchParams(searchParams: URLSearchParams): BoardIss
   return 'ALL'
 }
 
+function analyticsRangeFromSearchParams(
+  searchParams: URLSearchParams,
+): AnalyticsRangeDays {
+  const range = searchParams.get('range')
+  if (range === '7') {
+    return 7
+  }
+  if (range === '90') {
+    return 90
+  }
+  return 30
+}
+
+function normalizeAppSearchParams(
+  searchParams: URLSearchParams,
+  isAnalyticsRoute: boolean,
+) {
+  const normalized = normalizeWorkViewSearchParams(searchParams)
+  if (!isAnalyticsRoute) {
+    normalized.delete('range')
+    return normalized
+  }
+
+  const range = normalized.get('range')
+  if (range !== '7' && range !== '90') {
+    normalized.delete('range')
+  }
+
+  return normalized
+}
+
 function normalizeWorkViewSearchParams(searchParams: URLSearchParams) {
   const normalized = new URLSearchParams(searchParams)
   if (normalized.get('layout') !== 'list') {
@@ -5177,6 +5312,12 @@ function normalizeWorkViewSearchParams(searchParams: URLSearchParams) {
     normalized.delete('view')
   }
 
+  return normalized
+}
+
+function issueViewSearchParams(searchParams: URLSearchParams) {
+  const normalized = normalizeWorkViewSearchParams(searchParams)
+  normalized.delete('range')
   return normalized
 }
 
@@ -5200,6 +5341,22 @@ function workViewSearchParams(
     next.delete('view')
   }
 
+  next.delete('range')
+
+  return next
+}
+
+function analyticsSearchParams(
+  searchParams: URLSearchParams,
+  rangeDays: AnalyticsRangeDays,
+) {
+  const next = normalizeWorkViewSearchParams(searchParams)
+  if (rangeDays === 30) {
+    next.delete('range')
+  } else {
+    next.set('range', String(rangeDays))
+  }
+
   return next
 }
 
@@ -5215,8 +5372,16 @@ function projectPath(workspaceId: string, projectId: string) {
   return `/app/workspaces/${workspaceId}/projects/${projectId}`
 }
 
+function projectAnalyticsPath(workspaceId: string, projectId: string) {
+  return `${projectPath(workspaceId, projectId)}/analytics`
+}
+
 function issuePath(workspaceId: string, projectId: string, issueId: string) {
   return `${projectPath(workspaceId, projectId)}/issues/${issueId}`
+}
+
+function isProjectAnalyticsPath(pathname: string) {
+  return pathname.endsWith('/analytics')
 }
 
 function getInitials(value: string) {
