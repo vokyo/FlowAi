@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   DndContext,
@@ -39,6 +39,7 @@ import {
   CircleDot,
   Clock3,
   Check,
+  Copy,
   Flag,
   FolderKanban,
   GripVertical,
@@ -48,21 +49,25 @@ import {
   Maximize2,
   MessageSquare,
   MoreHorizontal,
+  Mail,
   PanelRight,
   Pencil,
   Plus,
   Search,
   Send,
+  RefreshCw,
   Tag,
   UserCircle,
   UserMinus,
   UserPlus,
   Users,
+  Trash2,
   X,
 } from 'lucide-react'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { ApiError } from '@/api/client'
 import { getCurrentSession, type AuthUser, type AuthWorkspace } from '@/auth/auth-api'
+import { getRefreshToken, saveAuthTokens } from '@/auth/token-storage'
 import { Button } from '@/components/ui/button'
 import {
   addProjectMember,
@@ -103,6 +108,18 @@ import {
   type WorkflowStateCategory,
   type WorkspaceMember,
 } from '@/work/work-api'
+import {
+  createWorkspace,
+  createWorkspaceInvitation,
+  listWorkspaceInvitations,
+  listWorkspaces,
+  reissueWorkspaceInvitation,
+  revokeWorkspaceInvitation,
+  switchWorkspace,
+  type WorkspaceInvitation,
+  type WorkspaceInvitationCreated,
+  type WorkspaceRole,
+} from '@/workspace/workspace-api'
 
 const ISSUE_STATUSES = ['TODO', 'IN_PROGRESS', 'DONE', 'ARCHIVED'] as const
 const WORKFLOW_STATE_CATEGORIES = ['TODO', 'IN_PROGRESS', 'DONE'] as const
@@ -113,10 +130,16 @@ const EMPTY_PROJECT_LABELS: ProjectLabel[] = []
 const EMPTY_PROJECT_MEMBERS: ProjectMember[] = []
 const EMPTY_PROJECT_WORKFLOW_STATES: ProjectWorkflowState[] = []
 const EMPTY_WORKSPACE_MEMBERS: WorkspaceMember[] = []
+const EMPTY_WORKSPACES: AuthWorkspace[] = []
+const EMPTY_WORKSPACE_INVITATIONS: WorkspaceInvitation[] = []
+type InvitableWorkspaceRole = Exclude<WorkspaceRole, 'OWNER'>
+const OWNER_INVITATION_ROLES: InvitableWorkspaceRole[] = ['ADMIN', 'MEMBER', 'GUEST']
+const ADMIN_INVITATION_ROLES: InvitableWorkspaceRole[] = ['MEMBER', 'GUEST']
 const DEFAULT_LABEL_COLOR = '#64748b'
 const FORM_LIMITS = {
   projectName: 160,
   projectDescription: 2_000,
+  workspaceName: 160,
   issueTitle: 240,
   issueDescription: 10_000,
   labelName: 60,
@@ -140,6 +163,7 @@ const PRIORITY_LABELS: Record<(typeof ISSUE_PRIORITIES)[number], string> = {
 
 type AppPageProps = {
   onSignOut: () => void
+  onSessionChanged: () => void
 }
 
 type AppRouteParams = {
@@ -207,6 +231,18 @@ const createProjectFormSchema = z.object({
     .max(FORM_LIMITS.projectDescription, 'Description is too long.'),
 })
 
+const createWorkspaceFormSchema = z.object({
+  name: requiredTrimmedString('Name').max(
+    FORM_LIMITS.workspaceName,
+    'Name is too long.',
+  ),
+})
+
+const createWorkspaceInvitationFormSchema = z.object({
+  email: z.string().min(1, 'Email is required.').email('Enter a valid email address.'),
+  role: z.enum(['ADMIN', 'MEMBER', 'GUEST']),
+})
+
 const createIssueFormSchema = z.object({
   title: requiredTrimmedString('Title').max(FORM_LIMITS.issueTitle, 'Title is too long.'),
   description: z
@@ -254,6 +290,10 @@ const commentFormSchema = z.object({
 })
 
 type CreateProjectFormValues = z.infer<typeof createProjectFormSchema>
+type CreateWorkspaceFormValues = z.infer<typeof createWorkspaceFormSchema>
+type CreateWorkspaceInvitationFormValues = z.infer<
+  typeof createWorkspaceInvitationFormSchema
+>
 type CreateIssueFormValues = z.infer<typeof createIssueFormSchema>
 type QuickCreateIssueFormValues = z.infer<typeof quickCreateIssueFormSchema>
 type CreateProjectLabelFormValues = z.infer<typeof createProjectLabelFormSchema>
@@ -263,7 +303,7 @@ type AddProjectMemberFormValues = z.infer<typeof addProjectMemberFormSchema>
 type IssueContentFormValues = z.infer<typeof issueContentFormSchema>
 type CommentFormValues = z.infer<typeof commentFormSchema>
 
-export function AppPage({ onSignOut }: AppPageProps) {
+export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -284,6 +324,10 @@ export function AppPage({ onSignOut }: AppPageProps) {
   const [issueAssigneeFilter, setIssueAssigneeFilter] = useState('')
   const [isProjectMembersDialogOpen, setIsProjectMembersDialogOpen] = useState(false)
   const [isProjectWorkflowDialogOpen, setIsProjectWorkflowDialogOpen] = useState(false)
+  const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false)
+  const [isCreateWorkspaceDialogOpen, setIsCreateWorkspaceDialogOpen] = useState(false)
+  const [isWorkspaceInvitationsDialogOpen, setIsWorkspaceInvitationsDialogOpen] = useState(false)
+  const [latestInvitationLink, setLatestInvitationLink] = useState<string | null>(null)
   const issueViewMode = issueViewModeFromSearchParams(searchParams)
   const boardIssueView = boardIssueViewFromSearchParams(searchParams)
   const normalizedWorkViewSearchParams = normalizeWorkViewSearchParams(searchParams)
@@ -306,9 +350,20 @@ export function AppPage({ onSignOut }: AppPageProps) {
   const currentUser = currentSessionQuery.data?.user ?? null
   const currentWorkspace = sessionWorkspace
   const currentWorkspaceId = currentWorkspace?.id ?? null
+  const canManageWorkspaceInvitations =
+    currentWorkspace?.role === 'OWNER' || currentWorkspace?.role === 'ADMIN'
   const routeMatchesCurrentWorkspace =
     !routeWorkspaceId || !currentWorkspaceId || routeWorkspaceId === currentWorkspaceId
   const canLoadCurrentWorkspace = Boolean(currentWorkspaceId && routeMatchesCurrentWorkspace)
+
+  const workspacesQuery = useQuery({
+    queryKey: ['workspaces'],
+    queryFn: listWorkspaces,
+    enabled: currentSessionQuery.isSuccess,
+    retry: false,
+  })
+
+  const workspaces = workspacesQuery.data ?? EMPTY_WORKSPACES
 
   const projectsQuery = useQuery({
     queryKey: ['projects', currentWorkspaceId],
@@ -369,10 +424,23 @@ export function AppPage({ onSignOut }: AppPageProps) {
     retry: false,
   })
 
+  const workspaceInvitationsQuery = useQuery({
+    queryKey: ['workspace-invitations', currentWorkspaceId],
+    queryFn: listWorkspaceInvitations,
+    enabled: Boolean(
+      canLoadCurrentWorkspace &&
+      canManageWorkspaceInvitations &&
+      isWorkspaceInvitationsDialogOpen
+    ),
+    retry: false,
+  })
+
   const projectMembers = projectMembersQuery.data ?? EMPTY_PROJECT_MEMBERS
   const projectLabels = projectLabelsQuery.data ?? EMPTY_PROJECT_LABELS
   const projectWorkflowStates = projectWorkflowStatesQuery.data ?? EMPTY_PROJECT_WORKFLOW_STATES
   const workspaceMembers = workspaceMembersQuery.data ?? EMPTY_WORKSPACE_MEMBERS
+  const workspaceInvitations =
+    workspaceInvitationsQuery.data ?? EMPTY_WORKSPACE_INVITATIONS
   const activeProjectMembers = useMemo(
     () => projectMembers.filter((member) => member.status === 'ACTIVE'),
     [projectMembers],
@@ -495,6 +563,75 @@ export function AppPage({ onSignOut }: AppPageProps) {
     routeIssueId,
     routeProjectId,
   ])
+
+  async function applyWorkspaceSession(response: {
+    accessToken: string
+    refreshToken: string
+  }) {
+    saveAuthTokens(response)
+    await queryClient.cancelQueries()
+    queryClient.clear()
+    onSessionChanged()
+    navigate(
+      pathWithSearchParams('/app', normalizedWorkViewSearchParams),
+      { replace: true },
+    )
+  }
+
+  const switchWorkspaceMutation = useMutation({
+    mutationFn: (workspaceId: string) =>
+      switchWorkspace(workspaceId, requireRefreshToken()),
+    onSuccess: applyWorkspaceSession,
+  })
+
+  const createWorkspaceMutation = useMutation({
+    mutationFn: async (values: CreateWorkspaceFormValues) => {
+      const workspace = await createWorkspace({ name: values.name.trim() })
+      const refreshToken = requireRefreshToken()
+      return switchWorkspace(workspace.id, refreshToken)
+    },
+    onSuccess: async (response) => {
+      setIsCreateWorkspaceDialogOpen(false)
+      await applyWorkspaceSession(response)
+    },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ['workspaces'] })
+    },
+  })
+
+  const createWorkspaceInvitationMutation = useMutation({
+    mutationFn: (values: CreateWorkspaceInvitationFormValues) =>
+      createWorkspaceInvitation({
+        email: values.email.trim(),
+        role: values.role,
+      }),
+    onSuccess: async (invitation) => {
+      setLatestInvitationLink(invitationUrl(invitation))
+      await queryClient.invalidateQueries({
+        queryKey: ['workspace-invitations', currentWorkspaceId],
+      })
+    },
+  })
+
+  const reissueWorkspaceInvitationMutation = useMutation({
+    mutationFn: reissueWorkspaceInvitation,
+    onSuccess: async (invitation) => {
+      setLatestInvitationLink(invitationUrl(invitation))
+      await queryClient.invalidateQueries({
+        queryKey: ['workspace-invitations', currentWorkspaceId],
+      })
+    },
+  })
+
+  const revokeWorkspaceInvitationMutation = useMutation({
+    mutationFn: revokeWorkspaceInvitation,
+    onSuccess: async () => {
+      setLatestInvitationLink(null)
+      await queryClient.invalidateQueries({
+        queryKey: ['workspace-invitations', currentWorkspaceId],
+      })
+    },
+  })
 
   const createProjectMutation = useMutation({
     mutationFn: createProject,
@@ -788,6 +925,48 @@ export function AppPage({ onSignOut }: AppPageProps) {
   function openCreateProjectDialog() {
     createProjectMutation.reset()
     setActiveCreateDialog('project')
+  }
+
+  function handleWorkspaceSelect(workspaceId: string) {
+    setIsWorkspaceMenuOpen(false)
+    if (workspaceId === currentWorkspaceId) {
+      return
+    }
+    switchWorkspaceMutation.reset()
+    switchWorkspaceMutation.mutate(workspaceId)
+  }
+
+  function openCreateWorkspaceDialog() {
+    setIsWorkspaceMenuOpen(false)
+    createWorkspaceMutation.reset()
+    setIsCreateWorkspaceDialogOpen(true)
+  }
+
+  function closeCreateWorkspaceDialog() {
+    if (!createWorkspaceMutation.isPending) {
+      setIsCreateWorkspaceDialogOpen(false)
+    }
+  }
+
+  function openWorkspaceInvitationsDialog() {
+    setIsWorkspaceMenuOpen(false)
+    setLatestInvitationLink(null)
+    createWorkspaceInvitationMutation.reset()
+    reissueWorkspaceInvitationMutation.reset()
+    revokeWorkspaceInvitationMutation.reset()
+    setIsWorkspaceInvitationsDialogOpen(true)
+  }
+
+  function closeWorkspaceInvitationsDialog() {
+    if (
+      createWorkspaceInvitationMutation.isPending ||
+      reissueWorkspaceInvitationMutation.isPending ||
+      revokeWorkspaceInvitationMutation.isPending
+    ) {
+      return
+    }
+    setIsWorkspaceInvitationsDialogOpen(false)
+    setLatestInvitationLink(null)
   }
 
   function openCreateIssueDialog(
@@ -1160,7 +1339,18 @@ export function AppPage({ onSignOut }: AppPageProps) {
     <main className="app-shell">
       <WorkspaceSidebar
         currentWorkspace={currentWorkspace}
+        workspaces={workspaces}
         isLoadingWorkspace={currentSessionQuery.isLoading}
+        isLoadingWorkspaces={workspacesQuery.isLoading}
+        workspacesError={workspacesQuery.error ?? switchWorkspaceMutation.error}
+        isWorkspaceMenuOpen={isWorkspaceMenuOpen}
+        isSwitchingWorkspace={switchWorkspaceMutation.isPending}
+        onToggleWorkspaceMenu={() => setIsWorkspaceMenuOpen((isOpen) => !isOpen)}
+        onCloseWorkspaceMenu={() => setIsWorkspaceMenuOpen(false)}
+        onWorkspaceSelect={handleWorkspaceSelect}
+        onOpenCreateWorkspace={openCreateWorkspaceDialog}
+        onOpenWorkspaceInvitations={openWorkspaceInvitationsDialog}
+        canManageWorkspaceInvitations={canManageWorkspaceInvitations}
         projects={projects}
         selectedProjectId={selectedProjectId}
         issueViewMode={issueViewMode}
@@ -1170,7 +1360,7 @@ export function AppPage({ onSignOut }: AppPageProps) {
         areProjectsOpen={areProjectsOpen}
         onToggleProjects={() => setAreProjectsOpen((isOpen) => !isOpen)}
         onOpenCreateProject={openCreateProjectDialog}
-        canCreateProject={canLoadCurrentWorkspace}
+        canCreateProject={canLoadCurrentWorkspace && currentWorkspace?.role !== 'GUEST'}
         canSelectViews={Boolean(selectedProjectId)}
         onViewSelect={handleSidebarViewSelect}
         onProjectSelect={handleProjectSelect}
@@ -1242,7 +1432,9 @@ export function AppPage({ onSignOut }: AppPageProps) {
             canUseQuickCreateShortcut={
               activeCreateDialog === null &&
               !isProjectMembersDialogOpen &&
-              !isProjectWorkflowDialogOpen
+              !isProjectWorkflowDialogOpen &&
+              !isCreateWorkspaceDialogOpen &&
+              !isWorkspaceInvitationsDialogOpen
             }
             isLoadingProjectMembers={projectMembersQuery.isLoading}
             isLoadingProjects={projectsQuery.isLoading}
@@ -1275,9 +1467,40 @@ export function AppPage({ onSignOut }: AppPageProps) {
         isOpen={activeCreateDialog === 'project'}
         onSubmit={handleCreateProject}
         onClose={closeCreateDialog}
-        canCreateProject={canLoadCurrentWorkspace}
+        canCreateProject={canLoadCurrentWorkspace && currentWorkspace?.role !== 'GUEST'}
         isSubmitting={createProjectMutation.isPending}
         error={createProjectMutation.error}
+      />
+      <CreateWorkspaceDialog
+        isOpen={isCreateWorkspaceDialogOpen}
+        onSubmit={(values) => createWorkspaceMutation.mutate(values)}
+        onClose={closeCreateWorkspaceDialog}
+        isSubmitting={createWorkspaceMutation.isPending}
+        error={createWorkspaceMutation.error}
+      />
+      <WorkspaceInvitationsDialog
+        isOpen={isWorkspaceInvitationsDialogOpen}
+        currentWorkspace={currentWorkspace}
+        invitations={workspaceInvitations}
+        latestInvitationLink={latestInvitationLink}
+        isLoading={workspaceInvitationsQuery.isLoading}
+        isMutating={
+          createWorkspaceInvitationMutation.isPending ||
+          reissueWorkspaceInvitationMutation.isPending ||
+          revokeWorkspaceInvitationMutation.isPending
+        }
+        error={
+          workspaceInvitationsQuery.error ??
+          createWorkspaceInvitationMutation.error ??
+          reissueWorkspaceInvitationMutation.error ??
+          revokeWorkspaceInvitationMutation.error
+        }
+        onSubmit={async (values) => {
+          await createWorkspaceInvitationMutation.mutateAsync(values)
+        }}
+        onReissue={(invitationId) => reissueWorkspaceInvitationMutation.mutate(invitationId)}
+        onRevoke={(invitationId) => revokeWorkspaceInvitationMutation.mutate(invitationId)}
+        onClose={closeWorkspaceInvitationsDialog}
       />
       <CreateIssueDialog
         isOpen={activeCreateDialog === 'issue'}
@@ -1357,7 +1580,18 @@ export function AppPage({ onSignOut }: AppPageProps) {
 
 function WorkspaceSidebar({
   currentWorkspace,
+  workspaces,
   isLoadingWorkspace,
+  isLoadingWorkspaces,
+  workspacesError,
+  isWorkspaceMenuOpen,
+  isSwitchingWorkspace,
+  onToggleWorkspaceMenu,
+  onCloseWorkspaceMenu,
+  onWorkspaceSelect,
+  onOpenCreateWorkspace,
+  onOpenWorkspaceInvitations,
+  canManageWorkspaceInvitations,
   projects,
   selectedProjectId,
   issueViewMode,
@@ -1374,7 +1608,18 @@ function WorkspaceSidebar({
   onSignOut,
 }: {
   currentWorkspace: AuthWorkspace | null
+  workspaces: AuthWorkspace[]
   isLoadingWorkspace: boolean
+  isLoadingWorkspaces: boolean
+  workspacesError: Error | null
+  isWorkspaceMenuOpen: boolean
+  isSwitchingWorkspace: boolean
+  onToggleWorkspaceMenu: () => void
+  onCloseWorkspaceMenu: () => void
+  onWorkspaceSelect: (workspaceId: string) => void
+  onOpenCreateWorkspace: () => void
+  onOpenWorkspaceInvitations: () => void
+  canManageWorkspaceInvitations: boolean
   projects: Project[]
   selectedProjectId: string | null
   issueViewMode: IssueViewMode
@@ -1393,15 +1638,21 @@ function WorkspaceSidebar({
   return (
     <aside className="app-sidebar">
       <div className="sidebar-topbar">
-        <div className="workspace-switcher">
-          <span className="workspace-avatar" aria-hidden="true">
-            {getInitials(currentWorkspace?.name ?? 'FlowAI')}
-          </span>
-          <div className="workspace-select-label">
-            Workspace
-            <strong>{isLoadingWorkspace ? 'Loading workspace' : currentWorkspace?.name ?? 'Workspace'}</strong>
-          </div>
-        </div>
+        <WorkspaceSwitcher
+          currentWorkspace={currentWorkspace}
+          workspaces={workspaces}
+          isLoadingWorkspace={isLoadingWorkspace}
+          isLoadingWorkspaces={isLoadingWorkspaces}
+          error={workspacesError}
+          isOpen={isWorkspaceMenuOpen}
+          isSwitching={isSwitchingWorkspace}
+          onToggle={onToggleWorkspaceMenu}
+          onClose={onCloseWorkspaceMenu}
+          onSelect={onWorkspaceSelect}
+          onCreate={onOpenCreateWorkspace}
+          onManageInvitations={onOpenWorkspaceInvitations}
+          canManageInvitations={canManageWorkspaceInvitations}
+        />
         <Button type="button" variant="ghost" size="icon" onClick={onSignOut} aria-label="Sign out">
           <LogOut aria-hidden="true" />
         </Button>
@@ -1508,6 +1759,125 @@ function WorkspaceSidebar({
         ) : null}
       </nav>
     </aside>
+  )
+}
+
+function WorkspaceSwitcher({
+  currentWorkspace,
+  workspaces,
+  isLoadingWorkspace,
+  isLoadingWorkspaces,
+  error,
+  isOpen,
+  isSwitching,
+  onToggle,
+  onClose,
+  onSelect,
+  onCreate,
+  onManageInvitations,
+  canManageInvitations,
+}: {
+  currentWorkspace: AuthWorkspace | null
+  workspaces: AuthWorkspace[]
+  isLoadingWorkspace: boolean
+  isLoadingWorkspaces: boolean
+  error: Error | null
+  isOpen: boolean
+  isSwitching: boolean
+  onToggle: () => void
+  onClose: () => void
+  onSelect: (workspaceId: string) => void
+  onCreate: () => void
+  onManageInvitations: () => void
+  canManageInvitations: boolean
+}) {
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        onClose()
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        onClose()
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isOpen, onClose])
+
+  return (
+    <div className="workspace-switcher-root" ref={rootRef}>
+      <button
+        className="workspace-switcher"
+        type="button"
+        onClick={onToggle}
+        aria-expanded={isOpen}
+        aria-haspopup="menu"
+        disabled={isLoadingWorkspace || isSwitching}
+      >
+        <span className="workspace-avatar" aria-hidden="true">
+          {isSwitching ? <Loader2 className="auth-spin" /> : getInitials(currentWorkspace?.name ?? 'FlowAI')}
+        </span>
+        <span className="workspace-select-label">
+          Workspace
+          <strong>{isLoadingWorkspace ? 'Loading workspace' : currentWorkspace?.name ?? 'Workspace'}</strong>
+        </span>
+        <ChevronDown aria-hidden="true" className="workspace-switcher-chevron" />
+      </button>
+
+      {isOpen ? (
+        <div className="workspace-menu" role="menu" aria-label="Workspaces">
+          <div className="workspace-menu-heading">Your workspaces</div>
+          {isLoadingWorkspaces ? <small>Loading workspaces...</small> : null}
+          {error ? <small className="workspace-menu-error">{error.message}</small> : null}
+          <div className="workspace-menu-list">
+            {workspaces.map((workspace) => (
+              <button
+                key={workspace.id}
+                className="workspace-menu-item"
+                type="button"
+                role="menuitem"
+                data-active={workspace.id === currentWorkspace?.id}
+                onClick={() => onSelect(workspace.id)}
+                disabled={isSwitching}
+              >
+                <span className="workspace-avatar workspace-avatar-small" aria-hidden="true">
+                  {getInitials(workspace.name)}
+                </span>
+                <span>
+                  <strong>{workspace.name}</strong>
+                  <small>{titleCaseWorkspaceRole(workspace.role)}</small>
+                </span>
+                {workspace.id === currentWorkspace?.id ? <Check aria-hidden="true" /> : null}
+              </button>
+            ))}
+          </div>
+          <div className="workspace-menu-actions">
+            <button type="button" role="menuitem" onClick={onCreate}>
+              <Plus aria-hidden="true" />
+              Create workspace
+            </button>
+            {canManageInvitations ? (
+              <button type="button" role="menuitem" onClick={onManageInvitations}>
+                <Mail aria-hidden="true" />
+                Manage invitations
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -3194,6 +3564,235 @@ function WorkspaceMismatchState({
   )
 }
 
+function CreateWorkspaceDialog({
+  isOpen,
+  onSubmit,
+  onClose,
+  isSubmitting,
+  error,
+}: {
+  isOpen: boolean
+  onSubmit: (values: CreateWorkspaceFormValues) => void
+  onClose: () => void
+  isSubmitting: boolean
+  error: Error | null
+}) {
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm<CreateWorkspaceFormValues>({
+    resolver: zodResolver(createWorkspaceFormSchema),
+    defaultValues: { name: '' },
+  })
+
+  useEffect(() => {
+    if (isOpen) reset({ name: '' })
+  }, [isOpen, reset])
+
+  if (!isOpen) return null
+
+  return (
+    <ModalShell
+      title="Create workspace"
+      eyebrow="Workspace"
+      onClose={onClose}
+      isCloseDisabled={isSubmitting}
+    >
+      <form className="modal-form" onSubmit={handleSubmit(onSubmit)} noValidate>
+        <label className="app-field">
+          Name
+          <input autoFocus placeholder="Product team" {...register('name')} />
+        </label>
+        {errors.name?.message ? (
+          <InlineNotice tone="warning">{errors.name.message}</InlineNotice>
+        ) : null}
+        {error ? <ErrorState error={error} /> : null}
+        <div className="modal-actions">
+          <Button type="button" variant="ghost" onClick={onClose} disabled={isSubmitting}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={isSubmitting}>
+            {isSubmitting ? <Loader2 className="auth-spin" /> : <Plus />}
+            Create and switch
+          </Button>
+        </div>
+      </form>
+    </ModalShell>
+  )
+}
+
+function WorkspaceInvitationsDialog({
+  isOpen,
+  currentWorkspace,
+  invitations,
+  latestInvitationLink,
+  isLoading,
+  isMutating,
+  error,
+  onSubmit,
+  onReissue,
+  onRevoke,
+  onClose,
+}: {
+  isOpen: boolean
+  currentWorkspace: AuthWorkspace | null
+  invitations: WorkspaceInvitation[]
+  latestInvitationLink: string | null
+  isLoading: boolean
+  isMutating: boolean
+  error: Error | null
+  onSubmit: (values: CreateWorkspaceInvitationFormValues) => Promise<void>
+  onReissue: (invitationId: string) => void
+  onRevoke: (invitationId: string) => void
+  onClose: () => void
+}) {
+  const [copiedInvitationLink, setCopiedInvitationLink] = useState<string | null>(null)
+  const allowedRoles = invitationRolesFor(currentWorkspace?.role)
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm<CreateWorkspaceInvitationFormValues>({
+    resolver: zodResolver(createWorkspaceInvitationFormSchema),
+    defaultValues: { email: '', role: allowedRoles[0] ?? 'MEMBER' },
+  })
+
+  useEffect(() => {
+    if (isOpen) {
+      reset({ email: '', role: allowedRoles[0] ?? 'MEMBER' })
+    }
+  }, [allowedRoles, isOpen, reset])
+
+  if (!isOpen) return null
+
+  async function copyLatestLink() {
+    if (!latestInvitationLink) return
+    await navigator.clipboard.writeText(latestInvitationLink)
+    setCopiedInvitationLink(latestInvitationLink)
+  }
+
+  async function submitInvitation(values: CreateWorkspaceInvitationFormValues) {
+    try {
+      await onSubmit(values)
+      reset({ email: '', role: allowedRoles[0] ?? 'MEMBER' })
+    } catch {
+      // The mutation error is rendered below so the form values remain available.
+    }
+  }
+
+  return (
+    <ModalShell
+      title="Workspace invitations"
+      eyebrow={currentWorkspace?.name ?? 'Workspace'}
+      onClose={onClose}
+      variant="members"
+      isCloseDisabled={isMutating}
+    >
+      <form
+        className="workspace-invitation-form"
+        onSubmit={handleSubmit(submitInvitation)}
+        noValidate
+      >
+        <label className="app-field">
+          Email
+          <input
+            type="email"
+            placeholder="teammate@example.com"
+            disabled={isMutating}
+            {...register('email')}
+          />
+        </label>
+        <label className="app-field">
+          Role
+          <select disabled={isMutating} {...register('role')}>
+            {allowedRoles.map((role) => (
+              <option key={role} value={role}>{titleCaseWorkspaceRole(role)}</option>
+            ))}
+          </select>
+        </label>
+        <Button type="submit" disabled={isMutating}>
+          {isMutating ? <Loader2 className="auth-spin" /> : <Send />}
+          Create invite
+        </Button>
+      </form>
+      {errors.email?.message ? <InlineNotice tone="warning">{errors.email.message}</InlineNotice> : null}
+      {errors.role?.message ? <InlineNotice tone="warning">{errors.role.message}</InlineNotice> : null}
+
+      {latestInvitationLink ? (
+        <div className="workspace-invitation-link">
+          <span>Share this link</span>
+          <div>
+            <input readOnly value={latestInvitationLink} aria-label="Workspace invitation link" />
+            <Button type="button" variant="outline" onClick={copyLatestLink}>
+              {copiedInvitationLink === latestInvitationLink ? <Check /> : <Copy />}
+              {copiedInvitationLink === latestInvitationLink ? 'Copied' : 'Copy'}
+            </Button>
+          </div>
+          <small>For security, the link is shown only for this newly issued token.</small>
+        </div>
+      ) : null}
+
+      {error ? <ErrorState error={error} /> : null}
+      <div className="workspace-invitation-list">
+        <div className="workspace-invitation-list-header">
+          <strong>Invitation history</strong>
+          <span>{invitations.length}</span>
+        </div>
+        {isLoading ? <InlineState>Loading invitations.</InlineState> : null}
+        {!isLoading && invitations.length === 0 ? (
+          <InlineState>No invitations yet.</InlineState>
+        ) : null}
+        {invitations.map((invitation) => {
+          const canManageRole = canManageInvitationRole(currentWorkspace?.role, invitation.role)
+          const canReissue = invitation.status === 'PENDING' || invitation.status === 'EXPIRED'
+          const canRevoke = invitation.status !== 'ACCEPTED' && invitation.status !== 'REVOKED'
+          return (
+            <div className="workspace-invitation-row" key={invitation.id}>
+              <div>
+                <strong>{invitation.email}</strong>
+                <span>
+                  {titleCaseWorkspaceRole(invitation.role)} / {invitation.status.toLowerCase()} / expires {formatDate(invitation.expiresAt)}
+                </span>
+              </div>
+              <div className="workspace-invitation-row-actions">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  title="Reissue invitation"
+                  aria-label={`Reissue invitation for ${invitation.email}`}
+                  disabled={!canManageRole || !canReissue || isMutating}
+                  onClick={() => onReissue(invitation.id)}
+                >
+                  <RefreshCw />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  title="Revoke invitation"
+                  aria-label={`Revoke invitation for ${invitation.email}`}
+                  disabled={!canManageRole || !canRevoke || isMutating}
+                  onClick={() => {
+                    if (window.confirm(`Revoke the invitation for ${invitation.email}?`)) {
+                      onRevoke(invitation.id)
+                    }
+                  }}
+                >
+                  <Trash2 />
+                </Button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </ModalShell>
+  )
+}
+
 function CreateProjectDialog({
   isOpen,
   onSubmit,
@@ -3681,6 +4280,7 @@ function ProjectWorkflowDialog({
       eyebrow={selectedProject?.name ?? 'Project'}
       onClose={onClose}
       variant="members"
+      isCloseDisabled={isMutatingWorkflowState}
     >
       <div className="project-members-dialog">
         {isLoadingWorkflowStates ? <InlineState>Loading workflow statuses.</InlineState> : null}
@@ -4019,6 +4619,7 @@ function ProjectMembersDialog({
       eyebrow={selectedProject?.name ?? 'Project'}
       onClose={onClose}
       variant="members"
+      isCloseDisabled={isMutating}
     >
       <div className="project-members-dialog">
         {isLoadingProjectMembers ? <InlineState>Loading project members.</InlineState> : null}
@@ -4184,30 +4785,32 @@ function ModalShell({
   children,
   onClose,
   variant = 'default',
+  isCloseDisabled = false,
 }: {
   title: string
   eyebrow: string
   children: ReactNode
   onClose: () => void
   variant?: 'default' | 'issue' | 'members'
+  isCloseDisabled?: boolean
 }) {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && !isCloseDisabled) {
         onClose()
       }
     }
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
+  }, [isCloseDisabled, onClose])
 
   return (
     <div
       className="modal-backdrop"
       role="presentation"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
+        if (event.target === event.currentTarget && !isCloseDisabled) {
           onClose()
         }
       }}
@@ -4218,7 +4821,14 @@ function ModalShell({
             <p className="breadcrumb-line">{eyebrow}</p>
             <h2>{title}</h2>
           </div>
-          <Button type="button" variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={onClose}
+            aria-label="Close"
+            disabled={isCloseDisabled}
+          >
             <X aria-hidden="true" />
           </Button>
         </header>
@@ -4708,6 +5318,35 @@ function formatDate(value: string) {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(value))
+}
+
+function invitationRolesFor(role: string | undefined): InvitableWorkspaceRole[] {
+  if (role === 'OWNER') return OWNER_INVITATION_ROLES
+  if (role === 'ADMIN') return ADMIN_INVITATION_ROLES
+  return []
+}
+
+function canManageInvitationRole(
+  actorRole: string | undefined,
+  invitationRole: InvitableWorkspaceRole,
+) {
+  return invitationRolesFor(actorRole).includes(invitationRole)
+}
+
+function titleCaseWorkspaceRole(role: string) {
+  return role.charAt(0) + role.slice(1).toLowerCase()
+}
+
+function requireRefreshToken() {
+  const refreshToken = getRefreshToken()
+  if (!refreshToken) {
+    throw new Error('Your session cannot switch workspaces. Sign in again.')
+  }
+  return refreshToken
+}
+
+function invitationUrl(invitation: WorkspaceInvitationCreated) {
+  return `${window.location.origin}/invite/${invitation.token}`
 }
 
 function formatDateOnly(value: string) {

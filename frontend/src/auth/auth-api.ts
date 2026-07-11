@@ -10,7 +10,7 @@ export type AuthWorkspace = {
   id: string
   name: string
   slug: string
-  role?: string
+  role: string
 }
 
 export type AuthResponse = {
@@ -32,6 +32,13 @@ export type RegisterRequest = {
   workspaceName: string
 }
 
+export type RegisterWithInvitationRequest = {
+  token: string
+  email: string
+  password: string
+  displayName: string
+}
+
 export type CurrentSessionResponse = {
   user: AuthUser
   workspace: AuthWorkspace
@@ -43,6 +50,10 @@ export function login(request: LoginRequest) {
 
 export function register(request: RegisterRequest) {
   return api.post<AuthResponse>('/auth/register', request, { auth: false })
+}
+
+export function registerWithInvitation(request: RegisterWithInvitationRequest) {
+  return api.post<AuthResponse>('/auth/register-with-invitation', request, { auth: false })
 }
 
 export function getCurrentSession() {

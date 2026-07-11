@@ -14,6 +14,7 @@ import {
 import { AppPage } from '@/pages/AppPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { RegisterPage } from '@/pages/RegisterPage'
+import { InvitationPage } from '@/pages/InvitationPage'
 import './App.css'
 
 function App() {
@@ -39,7 +40,11 @@ function AppRoutes() {
     setUnauthorizedHandler(() => {
       clearAuthTokens()
       refreshSession()
-      navigate('/login', { replace: true })
+      const currentPath = window.location.pathname
+      const loginPath = currentPath.startsWith('/invite/')
+        ? `/login?returnTo=${encodeURIComponent(currentPath)}`
+        : '/login'
+      navigate(loginPath, { replace: true })
     })
 
     return () => {
@@ -51,7 +56,11 @@ function AppRoutes() {
   function renderAppPage() {
     return (
       <RequireAuth sessionVersion={sessionVersion}>
-        <AppPage onSignOut={signOut} />
+        <AppPage
+          key={sessionVersion}
+          onSignOut={signOut}
+          onSessionChanged={refreshSession}
+        />
       </RequireAuth>
     )
   }
@@ -79,6 +88,10 @@ function AppRoutes() {
             onAuthenticated={refreshSession}
           />
         }
+      />
+      <Route
+        path="/invite/:token"
+        element={<InvitationPage onSessionChanged={refreshSession} />}
       />
       <Route
         path="/app"

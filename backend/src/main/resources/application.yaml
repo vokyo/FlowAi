@@ -16,6 +16,8 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME:flowai}
     password: ${SPRING_DATASOURCE_PASSWORD:flowai_dev_password}
 app:
+  workspace:
+    invitation-ttl: 7d
   security:
     jwt:
       secret: ${JWT_SECRET:dev-secret-must-be-long-enough-for-hmac-sha256}

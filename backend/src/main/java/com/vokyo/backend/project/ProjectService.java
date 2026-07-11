@@ -82,6 +82,7 @@ public class ProjectService {
     @Transactional
     public ProjectResponse createProject(Jwt jwt, CreateProjectRequest request) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
+        workspaceAccessService.requireCanCreateProject(context);
         Project project = projectRepository.save(new Project(
                 context.workspace(),
                 context.user(),

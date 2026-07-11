@@ -47,6 +47,9 @@ public class WorkspaceMembership {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "last_accessed_at", nullable = false)
+    private Instant lastAccessedAt;
+
     protected WorkspaceMembership() {
     }
 
@@ -63,6 +66,7 @@ public class WorkspaceMembership {
         this.joinedAt = now;
         this.createdAt = now;
         this.updatedAt = now;
+        this.lastAccessedAt = now;
     }
 
     @PreUpdate
@@ -94,11 +98,26 @@ public class WorkspaceMembership {
         return joinedAt;
     }
 
+    public Instant getLastAccessedAt() {
+        return lastAccessedAt;
+    }
+
     public void changeRole(WorkspaceRole role) {
         this.role = role;
     }
 
     public void disable() {
         this.status = MembershipStatus.DISABLED;
+    }
+
+    public void activate(WorkspaceRole role) {
+        this.role = role;
+        this.status = MembershipStatus.ACTIVE;
+        this.joinedAt = Instant.now();
+        this.lastAccessedAt = this.joinedAt;
+    }
+
+    public void markAccessed() {
+        this.lastAccessedAt = Instant.now();
     }
 }

@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
-import { Link, Navigate, useNavigate } from 'react-router'
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
 import { z } from 'zod'
 import { ArrowRight, Loader2 } from 'lucide-react'
 import { ApiError } from '@/api/client'
 import { login } from '@/auth/auth-api'
 import { saveAuthTokens } from '@/auth/token-storage'
+import { invitationTokenFromReturnTo, safeAuthReturnTo } from '@/auth/auth-navigation'
 import { Button } from '@/components/ui/button'
 
 type LoginPageProps = {
@@ -26,6 +27,9 @@ export function LoginPage({
   onAuthenticated,
 }: LoginPageProps) {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const returnTo = safeAuthReturnTo(searchParams.get('returnTo'))
+  const invitationToken = invitationTokenFromReturnTo(returnTo)
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const {
@@ -41,7 +45,7 @@ export function LoginPage({
   })
 
   if (isAuthenticated) {
-    return <Navigate to="/app" replace />
+    return <Navigate to={returnTo} replace />
   }
 
   async function submitLoginForm(values: LoginFormValues) {
@@ -55,7 +59,7 @@ export function LoginPage({
       })
       saveAuthTokens(response)
       onAuthenticated()
-      navigate('/app', { replace: true })
+      navigate(returnTo, { replace: true })
     } catch (caughtError) {
       setError(getAuthErrorMessage(caughtError, 'Unable to sign in.'))
     } finally {
@@ -98,7 +102,16 @@ export function LoginPage({
           </Button>
         </form>
         <p className="auth-switch">
-          New to FlowAI? <Link to="/register">Create an account</Link>
+          New to FlowAI?{' '}
+          <Link
+            to={
+              invitationToken
+                ? `/register?invitation=${encodeURIComponent(invitationToken)}&returnTo=${encodeURIComponent(returnTo)}`
+                : '/register'
+            }
+          >
+            Create an account
+          </Link>
         </p>
       </section>
     </main>

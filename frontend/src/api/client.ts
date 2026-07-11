@@ -76,7 +76,7 @@ export async function apiRequest<T>(
     }
   }
 
-  if (response.status === 401) {
+  if (response.status === 401 && auth) {
     unauthorizedHandler?.()
   }
 

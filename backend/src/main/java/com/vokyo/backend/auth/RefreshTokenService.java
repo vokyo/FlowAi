@@ -2,9 +2,11 @@ package com.vokyo.backend.auth;
 
 import com.vokyo.backend.security.JwtProperties;
 import com.vokyo.backend.user.User;
-import org.springframework.security.authentication.BadCredentialsException;
+import com.vokyo.backend.workspace.WorkspaceMembership;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -29,43 +31,28 @@ public class RefreshTokenService {
     }
 
     @Transactional
-    public String createRefreshToken(User user) {
+    public String createRefreshToken(User user, WorkspaceMembership membership) {
         String plainToken = generatePlainToken();
         String tokenHash = hashToken(plainToken);
         Instant expiresAt = Instant.now().plus(jwtProperties.refreshTokenTtl());
 
-        RefreshToken refreshToken = new RefreshToken(user, tokenHash, expiresAt);
+        RefreshToken refreshToken = new RefreshToken(user, membership, tokenHash, expiresAt);
         refreshTokenRepository.save(refreshToken);
 
         return plainToken;
     }
 
-    @Transactional(readOnly = true)
-    public RefreshToken requireActiveToken(String plainToken) {
+    @Transactional
+    public RefreshToken requireActiveTokenForUpdate(String plainToken) {
         String tokenHash = hashToken(plainToken);
-        RefreshToken refreshToken = refreshTokenRepository.findByTokenHash(tokenHash)
-                .orElseThrow(() -> new BadCredentialsException("Invalid refresh token"));
+        RefreshToken refreshToken = refreshTokenRepository.findByTokenHashForUpdate(tokenHash)
+                .orElseThrow(() -> unauthorized("Invalid refresh token"));
 
         if (!refreshToken.isActive()) {
-            throw new BadCredentialsException("Invalid refresh token");
+            throw unauthorized("Invalid refresh token");
         }
 
         return refreshToken;
-    }
-
-    @Transactional
-    public void revoke(String plainToken) {
-        String tokenHash = hashToken(plainToken);
-        refreshTokenRepository.findByTokenHash(tokenHash)
-                .filter(RefreshToken::isActive)
-                .ifPresent(RefreshToken::revoke);
-    }
-
-    @Transactional
-    public String rotate(String plainToken) {
-        RefreshToken refreshToken = requireActiveToken(plainToken);
-        refreshToken.revoke();
-        return createRefreshToken(refreshToken.getUser());
     }
 
     public String hashToken(String plainToken) {
@@ -82,5 +69,9 @@ public class RefreshTokenService {
         byte[] tokenBytes = new byte[REFRESH_TOKEN_BYTES];
         secureRandom.nextBytes(tokenBytes);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes);
+    }
+
+    private ResponseStatusException unauthorized(String message) {
+        return new ResponseStatusException(HttpStatus.UNAUTHORIZED, message);
     }
 }

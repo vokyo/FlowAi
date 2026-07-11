@@ -1,16 +1,15 @@
 package com.vokyo.backend.auth;
 
-
 import com.vokyo.backend.auth.dto.AuthResponse;
 import com.vokyo.backend.auth.dto.LoginRequest;
 import com.vokyo.backend.auth.dto.RefreshTokenRequest;
 import com.vokyo.backend.auth.dto.RegisterRequest;
+import com.vokyo.backend.auth.dto.RegisterWithInvitationRequest;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
 
 @RestController
 @RequestMapping("/api/auth")
@@ -37,6 +36,11 @@ public class AuthController {
         return authService.refresh(request);
     }
 
-
+    @PostMapping("/register-with-invitation")
+    public AuthResponse registerWithInvitation(
+            @Valid @RequestBody RegisterWithInvitationRequest request
+    ) {
+        return authService.registerWithInvitation(request);
+    }
 
 }

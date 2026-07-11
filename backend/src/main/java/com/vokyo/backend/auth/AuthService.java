@@ -4,64 +4,53 @@ import com.vokyo.backend.auth.dto.AuthResponse;
 import com.vokyo.backend.auth.dto.LoginRequest;
 import com.vokyo.backend.auth.dto.RefreshTokenRequest;
 import com.vokyo.backend.auth.dto.RegisterRequest;
-import com.vokyo.backend.auth.dto.UserResponse;
-import com.vokyo.backend.auth.dto.WorkspaceResponse;
-import com.vokyo.backend.security.JwtService;
+import com.vokyo.backend.auth.dto.RegisterWithInvitationRequest;
 import com.vokyo.backend.user.User;
 import com.vokyo.backend.user.UserRepository;
 import com.vokyo.backend.workspace.MembershipStatus;
-import com.vokyo.backend.workspace.Workspace;
 import com.vokyo.backend.workspace.WorkspaceMembership;
 import com.vokyo.backend.workspace.WorkspaceMembershipRepository;
-import com.vokyo.backend.workspace.WorkspaceRepository;
-import com.vokyo.backend.workspace.WorkspaceRole;
+import com.vokyo.backend.workspace.WorkspaceInvitationService;
+import com.vokyo.backend.workspace.WorkspaceProvisioningService;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.text.Normalizer;
-import java.util.Comparator;
-import java.util.Locale;
-import java.util.UUID;
-
 import static org.springframework.http.HttpStatus.CONFLICT;
 import static org.springframework.http.HttpStatus.FORBIDDEN;
+import static com.vokyo.backend.auth.EmailAddressNormalizer.normalize;
 
 @Service
 public class AuthService {
 
-    private static final int WORKSPACE_SLUG_MAX_LENGTH = 120;
-    private static final int SLUG_RANDOM_SUFFIX_LENGTH = 8;
-    private static final int SLUG_SEPARATOR_LENGTH = 1;
-
     private final UserRepository userRepository;
-    private final WorkspaceRepository workspaceRepository;
     private final WorkspaceMembershipRepository membershipRepository;
     private final PasswordEncoder passwordEncoder;
-    private final JwtService jwtService;
-    private final RefreshTokenService refreshTokenService;
+    private final WorkspaceProvisioningService workspaceProvisioningService;
+    private final WorkspaceInvitationService workspaceInvitationService;
+    private final AuthSessionService authSessionService;
 
     public AuthService(
             UserRepository userRepository,
-            WorkspaceRepository workspaceRepository,
             WorkspaceMembershipRepository membershipRepository,
             PasswordEncoder passwordEncoder,
-            JwtService jwtService,
-            RefreshTokenService refreshTokenService
+            WorkspaceProvisioningService workspaceProvisioningService,
+            WorkspaceInvitationService workspaceInvitationService,
+            AuthSessionService authSessionService
     ) {
         this.userRepository = userRepository;
-        this.workspaceRepository = workspaceRepository;
         this.membershipRepository = membershipRepository;
         this.passwordEncoder = passwordEncoder;
-        this.jwtService = jwtService;
-        this.refreshTokenService = refreshTokenService;
+        this.workspaceProvisioningService = workspaceProvisioningService;
+        this.workspaceInvitationService = workspaceInvitationService;
+        this.authSessionService = authSessionService;
     }
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
-        String email = normalizeEmail(request.email());
+        String email = normalize(request.email());
         if (userRepository.existsByEmail(email)) {
             throw new ResponseStatusException(CONFLICT, "Email is already registered");
         }
@@ -72,24 +61,16 @@ public class AuthService {
                 request.displayName().trim()
         ));
 
-        Workspace workspace = workspaceRepository.save(new Workspace(
+        WorkspaceMembership membership = workspaceProvisioningService.createOwnedWorkspace(
                 user,
-                request.workspaceName().trim(),
-                generateUniqueWorkspaceSlug(request.workspaceName())
-        ));
-
-        WorkspaceMembership membership = membershipRepository.save(new WorkspaceMembership(
-                workspace,
-                user,
-                WorkspaceRole.OWNER
-        ));
-
-        return buildAuthResponse(user, membership);
+                request.workspaceName()
+        );
+        return authSessionService.issue(user, membership);
     }
 
     @Transactional
     public AuthResponse login(LoginRequest request) {
-        User user = userRepository.findByEmail(normalizeEmail(request.email()))
+        User user = userRepository.findByEmail(normalize(request.email()))
                 .orElseThrow(() -> new BadCredentialsException("Invalid email or password"));
 
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
@@ -97,99 +78,27 @@ public class AuthService {
         }
 
         WorkspaceMembership membership = findDefaultMembership(user);
-        return buildAuthResponse(user, membership);
+        return authSessionService.issue(user, membership);
     }
 
     @Transactional
     public AuthResponse refresh(RefreshTokenRequest request) {
-        RefreshToken refreshToken = refreshTokenService.requireActiveToken(request.refreshToken());
-        refreshToken.revoke();
-
-        User user = refreshToken.getUser();
-        WorkspaceMembership membership = findDefaultMembership(user);
-        String accessToken = jwtService.generateAccessToken(user, membership);
-        String newRefreshToken = refreshTokenService.createRefreshToken(user);
-
-        return toAuthResponse(accessToken, newRefreshToken, user, membership);
+        return authSessionService.refresh(request.refreshToken());
     }
 
-    private AuthResponse buildAuthResponse(User user, WorkspaceMembership membership) {
-        String accessToken = jwtService.generateAccessToken(user, membership);
-        String refreshToken = refreshTokenService.createRefreshToken(user);
-        return toAuthResponse(accessToken, refreshToken, user, membership);
-    }
-
-    private AuthResponse toAuthResponse(
-            String accessToken,
-            String refreshToken,
-            User user,
-            WorkspaceMembership membership
-    ) {
-        Workspace workspace = membership.getWorkspace();
-        return new AuthResponse(
-                accessToken,
-                refreshToken,
-                new UserResponse(user.getId(), user.getEmail(), user.getDisplayName()),
-                new WorkspaceResponse(
-                        workspace.getId(),
-                        workspace.getName(),
-                        workspace.getSlug(),
-                        membership.getRole().name()
-                )
-        );
+    @Transactional
+    public AuthResponse registerWithInvitation(RegisterWithInvitationRequest request) {
+        return workspaceInvitationService.registerWithInvitation(request);
     }
 
     private WorkspaceMembership findDefaultMembership(User user) {
-        return membershipRepository.findByUser_IdAndStatus(user.getId(), MembershipStatus.ACTIVE)
+        return membershipRepository.findByUser_IdAndStatusOrderByLastAccessedAtDescJoinedAtAsc(
+                        user.getId(),
+                        MembershipStatus.ACTIVE
+                )
                 .stream()
-                .min(Comparator.comparing(WorkspaceMembership::getJoinedAt))
+                .findFirst()
                 .orElseThrow(() -> new ResponseStatusException(FORBIDDEN, "No active workspace membership"));
     }
 
-    private String generateUniqueWorkspaceSlug(String workspaceName) {
-        String baseSlug = truncateSlug(slugify(workspaceName), WORKSPACE_SLUG_MAX_LENGTH);
-        String slug = baseSlug;
-
-        while (workspaceRepository.existsBySlug(slug)) {
-            String suffix = UUID.randomUUID()
-                    .toString()
-                    .replace("-", "")
-                    .substring(0, SLUG_RANDOM_SUFFIX_LENGTH);
-
-            String baseWithSuffixRoom = truncateSlug(
-                    baseSlug,
-                    WORKSPACE_SLUG_MAX_LENGTH - SLUG_SEPARATOR_LENGTH - SLUG_RANDOM_SUFFIX_LENGTH
-            );
-
-            slug = baseWithSuffixRoom + "-" + suffix;
-        }
-
-        return slug;
-    }
-
-    private String slugify(String value) {
-        String slug = Normalizer.normalize(value, Normalizer.Form.NFD)
-                .replaceAll("\\p{M}", "")
-                .toLowerCase(Locale.ROOT)
-                .replaceAll("[^a-z0-9]+", "-")
-                .replaceAll("(^-|-$)", "");
-
-        if (slug.isBlank()) {
-            return "workspace";
-        }
-
-        return slug;
-    }
-
-    private String truncateSlug(String slug, int maxLength) {
-        if (slug.length() <= maxLength) {
-            return slug;
-        }
-
-        return slug.substring(0, maxLength).replaceAll("-$", "");
-    }
-
-    private String normalizeEmail(String email) {
-        return email.trim().toLowerCase(Locale.ROOT);
-    }
 }

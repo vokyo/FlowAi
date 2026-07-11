@@ -1,13 +1,16 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
-import { Link, Navigate, useNavigate } from 'react-router'
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
 import { z } from 'zod'
 import { ArrowRight, Loader2 } from 'lucide-react'
 import { ApiError } from '@/api/client'
-import { register } from '@/auth/auth-api'
+import { register, registerWithInvitation } from '@/auth/auth-api'
+import { safeAuthReturnTo } from '@/auth/auth-navigation'
 import { saveAuthTokens } from '@/auth/token-storage'
 import { Button } from '@/components/ui/button'
+import { getWorkspaceInvitationPreview } from '@/workspace/workspace-api'
 
 type RegisterPageProps = {
   isAuthenticated: boolean
@@ -32,12 +35,16 @@ export function RegisterPage({
   onAuthenticated,
 }: RegisterPageProps) {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const invitationToken = searchParams.get('invitation') ?? ''
+  const returnTo = safeAuthReturnTo(searchParams.get('returnTo'))
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const {
     register: registerField,
     handleSubmit,
     formState: { errors },
+    setValue,
   } = useForm<RegisterFormValues>({
     resolver: zodResolver(registerFormSchema),
     defaultValues: {
@@ -48,8 +55,21 @@ export function RegisterPage({
     },
   })
 
+  const invitationQuery = useQuery({
+    queryKey: ['workspace-invitation-preview', invitationToken],
+    queryFn: () => getWorkspaceInvitationPreview(invitationToken),
+    enabled: Boolean(invitationToken),
+    retry: false,
+  })
+
+  useEffect(() => {
+    if (invitationQuery.data?.email) {
+      setValue('email', invitationQuery.data.email, { shouldValidate: true })
+    }
+  }, [invitationQuery.data?.email, setValue])
+
   if (isAuthenticated) {
-    return <Navigate to="/app" replace />
+    return <Navigate to={returnTo} replace />
   }
 
   async function submitRegisterForm(values: RegisterFormValues) {
@@ -57,12 +77,19 @@ export function RegisterPage({
     setIsSubmitting(true)
 
     try {
-      const response = await register({
-        displayName: values.displayName.trim(),
-        email: values.email.trim(),
-        password: values.password,
-        workspaceName: values.workspaceName.trim(),
-      })
+      const response = invitationToken
+        ? await registerWithInvitation({
+            token: invitationToken,
+            displayName: values.displayName.trim(),
+            email: values.email.trim(),
+            password: values.password,
+          })
+        : await register({
+            displayName: values.displayName.trim(),
+            email: values.email.trim(),
+            password: values.password,
+            workspaceName: values.workspaceName.trim(),
+          })
       saveAuthTokens(response)
       onAuthenticated()
       navigate('/app', { replace: true })
@@ -77,7 +104,14 @@ export function RegisterPage({
     <main className="auth-screen">
       <section className="auth-panel auth-panel-wide">
         <p className="auth-eyebrow">FlowAI</p>
-        <h1 className="auth-title">Create account</h1>
+        <h1 className="auth-title">
+          {invitationToken ? `Join ${invitationQuery.data?.workspaceName ?? 'workspace'}` : 'Create account'}
+        </h1>
+        {invitationQuery.error ? (
+          <p className="auth-error">
+            {getAuthErrorMessage(invitationQuery.error, 'Unable to load invitation.')}
+          </p>
+        ) : null}
         <form className="auth-form" onSubmit={handleSubmit(submitRegisterForm)} noValidate>
           <label className="auth-field">
             <span>Name</span>
@@ -95,6 +129,7 @@ export function RegisterPage({
             <input
               autoComplete="email"
               type="email"
+              readOnly={Boolean(invitationQuery.data?.email)}
               {...registerField('email')}
             />
           </label>
@@ -110,28 +145,49 @@ export function RegisterPage({
           {errors.password?.message ? (
             <p className="auth-error">{errors.password.message}</p>
           ) : null}
-          <label className="auth-field">
-            <span>Workspace</span>
-            <input
-              type="text"
-              {...registerField('workspaceName')}
-            />
-          </label>
-          {errors.workspaceName?.message ? (
-            <p className="auth-error">{errors.workspaceName.message}</p>
+          {!invitationToken ? (
+            <>
+              <label className="auth-field">
+                <span>Workspace</span>
+                <input
+                  type="text"
+                  {...registerField('workspaceName')}
+                />
+              </label>
+              {errors.workspaceName?.message ? (
+                <p className="auth-error">{errors.workspaceName.message}</p>
+              ) : null}
+            </>
           ) : null}
           {error ? <p className="auth-error">{error}</p> : null}
-          <Button className="auth-submit" disabled={isSubmitting} type="submit">
+          <Button
+            className="auth-submit"
+            disabled={
+              isSubmitting ||
+              invitationQuery.isLoading ||
+              Boolean(invitationToken && invitationQuery.data?.status !== 'PENDING')
+            }
+            type="submit"
+          >
             {isSubmitting ? (
               <Loader2 aria-hidden="true" className="auth-spin" />
             ) : (
               <ArrowRight aria-hidden="true" />
             )}
-            Create account
+            {invitationToken ? 'Create account and join' : 'Create account'}
           </Button>
         </form>
         <p className="auth-switch">
-          Already have an account? <Link to="/login">Sign in</Link>
+          Already have an account?{' '}
+          <Link
+            to={
+              invitationToken
+                ? `/login?returnTo=${encodeURIComponent(returnTo)}`
+                : '/login'
+            }
+          >
+            Sign in
+          </Link>
         </p>
       </section>
     </main>

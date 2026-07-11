@@ -1,6 +1,7 @@
 package com.vokyo.backend.auth;
 
 import com.vokyo.backend.user.User;
+import com.vokyo.backend.workspace.WorkspaceMembership;
 import jakarta.persistence.*;
 
 import java.time.Instant;
@@ -18,6 +19,10 @@ public class RefreshToken {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "workspace_membership_id", nullable = false)
+    private WorkspaceMembership workspaceMembership;
+
     @Column(name = "token_hash", nullable = false, unique = true, length = 255)
     private String tokenHash;
 
@@ -33,8 +38,14 @@ public class RefreshToken {
     protected RefreshToken() {
     }
 
-    public RefreshToken(User user, String tokenHash, Instant expiresAt) {
+    public RefreshToken(
+            User user,
+            WorkspaceMembership workspaceMembership,
+            String tokenHash,
+            Instant expiresAt
+    ) {
         this.user = user;
+        this.workspaceMembership = workspaceMembership;
         this.tokenHash = tokenHash;
         this.expiresAt = expiresAt;
     }
@@ -50,6 +61,10 @@ public class RefreshToken {
 
     public User getUser() {
         return user;
+    }
+
+    public WorkspaceMembership getWorkspaceMembership() {
+        return workspaceMembership;
     }
 
     public String getTokenHash() {

@@ -42,4 +42,30 @@ public class WorkspaceAccessService {
 
         return new CurrentWorkspaceContext(user, membership.getWorkspace(), membership);
     }
+
+    public void requireCanCreateProject(CurrentWorkspaceContext context) {
+        if (context.membership().getRole() == WorkspaceRole.GUEST) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Workspace role cannot create projects");
+        }
+    }
+
+    public void requireCanManageInvitations(CurrentWorkspaceContext context) {
+        WorkspaceRole role = context.membership().getRole();
+        if (role != WorkspaceRole.OWNER && role != WorkspaceRole.ADMIN) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Workspace invitation permission is required");
+        }
+    }
+
+    public void requireCanManageInvitationRole(CurrentWorkspaceContext context, WorkspaceRole targetRole) {
+        requireCanManageInvitations(context);
+        WorkspaceRole actorRole = context.membership().getRole();
+
+        if (targetRole == WorkspaceRole.OWNER) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "OWNER role cannot be invited");
+        }
+
+        if (actorRole == WorkspaceRole.ADMIN && targetRole == WorkspaceRole.ADMIN) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only a workspace owner can invite admins");
+        }
+    }
 }
