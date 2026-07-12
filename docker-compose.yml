@@ -1,15 +1,69 @@
+name: flowai
+
 services:
   postgres:
     image: postgres:17-alpine
-    container_name: flowai-postgres
     environment:
-      POSTGRES_DB: flowai
-      POSTGRES_USER: flowai
-      POSTGRES_PASSWORD: flowai_dev_password
-    ports:
-      - "5432:5432"
+      POSTGRES_DB: ${POSTGRES_DB:-flowai}
+      POSTGRES_USER: ${POSTGRES_USER:-flowai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
     volumes:
       - flowai_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - flowai
+
+  backend:
+    build:
+      context: ./backend
+    image: flowai-backend:local
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-flowai}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-flowai}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      JWT_ACCESS_TOKEN_TTL: ${JWT_ACCESS_TOKEN_TTL:-15m}
+      JWT_REFRESH_TOKEN_TTL: ${JWT_REFRESH_TOKEN_TTL:-7d}
+      WORKSPACE_INVITATION_TTL: ${WORKSPACE_INVITATION_TTL:-7d}
+      SPRING_AI_MODEL_CHAT: ${SPRING_AI_MODEL_CHAT:-none}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8080"
+    restart: unless-stopped
+    stop_grace_period: 30s
+    networks:
+      - flowai
+
+  frontend:
+    build:
+      context: ./frontend
+    image: flowai-frontend:local
+    ports:
+      - "${APP_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - flowai
 
 volumes:
   flowai_postgres_data:
+
+networks:
+  flowai:
+    driver: bridge
