@@ -3,7 +3,6 @@ package com.vokyo.backend;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vokyo.backend.activity.ActivityEventRepository;
-import com.vokyo.backend.auth.RefreshTokenRepository;
 import com.vokyo.backend.issue.Issue;
 import com.vokyo.backend.issue.IssueCommentRepository;
 import com.vokyo.backend.issue.IssuePriority;
@@ -79,9 +78,6 @@ class ProjectIssueWorkflowIntegrationTests {
     private ProjectWorkflowStateRepository projectWorkflowStateRepository;
 
     @Autowired
-    private RefreshTokenRepository refreshTokenRepository;
-
-    @Autowired
     private JwtService jwtService;
 
     @Autowired
@@ -93,19 +89,12 @@ class ProjectIssueWorkflowIntegrationTests {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private IntegrationTestDatabaseCleaner databaseCleaner;
+
     @BeforeEach
     void cleanDatabase() {
-        activityEventRepository.deleteAllInBatch();
-        issueCommentRepository.deleteAllInBatch();
-        issueRepository.deleteAllInBatch();
-        projectLabelRepository.deleteAllInBatch();
-        projectMemberRepository.deleteAllInBatch();
-        projectWorkflowStateRepository.deleteAllInBatch();
-        projectRepository.deleteAllInBatch();
-        refreshTokenRepository.deleteAllInBatch();
-        membershipRepository.deleteAllInBatch();
-        workspaceRepository.deleteAllInBatch();
-        userRepository.deleteAllInBatch();
+        databaseCleaner.clean();
     }
 
     @Test

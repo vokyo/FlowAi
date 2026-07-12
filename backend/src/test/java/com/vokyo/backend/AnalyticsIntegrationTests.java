@@ -1,40 +1,33 @@
 package com.vokyo.backend;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.vokyo.backend.activity.ActivityEventRepository;
-import com.vokyo.backend.auth.RefreshTokenRepository;
 import com.vokyo.backend.issue.Issue;
-import com.vokyo.backend.issue.IssueCommentRepository;
 import com.vokyo.backend.issue.IssueRepository;
 import com.vokyo.backend.project.Project;
-import com.vokyo.backend.project.ProjectLabelRepository;
 import com.vokyo.backend.project.ProjectMember;
 import com.vokyo.backend.project.ProjectMemberRepository;
 import com.vokyo.backend.project.ProjectRepository;
 import com.vokyo.backend.project.ProjectRole;
-import com.vokyo.backend.project.ProjectWorkflowStateRepository;
 import com.vokyo.backend.security.JwtService;
 import com.vokyo.backend.user.User;
 import com.vokyo.backend.user.UserRepository;
 import com.vokyo.backend.workspace.Workspace;
-import com.vokyo.backend.workspace.WorkspaceInvitationRepository;
 import com.vokyo.backend.workspace.WorkspaceMembership;
 import com.vokyo.backend.workspace.WorkspaceMembershipRepository;
 import com.vokyo.backend.workspace.WorkspaceRepository;
 import com.vokyo.backend.workspace.WorkspaceRole;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -44,47 +37,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @Import(TestcontainersConfiguration.class)
 @AutoConfigureMockMvc
 @SpringBootTest(properties = "spring.ai.openai.api-key=dummy")
-class AnalyticsIntegrationTests {
-
-    @Autowired
-    private MockMvc mockMvc;
-
-    @Autowired
-    private ObjectMapper objectMapper;
-
-    @Autowired
-    private ActivityEventRepository activityEventRepository;
-
-    @Autowired
-    private WorkspaceInvitationRepository invitationRepository;
-
-    @Autowired
-    private IssueCommentRepository issueCommentRepository;
+class AnalyticsIntegrationTests extends AbstractMockMvcIntegrationTest {
 
     @Autowired
     private IssueRepository issueRepository;
 
     @Autowired
-    private ProjectLabelRepository projectLabelRepository;
-
-    @Autowired
     private ProjectMemberRepository projectMemberRepository;
 
     @Autowired
-    private ProjectWorkflowStateRepository projectWorkflowStateRepository;
-
-    @Autowired
     private ProjectRepository projectRepository;
-
-    @Autowired
-    private RefreshTokenRepository refreshTokenRepository;
 
     @Autowired
     private WorkspaceMembershipRepository membershipRepository;
@@ -98,21 +66,8 @@ class AnalyticsIntegrationTests {
     @Autowired
     private JwtService jwtService;
 
-    @BeforeEach
-    void cleanDatabase() {
-        activityEventRepository.deleteAllInBatch();
-        invitationRepository.deleteAllInBatch();
-        issueCommentRepository.deleteAllInBatch();
-        issueRepository.deleteAllInBatch();
-        projectLabelRepository.deleteAllInBatch();
-        projectMemberRepository.deleteAllInBatch();
-        projectWorkflowStateRepository.deleteAllInBatch();
-        projectRepository.deleteAllInBatch();
-        refreshTokenRepository.deleteAllInBatch();
-        membershipRepository.deleteAllInBatch();
-        workspaceRepository.deleteAllInBatch();
-        userRepository.deleteAllInBatch();
-    }
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Test
     void emptyOverviewHasStableShapeAndProjectMembershipIsolation() throws Exception {
@@ -250,6 +205,54 @@ class AnalyticsIntegrationTests {
         patchWorkflowState(projectId, todoId, "Todo", "TODO", owner.accessToken())
                 .andExpect(status().isOk());
         assertThat(requireIssue(categoryIssueId).getCompletedAt()).isNull();
+    }
+
+    @Test
+    void completionTrendUsesInclusiveUtcDateBoundaries() throws Exception {
+        Session owner = register("analytics-boundary+" + uniqueId() + "@example.com");
+        String projectId = createProject(owner, "Analytics boundaries").get("id").asText();
+        String doneId = workflowStateId(listWorkflowStates(owner, projectId), "Done");
+        JsonNode firstDayIssue = createIssue(owner, projectId, "First day", doneId, null);
+        JsonNode lastDayIssue = createIssue(owner, projectId, "Last day", doneId, null);
+        JsonNode previousDayIssue = createIssue(owner, projectId, "Previous day", doneId, null);
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate firstDate = today.minusDays(6);
+
+        updateCompletedAt(
+                firstDayIssue,
+                firstDate.atStartOfDay(ZoneOffset.UTC).toInstant()
+        );
+        updateCompletedAt(
+                lastDayIssue,
+                today.plusDays(1).atStartOfDay(ZoneOffset.UTC).minusNanos(1).toInstant()
+        );
+        updateCompletedAt(
+                previousDayIssue,
+                firstDate.atStartOfDay(ZoneOffset.UTC).minusNanos(1).toInstant()
+        );
+
+        JsonNode overview = readJson(getAnalytics(projectId, 7, owner.accessToken())
+                .andExpect(status().isOk()));
+        JsonNode trend = overview.get("completionTrend");
+
+        assertThat(trend).hasSize(7);
+        assertThat(trend.get(0).get("date").asText()).isEqualTo(firstDate.toString());
+        assertThat(trend.get(0).get("count").asLong()).isEqualTo(1);
+        assertThat(trend.get(6).get("date").asText()).isEqualTo(today.toString());
+        assertThat(trend.get(6).get("count").asLong()).isEqualTo(1);
+        assertThat(trend.valueStream().mapToLong(point -> point.get("count").asLong()).sum())
+                .isEqualTo(2);
+    }
+
+    @Test
+    void analyticsRejectsEveryUnsupportedRange() throws Exception {
+        Session owner = register("analytics-range+" + uniqueId() + "@example.com");
+        String projectId = createProject(owner, "Analytics ranges").get("id").asText();
+
+        for (int unsupportedDays : new int[]{-1, 0, 1, 6, 8, 29, 31, 89, 91}) {
+            getAnalytics(projectId, unsupportedDays, owner.accessToken())
+                    .andExpect(status().isBadRequest());
+        }
     }
 
     private Session register(String email) throws Exception {
@@ -392,26 +395,12 @@ class AnalyticsIntegrationTests {
         return issueRepository.findById(issueId).orElseThrow();
     }
 
-    private ResultActions postJson(String path, String json, String accessToken) throws Exception {
-        MockHttpServletRequestBuilder request = post(path)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(json);
-        if (accessToken != null) {
-            request.header("Authorization", bearer(accessToken));
-        }
-        return mockMvc.perform(request);
-    }
-
-    private JsonNode readJson(ResultActions actions) throws Exception {
-        return objectMapper.readTree(actions.andReturn().getResponse().getContentAsString());
-    }
-
-    private String bearer(String accessToken) {
-        return "Bearer " + accessToken;
-    }
-
-    private String uniqueId() {
-        return UUID.randomUUID().toString().replace("-", "");
+    private void updateCompletedAt(JsonNode issue, Instant completedAt) {
+        jdbcTemplate.update(
+                "update issues set completed_at = ? where id = ?",
+                Timestamp.from(completedAt),
+                UUID.fromString(issue.get("id").asText())
+        );
     }
 
     private record Session(

@@ -2,3 +2,6 @@
 /.idea/
 .DS_Store
 .env
+/frontend/coverage/
+/frontend/playwright-report/
+/frontend/test-results/

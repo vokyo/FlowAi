@@ -1,15 +1,9 @@
 package com.vokyo.backend;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.vokyo.backend.activity.ActivityEventRepository;
 import com.vokyo.backend.auth.RefreshToken;
 import com.vokyo.backend.auth.RefreshTokenRepository;
 import com.vokyo.backend.auth.RefreshTokenService;
-import com.vokyo.backend.project.ProjectLabelRepository;
-import com.vokyo.backend.project.ProjectMemberRepository;
-import com.vokyo.backend.project.ProjectRepository;
-import com.vokyo.backend.project.ProjectWorkflowStateRepository;
 import com.vokyo.backend.security.JwtService;
 import com.vokyo.backend.user.User;
 import com.vokyo.backend.user.UserRepository;
@@ -22,18 +16,14 @@ import com.vokyo.backend.workspace.WorkspaceMembership;
 import com.vokyo.backend.workspace.WorkspaceMembershipRepository;
 import com.vokyo.backend.workspace.WorkspaceRepository;
 import com.vokyo.backend.workspace.WorkspaceRole;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -47,44 +37,22 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @Import(TestcontainersConfiguration.class)
 @AutoConfigureMockMvc
 @SpringBootTest(properties = "spring.ai.openai.api-key=dummy")
-class WorkspaceMultiTenantIntegrationTests {
-
-    @Autowired
-    private MockMvc mockMvc;
-
-    @Autowired
-    private ObjectMapper objectMapper;
+class WorkspaceMultiTenantIntegrationTests extends AbstractMockMvcIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
-
-    @Autowired
-    private ActivityEventRepository activityEventRepository;
 
     @Autowired
     private WorkspaceInvitationRepository invitationRepository;
 
     @Autowired
     private WorkspaceInvitationTokenService invitationTokenService;
-
-    @Autowired
-    private ProjectLabelRepository projectLabelRepository;
-
-    @Autowired
-    private ProjectMemberRepository projectMemberRepository;
-
-    @Autowired
-    private ProjectWorkflowStateRepository projectWorkflowStateRepository;
-
-    @Autowired
-    private ProjectRepository projectRepository;
 
     @Autowired
     private RefreshTokenRepository refreshTokenRepository;
@@ -103,20 +71,6 @@ class WorkspaceMultiTenantIntegrationTests {
 
     @Autowired
     private JwtService jwtService;
-
-    @BeforeEach
-    void cleanDatabase() {
-        activityEventRepository.deleteAllInBatch();
-        invitationRepository.deleteAllInBatch();
-        projectLabelRepository.deleteAllInBatch();
-        projectMemberRepository.deleteAllInBatch();
-        projectWorkflowStateRepository.deleteAllInBatch();
-        projectRepository.deleteAllInBatch();
-        refreshTokenRepository.deleteAllInBatch();
-        membershipRepository.deleteAllInBatch();
-        workspaceRepository.deleteAllInBatch();
-        userRepository.deleteAllInBatch();
-    }
 
     @Test
     void createsListsSwitchesAndRemembersMultipleWorkspaces() throws Exception {
@@ -513,6 +467,7 @@ class WorkspaceMultiTenantIntegrationTests {
                 invitee.accessToken()
         ).andReturn().getResponse().getStatus());
         assertThat(acceptStatuses).containsExactly(200, 409);
+        assertThat(activeRefreshTokenCount(invitee.userId())).isEqualTo(1);
 
         Session refreshSession = register(
                 "concurrent-refresh+" + uniqueId() + "@example.com",
@@ -524,6 +479,46 @@ class WorkspaceMultiTenantIntegrationTests {
                 null
         ).andReturn().getResponse().getStatus());
         assertThat(refreshStatuses).containsExactly(200, 401);
+        assertThat(activeRefreshTokenCount(refreshSession.userId())).isEqualTo(1);
+    }
+
+    @Test
+    void concurrentWorkspaceSwitchProducesSingleTargetSession() throws Exception {
+        Session session = register(
+                "concurrent-switch+" + uniqueId() + "@example.com",
+                "Switch home"
+        );
+        JsonNode targetWorkspace = readJson(postJson(
+                "/api/workspaces",
+                """
+                { "name": "Switch target" }
+                """,
+                session.accessToken()
+        ).andExpect(status().isOk()));
+        String targetWorkspaceId = targetWorkspace.get("id").asText();
+
+        List<Integer> switchStatuses = runConcurrently(() -> postJson(
+                "/api/workspaces/%s/switch".formatted(targetWorkspaceId),
+                refreshBody(session.refreshToken()),
+                session.accessToken()
+        ).andReturn().getResponse().getStatus());
+
+        assertThat(switchStatuses).containsExactly(200, 401);
+        assertThat(refreshTokenRepository.findAll())
+                .filteredOn(RefreshToken::isActive)
+                .hasSize(1);
+        UUID activeTokenWorkspaceId = jdbcTemplate.queryForObject(
+                """
+                select membership.workspace_id
+                from refresh_tokens token
+                join workspace_memberships membership
+                  on membership.id = token.workspace_membership_id
+                where token.revoked_at is null
+                  and token.expires_at > now()
+                """,
+                UUID.class
+        );
+        assertThat(activeTokenWorkspaceId).isEqualTo(UUID.fromString(targetWorkspaceId));
     }
 
     private ResultActions createInvitation(String accessToken, String email, String role) throws Exception {
@@ -572,23 +567,23 @@ class WorkspaceMultiTenantIntegrationTests {
         );
     }
 
-    private ResultActions postJson(String path, String json, String accessToken) throws Exception {
-        MockHttpServletRequestBuilder request = post(path)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(json);
-        if (accessToken != null) {
-            request.header("Authorization", bearer(accessToken));
-        }
-        return mockMvc.perform(request);
-    }
-
-    private JsonNode readJson(ResultActions resultActions) throws Exception {
-        MvcResult result = resultActions.andReturn();
-        return objectMapper.readTree(result.getResponse().getContentAsString());
-    }
-
     private RefreshToken persistedRefreshToken(String plainToken) {
         return refreshTokenRepository.findByTokenHash(refreshTokenService.hashToken(plainToken)).orElseThrow();
+    }
+
+    private long activeRefreshTokenCount(String userId) {
+        Long count = jdbcTemplate.queryForObject(
+                """
+                select count(*)
+                from refresh_tokens
+                where user_id = ?
+                  and revoked_at is null
+                  and expires_at > now()
+                """,
+                Long.class,
+                UUID.fromString(userId)
+        );
+        return count == null ? 0 : count;
     }
 
     private String refreshBody(String refreshToken) {
@@ -633,14 +628,6 @@ class WorkspaceMultiTenantIntegrationTests {
         } finally {
             executor.shutdownNow();
         }
-    }
-
-    private String bearer(String accessToken) {
-        return "Bearer " + accessToken;
-    }
-
-    private String uniqueId() {
-        return UUID.randomUUID().toString().replace("-", "");
     }
 
     @FunctionalInterface

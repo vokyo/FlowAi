@@ -61,12 +61,12 @@ class AuthFlowIntegrationTests {
     @Autowired
     private JwtService jwtService;
 
+    @Autowired
+    private IntegrationTestDatabaseCleaner databaseCleaner;
+
     @BeforeEach
     void cleanDatabase() {
-        refreshTokenRepository.deleteAllInBatch();
-        membershipRepository.deleteAllInBatch();
-        workspaceRepository.deleteAllInBatch();
-        userRepository.deleteAllInBatch();
+        databaseCleaner.clean();
     }
 
     @Test
