@@ -45,6 +45,10 @@ type Board = {
   }>
 }
 
+type WorkspaceInvitation = {
+  token: string
+}
+
 function uniqueValue(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
@@ -85,6 +89,18 @@ async function createWorkspace(
     headers: authorization(accessToken),
   })
   return requireJson<Workspace>(response)
+}
+
+async function createWorkspaceInvitation(
+  request: APIRequestContext,
+  accessToken: string,
+  email: string,
+) {
+  const response = await request.post('/api/workspaces/current/invitations', {
+    data: { email, role: 'MEMBER' },
+    headers: authorization(accessToken),
+  })
+  return requireJson<WorkspaceInvitation>(response)
 }
 
 async function switchWorkspace(
@@ -146,6 +162,82 @@ async function login(page: Page, email: string) {
   await expect(page).toHaveURL(/\/app(?:\/|$)/)
 }
 
+test('registers and completes the core project and issue workflow', async ({ page }) => {
+  const workspaceName = uniqueValue('Product workspace')
+  const projectName = uniqueValue('Web launch')
+  const issueTitle = uniqueValue('Build onboarding')
+  const updatedTitle = `${issueTitle} updated`
+  const comment = uniqueValue('Ready for review')
+  const email = `${uniqueValue('journey')}@example.com`
+
+  await page.goto('/register')
+  await page.getByLabel('Name').fill('Journey User')
+  await page.getByLabel('Email').fill(email)
+  await page.getByLabel('Password').fill(PASSWORD)
+  await page.getByLabel('Workspace').fill(workspaceName)
+  await page.getByRole('button', { name: 'Create account' }).click()
+
+  await expect(page).toHaveURL(/\/app(?:\/|$)/)
+  await expect(page.locator('.workspace-select-label strong')).toHaveText(workspaceName)
+
+  await page.getByRole('button', { name: 'Create project' }).click()
+  const projectDialog = page.getByRole('dialog', { name: 'Create project' })
+  await projectDialog.getByLabel('Name').fill(projectName)
+  await projectDialog.getByLabel('Description').fill('A project created through the UI')
+  await projectDialog.getByRole('button', { name: 'Create project' }).click()
+
+  await expect(page.getByRole('heading', { name: projectName })).toBeVisible()
+  await page.getByRole('button', { name: 'Create issue', exact: true }).click()
+  const issueDialog = page.getByRole('dialog', { name: 'New issue' })
+  await issueDialog.getByPlaceholder('Issue title').fill(issueTitle)
+  await issueDialog.getByPlaceholder('Add description...').fill('Initial description')
+  await issueDialog.getByRole('button', { name: 'Create issue' }).click()
+
+  await page.getByText(issueTitle, { exact: true }).click()
+  await expect(page.getByRole('heading', { name: issueTitle })).toBeVisible()
+  await page.getByRole('button', { name: 'Edit' }).click()
+  await page.getByLabel('Issue title').fill(updatedTitle)
+  await page.getByLabel('Issue description').fill('Updated through the issue detail view')
+  await page.getByRole('button', { name: 'Save' }).click()
+
+  await expect(page.getByRole('heading', { name: updatedTitle })).toBeVisible()
+  await expect(page.getByText('Updated through the issue detail view')).toBeVisible()
+  await page.getByLabel('Add comment').fill(comment)
+  await page.getByRole('button', { name: 'Comment' }).click()
+  await expect(page.getByText(comment, { exact: true })).toBeVisible()
+
+  await page.reload()
+  await expect(page.getByRole('heading', { name: updatedTitle })).toBeVisible()
+  await expect(page.getByText(comment, { exact: true })).toBeVisible()
+})
+
+test('creates an account from an invitation and joins the invited workspace', async ({
+  page,
+  request,
+}) => {
+  const workspaceName = uniqueValue('Inviting workspace')
+  const owner = await registerUser(request, workspaceName)
+  const invitedEmail = `${uniqueValue('invited')}@example.com`
+  const invitation = await createWorkspaceInvitation(
+    request,
+    owner.accessToken,
+    invitedEmail,
+  )
+
+  await page.goto(`/invite/${invitation.token}`)
+  await expect(page.getByRole('heading', { name: `Join ${workspaceName}` })).toBeVisible()
+  await page.getByRole('link', { name: 'Create account' }).click()
+  await page.getByLabel('Name').fill('Invited User')
+  await expect(page.getByLabel('Email')).toHaveValue(invitedEmail)
+  await page.getByLabel('Password').fill(PASSWORD)
+  await page.getByRole('button', { name: 'Create account and join' }).click()
+
+  await expect(page).toHaveURL(new RegExp(`/invite/${invitation.token}$`))
+  await expect(page.getByText('Invitation already accepted')).toBeVisible()
+  await page.goto('/app')
+  await expect(page.locator('.workspace-select-label strong')).toHaveText(workspaceName)
+})
+
 test('logs in and switches between workspaces', async ({ page, request }) => {
   const homeName = uniqueValue('Home workspace')
   const targetName = uniqueValue('Target workspace')
@@ -168,6 +260,7 @@ test('logs in and switches between workspaces', async ({ page, request }) => {
     `/app/workspaces/${targetWorkspace.id}/projects/${targetProject.id}`,
   ))
   await expect(page.getByRole('heading', { name: targetProject.name })).toBeVisible()
+  await expect(page.getByText(homeProject.name, { exact: true })).toHaveCount(0)
 })
 
 test('drags an issue between workflow columns and persists the move', async ({
@@ -190,8 +283,31 @@ test('drags an issue between workflow columns and persists the move', async ({
 
   await login(page, registered.user.email)
   const targetColumn = page.getByRole('region', { name: `${inProgress!.name} issues` })
-  await page.getByRole('button', { name: `Move ${issueTitle}` })
-    .dragTo(targetColumn.locator('.kanban-column-body'))
+  const dragHandle = page.getByRole('button', { name: `Move ${issueTitle}` })
+  const targetColumnBody = targetColumn.locator('.kanban-column-body')
+  const sourceBox = await dragHandle.boundingBox()
+  const targetBox = await targetColumnBody.boundingBox()
+
+  if (!sourceBox || !targetBox) {
+    throw new Error('Could not find the issue drag handle or target column')
+  }
+
+  await page.mouse.move(
+    sourceBox.x + sourceBox.width / 2,
+    sourceBox.y + sourceBox.height / 2,
+  )
+  await page.mouse.down()
+  await page.mouse.move(
+    sourceBox.x + sourceBox.width / 2 + 15,
+    sourceBox.y + sourceBox.height / 2,
+    { steps: 5 },
+  )
+  await page.mouse.move(
+    targetBox.x + targetBox.width / 2,
+    targetBox.y + Math.min(100, targetBox.height / 2),
+    { steps: 20 },
+  )
+  await page.mouse.up()
 
   await expect(targetColumn.getByText(issueTitle)).toBeVisible()
   await expect.poll(async () => {
@@ -223,7 +339,7 @@ test('opens project analytics and persists the selected range in the URL', async
   await createIssue(request, registered.accessToken, project.id, done!.id, 'Completed work')
 
   await login(page, registered.user.email)
-  await page.getByRole('button', { name: 'Analytics' }).click()
+  await page.getByRole('button', { name: 'Analytics', exact: true }).click()
 
   await expect(page).toHaveURL(new RegExp(`/projects/${project.id}/analytics$`))
   await expect(page.getByRole('heading', { name: 'Analytics' })).toBeVisible()

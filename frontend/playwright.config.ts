@@ -29,7 +29,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: './mvnw -Dspring-boot.run.useTestClasspath=true -Dspring-boot.run.main-class=com.vokyo.backend.TestBackendApplication -Dspring-boot.run.arguments=--server.port=18080 spring-boot:run',
+      command: './mvnw -Dspring-boot.run.main-class=com.vokyo.backend.TestBackendApplication -Dspring-boot.run.arguments=--server.port=18080 spring-boot:test-run',
       cwd: backendDirectory,
       env: {
         OPENAI_API_KEY: 'dummy',
