@@ -31,6 +31,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -224,11 +225,11 @@ class AnalyticsIntegrationTests extends AbstractMockMvcIntegrationTest {
         );
         updateCompletedAt(
                 lastDayIssue,
-                today.plusDays(1).atStartOfDay(ZoneOffset.UTC).minusNanos(1).toInstant()
+                today.plusDays(1).atStartOfDay(ZoneOffset.UTC).minus(1, ChronoUnit.MICROS).toInstant()
         );
         updateCompletedAt(
                 previousDayIssue,
-                firstDate.atStartOfDay(ZoneOffset.UTC).minusNanos(1).toInstant()
+                firstDate.atStartOfDay(ZoneOffset.UTC).minus(1, ChronoUnit.MICROS).toInstant()
         );
 
         JsonNode overview = readJson(getAnalytics(projectId, 7, owner.accessToken())
