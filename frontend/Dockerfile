@@ -6,7 +6,7 @@ WORKDIR /workspace
 
 COPY package.json package-lock.json ./
 
-RUN --mount=type=cache,target=/root/.npm \
+RUN --mount=type=cache,id=flowai-frontend-npm,target=/root/.npm \
     npm ci
 
 COPY . .

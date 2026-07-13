@@ -9,12 +9,12 @@ COPY mvnw pom.xml ./
 
 RUN chmod +x mvnw
 
-RUN --mount=type=cache,target=/root/.m2 \
+RUN --mount=type=cache,id=flowai-backend-maven,target=/root/.m2 \
     ./mvnw -B -DskipTests dependency:go-offline
 
 COPY src/ src/
 
-RUN --mount=type=cache,target=/root/.m2 \
+RUN --mount=type=cache,id=flowai-backend-maven,target=/root/.m2 \
     ./mvnw -B -DskipTests clean package \
     && cp target/backend-*.jar target/app.jar
 
