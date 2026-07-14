@@ -1999,6 +1999,7 @@ function ProjectIssuesView({
       visibleProjectBoard ? (
         <KanbanBoard
           board={visibleProjectBoard}
+          completeBoard={projectBoard ?? visibleProjectBoard}
           boardIssueView={boardIssueView}
           currentUserId={currentUser?.id ?? null}
           selectedIssueId={selectedIssueId}
@@ -2068,6 +2069,7 @@ function BoardLoadingState({
 
 function KanbanBoard({
   board,
+  completeBoard,
   boardIssueView,
   currentUserId,
   selectedIssueId,
@@ -2083,6 +2085,7 @@ function KanbanBoard({
   onResetQuickCreate,
 }: {
   board: ProjectBoard
+  completeBoard: ProjectBoard
   boardIssueView: BoardIssueView
   currentUserId: string | null
   selectedIssueId: string | null
@@ -2113,7 +2116,7 @@ function KanbanBoard({
     }),
   )
   const activeIssue = activeIssueId ? findBoardIssue(board, activeIssueId) : null
-  const isSortingEnabled = boardIssueView === 'ALL'
+  const isSortingEnabled = true
   const defaultAssigneeUserId =
     boardIssueView === 'MINE' ? (currentUserId ?? undefined) : undefined
   const emptyColumnLabel = boardEmptyColumnLabel(boardIssueView)
@@ -2207,7 +2210,7 @@ function KanbanBoard({
     const issueId = String(event.active.id)
     const overIssueId = overData.type === 'issue' ? String(event.over.id) : null
     const optimisticBoard = buildOptimisticBoard(
-      board,
+      completeBoard,
       issueId,
       overData.workflowStateId,
       overIssueId,

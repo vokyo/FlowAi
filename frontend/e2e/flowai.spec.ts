@@ -146,12 +146,52 @@ async function createIssue(
   projectId: string,
   workflowStateId: string,
   title: string,
+  assigneeUserId?: string,
 ) {
   const response = await request.post('/api/issues', {
-    data: { projectId, workflowStateId, title },
+    data: { projectId, workflowStateId, title, assigneeUserId },
     headers: authorization(accessToken),
   })
   return requireJson<{ id: string }>(response)
+}
+
+async function dragIssueToColumn(page: Page, issueTitle: string, columnName: string) {
+  const escapedColumnName = columnName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const targetColumn = page.getByRole('region', {
+    name: new RegExp(`^${escapedColumnName} issues$`, 'i'),
+  })
+  const dragHandle = page.getByRole('button', { name: `Move ${issueTitle}` })
+  const targetColumnBody = targetColumn.locator('.kanban-column-body')
+  await expect(dragHandle).toBeVisible()
+  await expect(targetColumnBody).toBeVisible()
+  const sourceBox = await dragHandle.boundingBox()
+  const targetBox = await targetColumnBody.boundingBox()
+
+  if (!sourceBox) {
+    throw new Error('Could not find the issue drag handle')
+  }
+  if (!targetBox) {
+    throw new Error('Could not find the target column')
+  }
+
+  await page.mouse.move(
+    sourceBox.x + sourceBox.width / 2,
+    sourceBox.y + sourceBox.height / 2,
+  )
+  await page.mouse.down()
+  await page.mouse.move(
+    sourceBox.x + sourceBox.width / 2 + 15,
+    sourceBox.y + sourceBox.height / 2,
+    { steps: 5 },
+  )
+  await page.mouse.move(
+    targetBox.x + targetBox.width / 2,
+    targetBox.y + Math.min(100, targetBox.height / 2),
+    { steps: 20 },
+  )
+  await page.mouse.up()
+
+  await expect(targetColumn.getByText(issueTitle)).toBeVisible()
 }
 
 async function login(page: Page, email: string) {
@@ -294,7 +334,7 @@ test('manages profile and project configuration from settings', async ({ page, r
   await expect(page.getByRole('heading', { name: 'Renamed settings project' })).toBeVisible()
 })
 
-test('drags an issue between workflow columns and persists the move', async ({
+test('drags issues in My issues and Unassigned boards and persists the moves', async ({
   page,
   request,
 }) => {
@@ -309,45 +349,43 @@ test('drags an issue between workflow columns and persists the move', async ({
   const inProgress = workflowStates.find((state) => state.category === 'IN_PROGRESS')
   expect(todo).toBeTruthy()
   expect(inProgress).toBeTruthy()
-  const issueTitle = uniqueValue('Move this issue')
-  await createIssue(request, registered.accessToken, project.id, todo!.id, issueTitle)
+  const myIssueTitle = uniqueValue('Move my issue')
+  const unassignedIssueTitle = uniqueValue('Move unassigned issue')
+  await createIssue(
+    request,
+    registered.accessToken,
+    project.id,
+    todo!.id,
+    myIssueTitle,
+    registered.user.id,
+  )
+  await createIssue(
+    request,
+    registered.accessToken,
+    project.id,
+    todo!.id,
+    unassignedIssueTitle,
+  )
 
   await login(page, registered.user.email)
-  const targetColumn = page.getByRole('region', { name: `${inProgress!.name} issues` })
-  const dragHandle = page.getByRole('button', { name: `Move ${issueTitle}` })
-  const targetColumnBody = targetColumn.locator('.kanban-column-body')
-  const sourceBox = await dragHandle.boundingBox()
-  const targetBox = await targetColumnBody.boundingBox()
+  const boardView = page.getByRole('group', { name: 'Board issue view' })
+  await boardView.getByRole('button', { name: 'My issues', exact: true }).click()
+  await dragIssueToColumn(page, myIssueTitle, inProgress!.name)
 
-  if (!sourceBox || !targetBox) {
-    throw new Error('Could not find the issue drag handle or target column')
-  }
+  await boardView.getByRole('button', { name: 'Unassigned', exact: true }).click()
+  await dragIssueToColumn(page, unassignedIssueTitle, inProgress!.name)
 
-  await page.mouse.move(
-    sourceBox.x + sourceBox.width / 2,
-    sourceBox.y + sourceBox.height / 2,
-  )
-  await page.mouse.down()
-  await page.mouse.move(
-    sourceBox.x + sourceBox.width / 2 + 15,
-    sourceBox.y + sourceBox.height / 2,
-    { steps: 5 },
-  )
-  await page.mouse.move(
-    targetBox.x + targetBox.width / 2,
-    targetBox.y + Math.min(100, targetBox.height / 2),
-    { steps: 20 },
-  )
-  await page.mouse.up()
-
-  await expect(targetColumn.getByText(issueTitle)).toBeVisible()
   await expect.poll(async () => {
     const response = await request.get(`/api/issues/board?projectId=${project.id}`, {
       headers: authorization(registered.accessToken),
     })
     const board = await response.json() as Board
-    return board.columns.find((column) => column.workflowState.id === inProgress!.id)
-      ?.issues.some((issue) => issue.title === issueTitle)
+    const targetIssues = board.columns.find(
+      (column) => column.workflowState.id === inProgress!.id,
+    )?.issues ?? []
+    return [myIssueTitle, unassignedIssueTitle].every((title) =>
+      targetIssues.some((issue) => issue.title === title),
+    )
   }).toBe(true)
 })
 
