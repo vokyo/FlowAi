@@ -1,0 +1,20 @@
+app:
+  workspace:
+    invitation-ttl: 7d
+  security:
+    jwt:
+      secret: test-secret-must-be-at-least-thirty-two-bytes
+      access-token-ttl: 15m
+      refresh-token-ttl: 7d
+    refresh-cookie:
+      secure: false
+    rate-limit:
+      enabled: false
+      max-entries: 1000
+      idle-ttl: 1h
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics

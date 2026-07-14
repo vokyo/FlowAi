@@ -22,7 +22,6 @@ type User = {
 
 type AuthSession = {
   accessToken: string
-  refreshToken: string
   user: User
   workspace: Workspace
 }
@@ -109,7 +108,6 @@ async function switchWorkspace(
   workspaceId: string,
 ) {
   const response = await request.post(`/api/workspaces/${workspaceId}/switch`, {
-    data: { refreshToken: session.refreshToken },
     headers: authorization(session.accessToken),
   })
   return requireJson<AuthSession>(response)

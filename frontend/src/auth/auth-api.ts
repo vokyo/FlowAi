@@ -15,7 +15,6 @@ export type AuthWorkspace = {
 
 export type AuthResponse = {
   accessToken: string
-  refreshToken: string
   user: AuthUser
   workspace?: AuthWorkspace
 }
@@ -60,8 +59,8 @@ export function getCurrentSession() {
   return api.get<CurrentSessionResponse>('/me')
 }
 
-export function logout(refreshToken: string) {
-  return api.post<void>('/auth/logout', { refreshToken }, { auth: false })
+export function logout() {
+  return api.post<void>('/auth/logout', undefined, { auth: false })
 }
 
 export function updateProfile(request: { displayName: string }) {

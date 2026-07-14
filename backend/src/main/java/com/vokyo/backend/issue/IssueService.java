@@ -22,22 +22,30 @@ import com.vokyo.backend.project.ProjectWorkflowStateRepository;
 import com.vokyo.backend.project.WorkflowStateCategory;
 import com.vokyo.backend.project.dto.ProjectLabelResponse;
 import com.vokyo.backend.project.dto.ProjectWorkflowStateResponse;
+import com.vokyo.backend.pagination.CursorCodec;
+import com.vokyo.backend.pagination.CursorPage;
+import com.vokyo.backend.pagination.CursorPagination;
 import com.vokyo.backend.user.User;
 import com.vokyo.backend.workspace.CurrentWorkspaceContext;
 import com.vokyo.backend.workspace.WorkspaceAccessService;
-import org.springframework.http.HttpStatus;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import jakarta.persistence.criteria.Predicate;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -60,6 +68,7 @@ public class IssueService {
     private final ProjectAccessService projectAccessService;
     private final WorkspaceAccessService workspaceAccessService;
     private final ActivityService activityService;
+    private final CursorCodec cursorCodec;
 
     public IssueService(
             IssueRepository issueRepository,
@@ -68,7 +77,8 @@ public class IssueService {
             ProjectWorkflowStateRepository projectWorkflowStateRepository,
             ProjectAccessService projectAccessService,
             WorkspaceAccessService workspaceAccessService,
-            ActivityService activityService
+            ActivityService activityService,
+            CursorCodec cursorCodec
     ) {
         this.issueRepository = issueRepository;
         this.issueCommentRepository = issueCommentRepository;
@@ -77,10 +87,11 @@ public class IssueService {
         this.projectAccessService = projectAccessService;
         this.workspaceAccessService = workspaceAccessService;
         this.activityService = activityService;
+        this.cursorCodec = cursorCodec;
     }
 
     @Transactional(readOnly = true)
-    public List<IssueSummaryResponse> listIssues(
+    public CursorPage<IssueSummaryResponse> listIssues(
             Jwt jwt,
             UUID projectId,
             IssueStatus status,
@@ -88,31 +99,55 @@ public class IssueService {
             IssuePriority priority,
             UUID assigneeUserId,
             UUID labelId,
-            String query
+            String query,
+            String cursor,
+            int requestedLimit
     ) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         projectAccessService.requireAccessibleProject(projectId, context);
         String normalizedQuery = normalizeOptionalText(query);
+        int limit = CursorPagination.validateLimit(requestedLimit);
+        String cursorScope = issueListCursorScope(
+                context.workspace().getId(),
+                projectId,
+                status,
+                workflowStateId,
+                priority,
+                assigneeUserId,
+                labelId,
+                normalizedQuery
+        );
+        CursorCodec.TimeCursor decodedCursor = cursor == null
+                ? null
+                : cursorCodec.decodeTime(cursor, cursorScope);
 
-        List<Issue> issues = issueRepository.findAll(
-                issueListSpecification(
-                        context.workspace().getId(),
-                        projectId,
-                        status,
-                        workflowStateId,
-                        priority,
-                        assigneeUserId,
-                        labelId,
-                        normalizedQuery
-                ),
-                Sort.by(Sort.Direction.DESC, "createdAt")
+        Specification<Issue> specification = issueListSpecification(
+                context.workspace().getId(),
+                projectId,
+                status,
+                workflowStateId,
+                priority,
+                assigneeUserId,
+                labelId,
+                normalizedQuery,
+                decodedCursor
+        );
+        Sort sort = Sort.by(
+                Sort.Order.desc("createdAt"),
+                Sort.Order.desc("id")
+        );
+        List<Issue> issues = issueRepository.findBy(
+                specification,
+                fluentQuery -> fluentQuery.sortBy(sort).limit(limit + 1).all()
         );
         Map<UUID, Long> commentCounts = loadCommentCounts(issues);
 
-        return issues
-                .stream()
-                .map(issue -> toSummaryResponse(issue, commentCounts.getOrDefault(issue.getId(), 0L)))
-                .toList();
+        return CursorPagination.page(
+                issues,
+                limit,
+                issue -> toSummaryResponse(issue, commentCounts.getOrDefault(issue.getId(), 0L)),
+                issue -> cursorCodec.encodeTime(cursorScope, issue.getCreatedAt(), issue.getId())
+        );
     }
 
     @Transactional(readOnly = true)
@@ -120,6 +155,20 @@ public class IssueService {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Project project = projectAccessService.requireAccessibleProject(projectId, context);
         return loadBoard(project);
+    }
+
+    @Transactional(readOnly = true)
+    public CursorPage<IssueSummaryResponse> getBoardStatePage(
+            Jwt jwt,
+            UUID projectId,
+            UUID workflowStateId,
+            String cursor,
+            int requestedLimit
+    ) {
+        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
+        Project project = projectAccessService.requireAccessibleProject(projectId, context);
+        ProjectWorkflowState workflowState = requireProjectWorkflowState(project, workflowStateId);
+        return loadBoardStatePage(project, workflowState, cursor, requestedLimit);
     }
 
     @Transactional
@@ -211,17 +260,12 @@ public class IssueService {
             throw badRequest("Archived issues cannot be reordered");
         }
 
-        LinkedHashSet<UUID> expectedIssueIds = issueRepository.findActiveIssuesInWorkflowState(
-                        project.getWorkspace().getId(),
-                        project.getId(),
-                        targetWorkflowState.getId()
-                )
-                .stream()
-                .map(Issue::getId)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-        expectedIssueIds.add(movedIssue.getId());
-        if (!requestedIssueIds.equals(expectedIssueIds)) {
-            throw badRequest("Issue order must include every issue in the target workflow state");
+        if (!requestedIssueIds.contains(movedIssue.getId())) {
+            throw badRequest("Issue order must include the moved issue");
+        }
+        if (requestedIssues.stream().anyMatch(issue -> !issue.getId().equals(movedIssue.getId())
+                && !issue.getWorkflowState().getId().equals(targetWorkflowState.getId()))) {
+            throw badRequest("Issue order can only contain loaded issues from the target workflow state");
         }
 
         Map<UUID, Issue> requestedIssuesById = requestedIssues
@@ -230,6 +274,20 @@ public class IssueService {
         ProjectWorkflowState previousWorkflowState = movedIssue.getWorkflowState();
         String previousStatus = displayStatus(movedIssue);
         boolean workflowStateChanged = !previousWorkflowState.getId().equals(targetWorkflowState.getId());
+
+        long shiftOffset;
+        try {
+            shiftOffset = Math.multiplyExact(orderedIssueIds.size() + 1L, BOARD_POSITION_STEP);
+        } catch (ArithmeticException exception) {
+            throw badRequest("Issue order is too large");
+        }
+        issueRepository.shiftActiveWorkflowStateBoardPositions(
+                project.getWorkspace().getId(),
+                project.getId(),
+                targetWorkflowState.getId(),
+                shiftOffset
+        );
+
         if (workflowStateChanged) {
             movedIssue.changeWorkflowState(targetWorkflowState);
         }
@@ -261,12 +319,7 @@ public class IssueService {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Issue issue = requireIssue(issueId, context.workspace().getId());
         projectAccessService.requireIssueProjectAccess(issue, context);
-        List<IssueCommentResponse> comments = issueCommentRepository.findByIssue_IdOrderByCreatedAtAsc(issue.getId())
-                .stream()
-                .map(this::toCommentResponse)
-                .toList();
-
-        return toDetailResponse(issue, comments);
+        return toDetailResponse(issue);
     }
 
     @Transactional
@@ -287,11 +340,60 @@ public class IssueService {
     }
 
     @Transactional(readOnly = true)
-    public List<ActivityEventResponse> listIssueActivities(Jwt jwt, UUID issueId) {
+    public CursorPage<IssueCommentResponse> listIssueComments(
+            Jwt jwt,
+            UUID issueId,
+            String cursor,
+            int requestedLimit
+    ) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Issue issue = requireIssue(issueId, context.workspace().getId());
         projectAccessService.requireIssueProjectAccess(issue, context);
-        return activityService.listIssueActivities(issue.getId(), context.workspace().getId());
+        int limit = CursorPagination.validateLimit(requestedLimit);
+        UUID workspaceId = context.workspace().getId();
+        UUID projectId = issue.getProject().getId();
+        String scope = "issue-comments:" + workspaceId + ":" + projectId + ":" + issueId;
+        PageRequest pageRequest = PageRequest.of(0, limit + 1);
+        List<IssueComment> comments;
+        if (cursor == null) {
+            comments = issueCommentRepository.findFirstPage(workspaceId, projectId, issueId, pageRequest);
+        } else {
+            CursorCodec.TimeCursor decoded = cursorCodec.decodeTime(cursor, scope);
+            comments = issueCommentRepository.findPageAfter(
+                    workspaceId,
+                    projectId,
+                    issueId,
+                    decoded.createdAt(),
+                    decoded.id(),
+                    pageRequest
+            );
+        }
+
+        return CursorPagination.page(
+                comments,
+                limit,
+                this::toCommentResponse,
+                comment -> cursorCodec.encodeTime(scope, comment.getCreatedAt(), comment.getId())
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public CursorPage<ActivityEventResponse> listIssueActivities(
+            Jwt jwt,
+            UUID issueId,
+            String cursor,
+            int requestedLimit
+    ) {
+        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
+        Issue issue = requireIssue(issueId, context.workspace().getId());
+        projectAccessService.requireIssueProjectAccess(issue, context);
+        return activityService.listIssueActivities(
+                issue.getId(),
+                context.workspace().getId(),
+                issue.getProject().getId(),
+                cursor,
+                requestedLimit
+        );
     }
 
     private Issue requireIssue(UUID issueId, UUID workspaceId) {
@@ -316,7 +418,8 @@ public class IssueService {
             IssuePriority priority,
             UUID assigneeUserId,
             UUID labelId,
-            String query
+            String query,
+            CursorCodec.TimeCursor cursor
     ) {
         return (root, criteriaQuery, criteriaBuilder) -> {
             List<Predicate> predicates = new java.util.ArrayList<>();
@@ -356,8 +459,58 @@ public class IssueService {
                 ));
             }
 
+            if (cursor != null) {
+                predicates.add(criteriaBuilder.or(
+                        criteriaBuilder.lessThan(root.<Instant>get("createdAt"), cursor.createdAt()),
+                        criteriaBuilder.and(
+                                criteriaBuilder.equal(root.get("createdAt"), cursor.createdAt()),
+                                criteriaBuilder.lessThan(root.<UUID>get("id"), cursor.id())
+                        )
+                ));
+            }
+
             return criteriaBuilder.and(predicates.toArray(Predicate[]::new));
         };
+    }
+
+    private String issueListCursorScope(
+            UUID workspaceId,
+            UUID projectId,
+            IssueStatus status,
+            UUID workflowStateId,
+            IssuePriority priority,
+            UUID assigneeUserId,
+            UUID labelId,
+            String query
+    ) {
+        String filters = String.join(
+                "",
+                lengthPrefixed(status),
+                lengthPrefixed(workflowStateId),
+                lengthPrefixed(priority),
+                lengthPrefixed(assigneeUserId),
+                lengthPrefixed(labelId),
+                lengthPrefixed(query)
+        );
+        return "issues:" + workspaceId + ":" + projectId + ":" + sha256(filters);
+    }
+
+    private String lengthPrefixed(Object value) {
+        if (value == null) {
+            return "-1:";
+        }
+        String text = value.toString();
+        return text.length() + ":" + text;
+    }
+
+    private String sha256(String value) {
+        try {
+            return HexFormat.of().formatHex(
+                    MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))
+            );
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is unavailable", exception);
+        }
     }
 
     private Map<UUID, Long> loadCommentCounts(List<Issue> issues) {
@@ -388,36 +541,71 @@ public class IssueService {
                         project.getWorkspace().getId(),
                         project.getId()
                 );
-        List<Issue> issues = issueRepository.findActiveBoardIssues(
-                project.getWorkspace().getId(),
-                project.getId()
-        );
-        Map<UUID, Long> commentCounts = loadCommentCounts(issues);
-        Map<UUID, List<Issue>> issuesByWorkflowState = new LinkedHashMap<>();
-        for (ProjectWorkflowState workflowState : workflowStates) {
-            issuesByWorkflowState.put(workflowState.getId(), new ArrayList<>());
-        }
-        for (Issue issue : issues) {
-            issuesByWorkflowState.computeIfAbsent(
-                    issue.getWorkflowState().getId(),
-                    ignored -> new ArrayList<>()
-            ).add(issue);
-        }
-
         List<BoardColumnResponse> columns = workflowStates
                 .stream()
-                .map(workflowState -> new BoardColumnResponse(
-                        toWorkflowStateResponse(workflowState),
-                        issuesByWorkflowState.getOrDefault(workflowState.getId(), List.of())
-                                .stream()
-                                .map(issue -> toSummaryResponse(
-                                        issue,
-                                        commentCounts.getOrDefault(issue.getId(), 0L)
-                                ))
-                                .toList()
+                .map(workflowState -> toBoardColumn(
+                        workflowState,
+                        loadBoardStatePage(
+                                project,
+                                workflowState,
+                                null,
+                                CursorPagination.DEFAULT_LIMIT
+                        )
                 ))
                 .toList();
         return new ProjectBoardResponse(project.getId(), columns);
+    }
+
+    private BoardColumnResponse toBoardColumn(
+            ProjectWorkflowState workflowState,
+            CursorPage<IssueSummaryResponse> page
+    ) {
+        return new BoardColumnResponse(
+                toWorkflowStateResponse(workflowState),
+                page.items(),
+                page.nextCursor()
+        );
+    }
+
+    private CursorPage<IssueSummaryResponse> loadBoardStatePage(
+            Project project,
+            ProjectWorkflowState workflowState,
+            String cursor,
+            int requestedLimit
+    ) {
+        int limit = CursorPagination.validateLimit(requestedLimit);
+        String scope = boardCursorScope(project, workflowState);
+        PageRequest pageRequest = PageRequest.of(0, limit + 1);
+        List<Issue> issues;
+        if (cursor == null) {
+            issues = issueRepository.findFirstActiveIssuesInWorkflowState(
+                    project.getWorkspace().getId(),
+                    project.getId(),
+                    workflowState.getId(),
+                    pageRequest
+            );
+        } else {
+            CursorCodec.BoardCursor decoded = cursorCodec.decodeBoard(cursor, scope);
+            issues = issueRepository.findActiveIssuesInWorkflowStateAfter(
+                    project.getWorkspace().getId(),
+                    project.getId(),
+                    workflowState.getId(),
+                    decoded.boardPosition(),
+                    decoded.id(),
+                    pageRequest
+            );
+        }
+        Map<UUID, Long> commentCounts = loadCommentCounts(issues);
+        return CursorPagination.page(
+                issues,
+                limit,
+                issue -> toSummaryResponse(issue, commentCounts.getOrDefault(issue.getId(), 0L)),
+                issue -> cursorCodec.encodeBoard(scope, issue.getBoardPosition(), issue.getId())
+        );
+    }
+
+    private String boardCursorScope(Project project, ProjectWorkflowState workflowState) {
+        return "board-state:" + project.getWorkspace().getId() + ":" + project.getId() + ":" + workflowState.getId();
     }
 
     private long nextBoardPosition(Project project, ProjectWorkflowState workflowState) {
@@ -462,7 +650,7 @@ public class IssueService {
         );
     }
 
-    private IssueDetailResponse toDetailResponse(Issue issue, List<IssueCommentResponse> comments) {
+    private IssueDetailResponse toDetailResponse(Issue issue) {
         return new IssueDetailResponse(
                 issue.getId(),
                 issue.getProject().getId(),
@@ -478,8 +666,7 @@ public class IssueService {
                 issue.getArchivedAt(),
                 issue.getBoardPosition(),
                 issue.getCreatedAt(),
-                issue.getUpdatedAt(),
-                comments
+                issue.getUpdatedAt()
         );
     }
 
@@ -497,6 +684,9 @@ public class IssueService {
     private List<ProjectLabelResponse> toLabelResponses(Issue issue) {
         return issue.getLabels()
                 .stream()
+                .sorted(java.util.Comparator
+                        .comparing(ProjectLabel::getName, String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(ProjectLabel::getId))
                 .map(this::toLabelResponse)
                 .toList();
     }
@@ -560,7 +750,12 @@ public class IssueService {
             throw notFound("Project label not found");
         }
 
-        return labels;
+        Map<UUID, ProjectLabel> labelsById = labels.stream()
+                .collect(java.util.stream.Collectors.toMap(ProjectLabel::getId, label -> label));
+        return labelIds.stream()
+                .distinct()
+                .map(labelsById::get)
+                .toList();
     }
 
     private ProjectWorkflowState resolveWorkflowStateForCreate(
@@ -768,12 +963,7 @@ public class IssueService {
             );
         }
 
-        List<IssueCommentResponse> comments = issueCommentRepository.findByIssue_IdOrderByCreatedAtAsc(issue.getId())
-                .stream()
-                .map(this::toCommentResponse)
-                .toList();
-
-        return toDetailResponse(issue, comments);
+        return toDetailResponse(issue);
     }
 
     private String requiredText(JsonNode request, String fieldName, String message) {

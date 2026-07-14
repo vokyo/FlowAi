@@ -2,10 +2,12 @@ package com.vokyo.backend.workspace;
 
 import com.vokyo.backend.auth.dto.WorkspaceResponse;
 import com.vokyo.backend.auth.dto.AuthResponse;
+import com.vokyo.backend.auth.AuthSessionResult;
+import com.vokyo.backend.auth.RefreshTokenCookieService;
 import com.vokyo.backend.workspace.dto.CreateWorkspaceRequest;
-import com.vokyo.backend.workspace.dto.SwitchWorkspaceRequest;
 import com.vokyo.backend.workspace.dto.WorkspaceMemberResponse;
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.http.HttpStatus;
 import com.vokyo.backend.workspace.dto.UpdateWorkspaceMemberRequest;
 
@@ -29,13 +32,16 @@ public class WorkspaceController {
 
     private final WorkspaceQueryService workspaceQueryService;
     private final WorkspaceService workspaceService;
+    private final RefreshTokenCookieService refreshTokenCookieService;
 
     public WorkspaceController(
             WorkspaceQueryService workspaceQueryService,
-            WorkspaceService workspaceService
+            WorkspaceService workspaceService,
+            RefreshTokenCookieService refreshTokenCookieService
     ) {
         this.workspaceQueryService = workspaceQueryService;
         this.workspaceService = workspaceService;
+        this.refreshTokenCookieService = refreshTokenCookieService;
     }
 
     @GetMapping
@@ -55,9 +61,16 @@ public class WorkspaceController {
     public AuthResponse switchWorkspace(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID workspaceId,
-            @Valid @RequestBody SwitchWorkspaceRequest request
+            @CookieValue(name = RefreshTokenCookieService.COOKIE_NAME, required = false) String refreshToken,
+            HttpServletResponse response
     ) {
-        return workspaceService.switchWorkspace(jwt, workspaceId, request);
+        AuthSessionResult session = workspaceService.switchWorkspace(
+                jwt,
+                workspaceId,
+                refreshTokenCookieService.require(refreshToken)
+        );
+        refreshTokenCookieService.write(response, session.refreshToken());
+        return session.response();
     }
 
     @GetMapping("/current")

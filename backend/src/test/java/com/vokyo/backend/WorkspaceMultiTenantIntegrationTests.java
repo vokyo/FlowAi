@@ -104,29 +104,39 @@ class WorkspaceMultiTenantIntegrationTests extends AbstractMockMvcIntegrationTes
                 .andExpect(jsonPath("$[0].role").value("OWNER"))
                 .andExpect(jsonPath("$[2].id").value(initial.workspaceId()));
 
-        JsonNode switched = readJson(postJson(
+        ResultActions switchActions = postJson(
                 "/api/workspaces/%s/switch".formatted(secondCreated.get("id").asText()),
-                refreshBody(initial.refreshToken()),
-                initial.accessToken()
+                "{}",
+                initial.accessToken(),
+                initial.refreshToken()
         ).andExpect(status().isOk())
-                .andExpect(jsonPath("$.workspace.id").value(secondCreated.get("id").asText())));
+                .andExpect(jsonPath("$.refreshToken").doesNotExist())
+                .andExpect(jsonPath("$.workspace.id").value(secondCreated.get("id").asText()));
+        JsonNode switched = readJson(switchActions);
 
         String switchedAccessToken = switched.get("accessToken").asText();
-        String switchedRefreshToken = switched.get("refreshToken").asText();
+        String switchedRefreshToken = refreshToken(switchActions);
         assertThat(jwtService.getWorkspaceId(switchedAccessToken))
                 .isEqualTo(UUID.fromString(secondCreated.get("id").asText()));
         assertThat(persistedRefreshToken(initial.refreshToken()).isRevoked()).isTrue();
         assertThat(persistedRefreshToken(switchedRefreshToken).isActive()).isTrue();
 
-        postJson("/api/auth/refresh", refreshBody(initial.refreshToken()), null)
+        postJson("/api/auth/refresh", "{}", null, initial.refreshToken())
                 .andExpect(status().isUnauthorized());
 
-        JsonNode refreshed = readJson(postJson(
+        ResultActions refreshActions = postJson(
                 "/api/auth/refresh",
-                refreshBody(switchedRefreshToken),
-                null
+                "{}",
+                null,
+                switchedRefreshToken
         ).andExpect(status().isOk())
-                .andExpect(jsonPath("$.workspace.id").value(secondCreated.get("id").asText())));
+                .andExpect(jsonPath("$.refreshToken").doesNotExist())
+                .andExpect(jsonPath("$.workspace.id").value(secondCreated.get("id").asText()));
+        JsonNode refreshed = readJson(refreshActions);
+        String refreshedRefreshToken = refreshToken(refreshActions);
+        assertThat(refreshedRefreshToken).isNotEqualTo(switchedRefreshToken);
+        assertThat(persistedRefreshToken(switchedRefreshToken).isRevoked()).isTrue();
+        assertThat(persistedRefreshToken(refreshedRefreshToken).isActive()).isTrue();
 
         mockMvc.perform(get("/api/me")
                         .header("Authorization", bearer(refreshed.get("accessToken").asText())))
@@ -143,6 +153,7 @@ class WorkspaceMultiTenantIntegrationTests extends AbstractMockMvcIntegrationTes
                 """.formatted(initial.email()),
                 null
         ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.refreshToken").doesNotExist())
                 .andExpect(jsonPath("$.workspace.id").value(secondCreated.get("id").asText()));
     }
 
@@ -153,8 +164,9 @@ class WorkspaceMultiTenantIntegrationTests extends AbstractMockMvcIntegrationTes
 
         postJson(
                 "/api/workspaces/%s/switch".formatted(second.workspaceId()),
-                refreshBody(first.refreshToken()),
-                first.accessToken()
+                "{}",
+                first.accessToken(),
+                first.refreshToken()
         ).andExpect(status().isNotFound());
 
         User firstUser = userRepository.findByEmail(first.email()).orElseThrow();
@@ -169,8 +181,9 @@ class WorkspaceMultiTenantIntegrationTests extends AbstractMockMvcIntegrationTes
 
         postJson(
                 "/api/workspaces/%s/switch".formatted(second.workspaceId()),
-                refreshBody(first.refreshToken()),
-                first.accessToken()
+                "{}",
+                first.accessToken(),
+                first.refreshToken()
         ).andExpect(status().isNotFound());
 
         JsonNode ownedWorkspace = readJson(postJson(
@@ -181,12 +194,14 @@ class WorkspaceMultiTenantIntegrationTests extends AbstractMockMvcIntegrationTes
 
         postJson(
                 "/api/workspaces/%s/switch".formatted(ownedWorkspace.get("id").asText()),
-                refreshBody(second.refreshToken()),
-                first.accessToken()
+                "{}",
+                first.accessToken(),
+                second.refreshToken()
         ).andExpect(status().isUnauthorized());
 
-        postJson("/api/auth/refresh", refreshBody(second.refreshToken()), null)
+        postJson("/api/auth/refresh", "{}", null, second.refreshToken())
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.refreshToken").doesNotExist())
                 .andExpect(jsonPath("$.workspace.id").value(second.workspaceId()));
     }
 
@@ -276,8 +291,8 @@ class WorkspaceMultiTenantIntegrationTests extends AbstractMockMvcIntegrationTes
         mockMvc.perform(get("/api/workspaces/current/invitations")
                         .header("Authorization", bearer(owner.accessToken())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].id").value(invitationId))
-                .andExpect(jsonPath("$[0].token").doesNotExist());
+                .andExpect(jsonPath("$.items[0].id").value(invitationId))
+                .andExpect(jsonPath("$.items[0].token").doesNotExist());
 
         jdbcTemplate.update(
                 "update workspace_invitations set expires_at = now() - interval '1 minute' where id = ?::uuid",
@@ -354,17 +369,22 @@ class WorkspaceMultiTenantIntegrationTests extends AbstractMockMvcIntegrationTes
 
         postJson(
                 "/api/workspace-invitations/%s/accept".formatted(token),
-                refreshBody(wrongAccount.refreshToken()),
-                wrongAccount.accessToken()
+                "{}",
+                wrongAccount.accessToken(),
+                wrongAccount.refreshToken()
         ).andExpect(status().isForbidden());
 
-        JsonNode accepted = readJson(postJson(
+        ResultActions acceptActions = postJson(
                 "/api/workspace-invitations/%s/accept".formatted(token),
-                refreshBody(invitee.refreshToken()),
-                invitee.accessToken()
+                "{}",
+                invitee.accessToken(),
+                invitee.refreshToken()
         ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.refreshToken").doesNotExist())
                 .andExpect(jsonPath("$.workspace.id").value(owner.workspaceId()))
-                .andExpect(jsonPath("$.workspace.role").value("MEMBER")));
+                .andExpect(jsonPath("$.workspace.role").value("MEMBER"));
+        JsonNode accepted = readJson(acceptActions);
+        String acceptedRefreshToken = refreshToken(acceptActions);
 
         WorkspaceMembership reactivated = membershipRepository.findByWorkspace_IdAndUser_Id(
                 UUID.fromString(owner.workspaceId()),
@@ -374,6 +394,7 @@ class WorkspaceMultiTenantIntegrationTests extends AbstractMockMvcIntegrationTes
         assertThat(reactivated.getStatus()).isEqualTo(MembershipStatus.ACTIVE);
         assertThat(reactivated.getRole()).isEqualTo(WorkspaceRole.MEMBER);
         assertThat(persistedRefreshToken(invitee.refreshToken()).isRevoked()).isTrue();
+        assertThat(persistedRefreshToken(acceptedRefreshToken).isActive()).isTrue();
 
         MvcResult projectsResult = mockMvc.perform(get("/api/projects")
                         .header("Authorization", bearer(accepted.get("accessToken").asText())))
@@ -386,14 +407,17 @@ class WorkspaceMultiTenantIntegrationTests extends AbstractMockMvcIntegrationTes
 
         postJson(
                 "/api/workspace-invitations/%s/accept".formatted(token),
-                refreshBody(accepted.get("refreshToken").asText()),
-                accepted.get("accessToken").asText()
+                "{}",
+                accepted.get("accessToken").asText(),
+                acceptedRefreshToken
         ).andExpect(status().isConflict());
         postJson(
                 "/api/auth/refresh",
-                refreshBody(accepted.get("refreshToken").asText()),
-                null
+                "{}",
+                null,
+                acceptedRefreshToken
         ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.refreshToken").doesNotExist())
                 .andExpect(jsonPath("$.workspace.id").value(owner.workspaceId()));
         createInvitation(owner.accessToken(), invitee.email(), "MEMBER")
                 .andExpect(status().isConflict());
@@ -416,14 +440,17 @@ class WorkspaceMultiTenantIntegrationTests extends AbstractMockMvcIntegrationTes
                 null
         ).andExpect(status().isForbidden());
 
-        JsonNode registered = readJson(postJson(
+        ResultActions registerActions = postJson(
                 "/api/auth/register-with-invitation",
                 registerWithInvitationBody(token, invitedEmail.toUpperCase()),
                 null
         ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.refreshToken").doesNotExist())
                 .andExpect(jsonPath("$.user.email").value(invitedEmail))
                 .andExpect(jsonPath("$.workspace.id").value(owner.workspaceId()))
-                .andExpect(jsonPath("$.workspace.role").value("GUEST")));
+                .andExpect(jsonPath("$.workspace.role").value("GUEST"));
+        JsonNode registered = readJson(registerActions);
+        String registeredRefreshToken = refreshToken(registerActions);
 
         User invitedUser = userRepository.findByEmail(invitedEmail).orElseThrow();
         List<WorkspaceMembership> memberships =
@@ -439,9 +466,11 @@ class WorkspaceMultiTenantIntegrationTests extends AbstractMockMvcIntegrationTes
 
         postJson(
                 "/api/auth/refresh",
-                refreshBody(registered.get("refreshToken").asText()),
-                null
+                "{}",
+                null,
+                registeredRefreshToken
         ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.refreshToken").doesNotExist())
                 .andExpect(jsonPath("$.workspace.id").value(owner.workspaceId()));
         postJson(
                 "/api/auth/register-with-invitation",
@@ -463,8 +492,9 @@ class WorkspaceMultiTenantIntegrationTests extends AbstractMockMvcIntegrationTes
 
         List<Integer> acceptStatuses = runConcurrently(() -> postJson(
                 "/api/workspace-invitations/%s/accept".formatted(token),
-                refreshBody(invitee.refreshToken()),
-                invitee.accessToken()
+                "{}",
+                invitee.accessToken(),
+                invitee.refreshToken()
         ).andReturn().getResponse().getStatus());
         assertThat(acceptStatuses).containsExactly(200, 409);
         assertThat(activeRefreshTokenCount(invitee.userId())).isEqualTo(1);
@@ -475,8 +505,9 @@ class WorkspaceMultiTenantIntegrationTests extends AbstractMockMvcIntegrationTes
         );
         List<Integer> refreshStatuses = runConcurrently(() -> postJson(
                 "/api/auth/refresh",
-                refreshBody(refreshSession.refreshToken()),
-                null
+                "{}",
+                null,
+                refreshSession.refreshToken()
         ).andReturn().getResponse().getStatus());
         assertThat(refreshStatuses).containsExactly(200, 401);
         assertThat(activeRefreshTokenCount(refreshSession.userId())).isEqualTo(1);
@@ -499,8 +530,9 @@ class WorkspaceMultiTenantIntegrationTests extends AbstractMockMvcIntegrationTes
 
         List<Integer> switchStatuses = runConcurrently(() -> postJson(
                 "/api/workspaces/%s/switch".formatted(targetWorkspaceId),
-                refreshBody(session.refreshToken()),
-                session.accessToken()
+                "{}",
+                session.accessToken(),
+                session.refreshToken()
         ).andReturn().getResponse().getStatus());
 
         assertThat(switchStatuses).containsExactly(200, 401);
@@ -545,7 +577,7 @@ class WorkspaceMultiTenantIntegrationTests extends AbstractMockMvcIntegrationTes
     }
 
     private Session register(String email, String workspaceName) throws Exception {
-        JsonNode response = readJson(postJson(
+        ResultActions registerActions = postJson(
                 "/api/auth/register",
                 """
                 {
@@ -556,11 +588,13 @@ class WorkspaceMultiTenantIntegrationTests extends AbstractMockMvcIntegrationTes
                 }
                 """.formatted(email, workspaceName),
                 null
-        ).andExpect(status().isOk()));
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.refreshToken").doesNotExist());
+        JsonNode response = readJson(registerActions);
 
         return new Session(
                 response.get("accessToken").asText(),
-                response.get("refreshToken").asText(),
+                refreshToken(registerActions),
                 response.get("user").get("id").asText(),
                 response.get("user").get("email").asText(),
                 response.get("workspace").get("id").asText()
@@ -584,12 +618,6 @@ class WorkspaceMultiTenantIntegrationTests extends AbstractMockMvcIntegrationTes
                 UUID.fromString(userId)
         );
         return count == null ? 0 : count;
-    }
-
-    private String refreshBody(String refreshToken) {
-        return """
-                { "refreshToken": "%s" }
-                """.formatted(refreshToken);
     }
 
     private String registerWithInvitationBody(String token, String email) {

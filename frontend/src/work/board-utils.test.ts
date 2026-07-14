@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { IssueSummary, ProjectBoard, ProjectWorkflowState } from './work-api'
-import { buildOptimisticBoard, filterProjectBoard } from './board-utils'
+import {
+  appendBoardColumnPage,
+  buildOptimisticBoard,
+  filterProjectBoard,
+  mergeBoardFirstPagePreservingLoaded,
+} from './board-utils'
 
 const todo: ProjectWorkflowState = {
   id: 'todo',
@@ -48,8 +53,8 @@ describe('filtered board reordering', () => {
     const board: ProjectBoard = {
       projectId: 'project-1',
       columns: [
-        { workflowState: todo, issues: [issue('mine', todo, 'me'), issue('other', todo, 'other')] },
-        { workflowState: doing, issues: [issue('hidden-target', doing, 'other')] },
+        { workflowState: todo, issues: [issue('mine', todo, 'me'), issue('other', todo, 'other')], nextCursor: null },
+        { workflowState: doing, issues: [issue('hidden-target', doing, 'other')], nextCursor: null },
       ],
     }
 
@@ -70,8 +75,8 @@ describe('filtered board reordering', () => {
     const board: ProjectBoard = {
       projectId: 'project-1',
       columns: [
-        { workflowState: todo, issues: [issue('unassigned', todo)] },
-        { workflowState: doing, issues: [issue('assigned', doing, 'other')] },
+        { workflowState: todo, issues: [issue('unassigned', todo)], nextCursor: null },
+        { workflowState: doing, issues: [issue('assigned', doing, 'other')], nextCursor: null },
       ],
     }
 
@@ -80,5 +85,45 @@ describe('filtered board reordering', () => {
       'assigned',
       'unassigned',
     ])
+  })
+
+  it('merges a next column page without duplicating overlapping issues', () => {
+    const board: ProjectBoard = {
+      projectId: 'project-1',
+      columns: [
+        { workflowState: todo, issues: [issue('one', todo), issue('two', todo)], nextCursor: 'page-2' },
+      ],
+    }
+
+    const merged = appendBoardColumnPage(board, todo.id, {
+      items: [issue('two', todo), issue('three', todo)],
+      nextCursor: null,
+    })
+
+    expect(merged?.columns[0].issues.map(({ id }) => id)).toEqual(['one', 'two', 'three'])
+    expect(merged?.columns[0].nextCursor).toBeNull()
+  })
+
+  it('keeps loaded issues beyond the server first page after a reorder response', () => {
+    const loadedIssues = Array.from({ length: 55 }, (_, index) => issue(`issue-${index + 1}`, todo))
+    const loadedBoard: ProjectBoard = {
+      projectId: 'project-1',
+      columns: [{ workflowState: todo, issues: loadedIssues, nextCursor: 'page-3' }],
+    }
+    const reorderedFirstPage: ProjectBoard = {
+      projectId: 'project-1',
+      columns: [{
+        workflowState: todo,
+        issues: [loadedIssues[1], loadedIssues[0], ...loadedIssues.slice(2, 50)],
+        nextCursor: 'page-2',
+      }],
+    }
+
+    const merged = mergeBoardFirstPagePreservingLoaded(loadedBoard, reorderedFirstPage)
+
+    expect(merged.columns[0].issues).toHaveLength(55)
+    expect(merged.columns[0].issues.slice(0, 2).map(({ id }) => id)).toEqual(['issue-2', 'issue-1'])
+    expect(merged.columns[0].issues.at(-1)?.id).toBe('issue-55')
+    expect(merged.columns[0].nextCursor).toBe('page-3')
   })
 })

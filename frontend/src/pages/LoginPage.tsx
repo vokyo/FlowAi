@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { ArrowRight, Loader2 } from 'lucide-react'
 import { ApiError } from '@/api/client'
 import { login } from '@/auth/auth-api'
-import { saveAuthTokens } from '@/auth/token-storage'
+import { setAccessToken } from '@/auth/access-token'
 import { invitationTokenFromReturnTo, safeAuthReturnTo } from '@/auth/auth-navigation'
 import { Button } from '@/components/ui/button'
 
@@ -57,7 +57,7 @@ export function LoginPage({
         email: values.email.trim(),
         password: values.password,
       })
-      saveAuthTokens(response)
+      setAccessToken(response.accessToken)
       onAuthenticated()
       navigate(returnTo, { replace: true })
     } catch (caughtError) {

@@ -3,15 +3,15 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { login } from '@/auth/auth-api'
-import { saveAuthTokens } from '@/auth/token-storage'
+import { setAccessToken } from '@/auth/access-token'
 import { LoginPage } from './LoginPage'
 
 vi.mock('@/auth/auth-api', () => ({
   login: vi.fn(),
 }))
 
-vi.mock('@/auth/token-storage', () => ({
-  saveAuthTokens: vi.fn(),
+vi.mock('@/auth/access-token', () => ({
+  setAccessToken: vi.fn(),
 }))
 
 function renderLogin(onAuthenticated = vi.fn()) {
@@ -51,12 +51,11 @@ describe('LoginPage', () => {
     expect(login).not.toHaveBeenCalled()
   })
 
-  it('saves tokens and returns to a safe invitation path after login', async () => {
+  it('keeps the access token in memory and returns to a safe invitation path after login', async () => {
     const user = userEvent.setup()
     const onAuthenticated = vi.fn()
     const response = {
       accessToken: 'access-token',
-      refreshToken: 'refresh-token',
       user: {
         id: 'user-1',
         email: 'user@example.com',
@@ -84,7 +83,7 @@ describe('LoginPage', () => {
       email: 'user@example.com',
       password: 'password123',
     })
-    expect(saveAuthTokens).toHaveBeenCalledWith(response)
+    expect(setAccessToken).toHaveBeenCalledWith('access-token')
     expect(onAuthenticated).toHaveBeenCalledOnce()
   })
 })

@@ -4,7 +4,7 @@ import { ArrowLeft, KeyRound, Save, Shield, Tag, Trash2, UserRound, Workflow } f
 import { useNavigate } from 'react-router'
 import { ApiError } from '@/api/client'
 import { changePassword, getCurrentSession, revokeAllSessions, updateProfile } from '@/auth/auth-api'
-import { clearAuthTokens } from '@/auth/token-storage'
+import { clearAccessToken } from '@/auth/access-token'
 import { Button } from '@/components/ui/button'
 import {
   archiveProject,
@@ -46,7 +46,7 @@ export function SettingsPage({ onSessionChanged }: { onSessionChanged: () => voi
   const [selectedProjectId, setSelectedProjectId] = useState('')
 
   function finishSensitiveAction() {
-    clearAuthTokens()
+    clearAccessToken()
     queryClient.clear()
     onSessionChanged()
     navigate('/login', { replace: true })

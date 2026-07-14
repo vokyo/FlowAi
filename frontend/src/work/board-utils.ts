@@ -1,4 +1,5 @@
 import { arrayMove } from '@dnd-kit/sortable'
+import type { CursorPage } from '@/api/pagination'
 import type { IssueStatus, IssueSummary, ProjectBoard, ProjectWorkflowState } from '@/work/work-api'
 
 export type IssueGroup = {
@@ -72,6 +73,70 @@ export function appendIssueToBoard(
         issues: [...column.issues, issue].sort(
           (left, right) => left.boardPosition - right.boardPosition,
         ),
+      }
+    }),
+  }
+}
+
+export function appendBoardColumnPage(
+  board: ProjectBoard | undefined,
+  workflowStateId: string,
+  page: CursorPage<IssueSummary>,
+) {
+  if (!board) {
+    return board
+  }
+
+  return {
+    ...board,
+    columns: board.columns.map((column) => {
+      if (column.workflowState.id !== workflowStateId) {
+        return column
+      }
+
+      const issues = new Map(column.issues.map((issue) => [issue.id, issue]))
+      for (const issue of page.items) {
+        issues.set(issue.id, issue)
+      }
+
+      return {
+        ...column,
+        issues: Array.from(issues.values()),
+        nextCursor: page.nextCursor,
+      }
+    }),
+  }
+}
+
+export function mergeBoardFirstPagePreservingLoaded(
+  loadedBoard: ProjectBoard | undefined,
+  firstPageBoard: ProjectBoard,
+) {
+  if (!loadedBoard || loadedBoard.projectId !== firstPageBoard.projectId) {
+    return firstPageBoard
+  }
+
+  const firstPageIssueIds = new Set(
+    firstPageBoard.columns.flatMap((column) => column.issues.map((issue) => issue.id)),
+  )
+
+  return {
+    ...firstPageBoard,
+    columns: firstPageBoard.columns.map((column) => {
+      const loadedColumn = loadedBoard.columns.find(
+        (candidate) => candidate.workflowState.id === column.workflowState.id,
+      )
+      if (!loadedColumn || loadedColumn.issues.length <= column.issues.length) {
+        return column
+      }
+
+      const loadedTail = loadedColumn.issues.filter(
+        (issue) => !firstPageIssueIds.has(issue.id),
+      )
+      return {
+        ...column,
+        issues: [...column.issues, ...loadedTail],
+        nextCursor: loadedColumn.nextCursor,
       }
     }),
   }

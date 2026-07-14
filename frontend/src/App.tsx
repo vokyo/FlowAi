@@ -3,15 +3,15 @@ import { Navigate, Route, Routes, useNavigate } from 'react-router'
 import {
   clearAccessTokenProvider,
   clearUnauthorizedHandler,
+  refreshAccessToken,
   setAccessTokenProvider,
   setUnauthorizedHandler,
 } from '@/api/client'
 import {
-  clearAuthTokens,
+  clearAccessToken,
   getAccessToken,
-  getRefreshToken,
   hasAccessToken,
-} from '@/auth/token-storage'
+} from '@/auth/access-token'
 import { logout } from '@/auth/auth-api'
 import { LoginPage } from '@/pages/LoginPage'
 import { RegisterPage } from '@/pages/RegisterPage'
@@ -28,29 +28,29 @@ function App() {
 function AppRoutes() {
   const navigate = useNavigate()
   const [sessionVersion, setSessionVersion] = useState(0)
+  const [isRestoringSession, setIsRestoringSession] = useState(true)
 
   function refreshSession() {
     setSessionVersion((version) => version + 1)
   }
 
   async function signOut() {
-    const refreshToken = getRefreshToken()
-    if (refreshToken) {
-      try {
-        await logout(refreshToken)
-      } catch {
-        // Local sign-out must still complete when the server is unavailable.
-      }
+    try {
+      await logout()
+    } catch {
+      // Local sign-out must still complete when the server is unavailable.
     }
-    clearAuthTokens()
+    clearAccessToken()
     refreshSession()
     navigate('/login', { replace: true })
   }
 
   useEffect(() => {
+    let isActive = true
+
     setAccessTokenProvider(getAccessToken)
     setUnauthorizedHandler(() => {
-      clearAuthTokens()
+      clearAccessToken()
       refreshSession()
       const currentPath = window.location.pathname
       const loginPath = currentPath.startsWith('/invite/')
@@ -59,11 +59,23 @@ function AppRoutes() {
       navigate(loginPath, { replace: true })
     })
 
+    void refreshAccessToken().finally(() => {
+      if (isActive) {
+        setIsRestoringSession(false)
+        setSessionVersion((version) => version + 1)
+      }
+    })
+
     return () => {
+      isActive = false
       clearAccessTokenProvider()
       clearUnauthorizedHandler()
     }
   }, [navigate])
+
+  if (isRestoringSession) {
+    return <RouteLoading />
+  }
 
   function renderAppPage() {
     return (

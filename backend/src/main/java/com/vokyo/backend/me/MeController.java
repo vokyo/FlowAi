@@ -4,6 +4,8 @@ import com.vokyo.backend.me.dto.MeResponse;
 import com.vokyo.backend.me.dto.UpdateProfileRequest;
 import com.vokyo.backend.me.dto.ChangePasswordRequest;
 import com.vokyo.backend.auth.dto.UserResponse;
+import com.vokyo.backend.auth.RefreshTokenCookieService;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -21,10 +23,16 @@ public class MeController {
 
     private final MeService meService;
     private final AccountService accountService;
+    private final RefreshTokenCookieService refreshTokenCookieService;
 
-    public MeController(MeService meService, AccountService accountService) {
+    public MeController(
+            MeService meService,
+            AccountService accountService,
+            RefreshTokenCookieService refreshTokenCookieService
+    ) {
         this.meService = meService;
         this.accountService = accountService;
+        this.refreshTokenCookieService = refreshTokenCookieService;
     }
 
     @GetMapping("/api/me")
@@ -44,14 +52,20 @@ public class MeController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void changePassword(
             @AuthenticationPrincipal Jwt jwt,
-            @Valid @RequestBody ChangePasswordRequest request
+            @Valid @RequestBody ChangePasswordRequest request,
+            HttpServletResponse response
     ) {
         accountService.changePassword(jwt, request);
+        refreshTokenCookieService.clear(response);
     }
 
     @DeleteMapping("/api/me/sessions")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void revokeAllSessions(@AuthenticationPrincipal Jwt jwt) {
+    public void revokeAllSessions(
+            @AuthenticationPrincipal Jwt jwt,
+            HttpServletResponse response
+    ) {
         accountService.revokeAllSessions(jwt);
+        refreshTokenCookieService.clear(response);
     }
 }

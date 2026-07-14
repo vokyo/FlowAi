@@ -10,12 +10,13 @@ import com.vokyo.backend.issue.dto.IssueSummaryResponse;
 import com.vokyo.backend.issue.dto.MoveIssueStateRequest;
 import com.vokyo.backend.issue.dto.ProjectBoardResponse;
 import com.vokyo.backend.issue.dto.ReorderIssuesRequest;
+import com.vokyo.backend.pagination.CursorPage;
+import com.vokyo.backend.pagination.CursorPagination;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -29,7 +30,7 @@ public class IssueController {
     }
 
     @GetMapping
-    public List<IssueSummaryResponse> listIssues(
+    public CursorPage<IssueSummaryResponse> listIssues(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam UUID projectId,
             @RequestParam(required = false) IssueStatus status,
@@ -37,9 +38,22 @@ public class IssueController {
             @RequestParam(required = false) IssuePriority priority,
             @RequestParam(required = false) UUID assigneeUserId,
             @RequestParam(required = false) UUID labelId,
-            @RequestParam(required = false) String q
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "" + CursorPagination.DEFAULT_LIMIT) int limit
     ) {
-        return issueService.listIssues(jwt, projectId, status, workflowStateId, priority, assigneeUserId, labelId, q);
+        return issueService.listIssues(
+                jwt,
+                projectId,
+                status,
+                workflowStateId,
+                priority,
+                assigneeUserId,
+                labelId,
+                q,
+                cursor,
+                limit
+        );
     }
 
     @GetMapping("/board")
@@ -48,6 +62,17 @@ public class IssueController {
             @RequestParam UUID projectId
     ) {
         return issueService.getBoard(jwt, projectId);
+    }
+
+    @GetMapping("/board/states/{workflowStateId}")
+    public CursorPage<IssueSummaryResponse> getBoardStatePage(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID workflowStateId,
+            @RequestParam UUID projectId,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "" + CursorPagination.DEFAULT_LIMIT) int limit
+    ) {
+        return issueService.getBoardStatePage(jwt, projectId, workflowStateId, cursor, limit);
     }
 
     @PostMapping
@@ -92,12 +117,24 @@ public class IssueController {
         return issueService.createComment(jwt, issueId, request);
     }
 
-    @GetMapping("/{issueId}/activities")
-    public List<ActivityEventResponse> listIssueActivities(
+    @GetMapping("/{issueId}/comments")
+    public CursorPage<IssueCommentResponse> listIssueComments(
             @AuthenticationPrincipal Jwt jwt,
-            @PathVariable UUID issueId
+            @PathVariable UUID issueId,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "" + CursorPagination.DEFAULT_LIMIT) int limit
     ) {
-        return issueService.listIssueActivities(jwt, issueId);
+        return issueService.listIssueComments(jwt, issueId, cursor, limit);
+    }
+
+    @GetMapping("/{issueId}/activities")
+    public CursorPage<ActivityEventResponse> listIssueActivities(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID issueId,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "" + CursorPagination.DEFAULT_LIMIT) int limit
+    ) {
+        return issueService.listIssueActivities(jwt, issueId, cursor, limit);
     }
 
     @PatchMapping("/{issueId}")

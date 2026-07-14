@@ -2,6 +2,7 @@ package com.vokyo.backend.issue;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -13,8 +14,6 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface IssueRepository extends JpaRepository<Issue, UUID>, JpaSpecificationExecutor<Issue> {
-
-    List<Issue> findByWorkspace_IdAndProject_IdOrderByCreatedAtDesc(UUID workspaceId, UUID projectId);
 
     Optional<Issue> findByIdAndWorkspace_Id(UUID id, UUID workspaceId);
 
@@ -64,15 +63,15 @@ public interface IssueRepository extends JpaRepository<Issue, UUID>, JpaSpecific
             from Issue issue
             where issue.workspace.id = :workspaceId
               and issue.project.id = :projectId
+              and issue.workflowState.id = :workflowStateId
               and issue.archivedAt is null
-            order by issue.workflowState.position asc,
-                     issue.boardPosition asc,
-                     issue.createdAt desc,
-                     issue.id asc
+            order by issue.boardPosition asc, issue.id asc
             """)
-    List<Issue> findActiveBoardIssues(
+    List<Issue> findFirstActiveIssuesInWorkflowState(
             @Param("workspaceId") UUID workspaceId,
-            @Param("projectId") UUID projectId
+            @Param("projectId") UUID projectId,
+            @Param("workflowStateId") UUID workflowStateId,
+            Pageable pageable
     );
 
     @Query("""
@@ -82,14 +81,17 @@ public interface IssueRepository extends JpaRepository<Issue, UUID>, JpaSpecific
               and issue.project.id = :projectId
               and issue.workflowState.id = :workflowStateId
               and issue.archivedAt is null
-            order by issue.boardPosition asc,
-                     issue.createdAt desc,
-                     issue.id asc
+              and (issue.boardPosition > :boardPosition
+                   or (issue.boardPosition = :boardPosition and issue.id > :id))
+            order by issue.boardPosition asc, issue.id asc
             """)
-    List<Issue> findActiveIssuesInWorkflowState(
+    List<Issue> findActiveIssuesInWorkflowStateAfter(
             @Param("workspaceId") UUID workspaceId,
             @Param("projectId") UUID projectId,
-            @Param("workflowStateId") UUID workflowStateId
+            @Param("workflowStateId") UUID workflowStateId,
+            @Param("boardPosition") long boardPosition,
+            @Param("id") UUID id,
+            Pageable pageable
     );
 
     List<Issue> findByWorkspace_IdAndProject_IdAndIdIn(
@@ -98,10 +100,35 @@ public interface IssueRepository extends JpaRepository<Issue, UUID>, JpaSpecific
             Collection<UUID> issueIds
     );
 
-    List<Issue> findByWorkspace_IdAndProject_IdAndWorkflowState_Id(
-            UUID workspaceId,
-            UUID projectId,
-            UUID workflowStateId
+    @Query("""
+            select issue
+            from Issue issue
+            where issue.workspace.id = :workspaceId
+              and issue.project.id = :projectId
+              and issue.workflowState.id = :workflowStateId
+            order by issue.id asc
+            """)
+    List<Issue> findWorkflowStateBatch(
+            @Param("workspaceId") UUID workspaceId,
+            @Param("projectId") UUID projectId,
+            @Param("workflowStateId") UUID workflowStateId,
+            Pageable pageable
+    );
+
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            update Issue issue
+            set issue.boardPosition = issue.boardPosition + :offset
+            where issue.workspace.id = :workspaceId
+              and issue.project.id = :projectId
+              and issue.workflowState.id = :workflowStateId
+              and issue.archivedAt is null
+            """)
+    int shiftActiveWorkflowStateBoardPositions(
+            @Param("workspaceId") UUID workspaceId,
+            @Param("projectId") UUID projectId,
+            @Param("workflowStateId") UUID workflowStateId,
+            @Param("offset") long offset
     );
 
     @Modifying(flushAutomatically = true)

@@ -1,4 +1,5 @@
 import { api } from '@/api/client'
+import type { CursorPage } from '@/api/pagination'
 import type { AuthResponse, AuthWorkspace } from '@/auth/auth-api'
 
 export type WorkspaceRole = 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST'
@@ -34,12 +35,18 @@ export function createWorkspace(request: { name: string }) {
   return api.post<AuthWorkspace>('/workspaces', request)
 }
 
-export function switchWorkspace(workspaceId: string, refreshToken: string) {
-  return api.post<AuthResponse>(`/workspaces/${workspaceId}/switch`, { refreshToken })
+export function switchWorkspace(workspaceId: string) {
+  return api.post<AuthResponse>(`/workspaces/${workspaceId}/switch`)
 }
 
-export function listWorkspaceInvitations() {
-  return api.get<WorkspaceInvitation[]>('/workspaces/current/invitations')
+export function listWorkspaceInvitations(cursor?: string | null, limit = 50) {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (cursor) {
+    params.set('cursor', cursor)
+  }
+  return api.get<CursorPage<WorkspaceInvitation>>(
+    `/workspaces/current/invitations?${params.toString()}`,
+  )
 }
 
 export function createWorkspaceInvitation(request: {
@@ -79,8 +86,6 @@ export function getWorkspaceInvitationPreview(token: string) {
   })
 }
 
-export function acceptWorkspaceInvitation(token: string, refreshToken: string) {
-  return api.post<AuthResponse>(`/workspace-invitations/${token}/accept`, {
-    refreshToken,
-  })
+export function acceptWorkspaceInvitation(token: string) {
+  return api.post<AuthResponse>(`/workspace-invitations/${token}/accept`)
 }

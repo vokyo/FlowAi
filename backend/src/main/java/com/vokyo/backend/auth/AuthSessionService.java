@@ -25,14 +25,14 @@ public class AuthSessionService {
     }
 
     @Transactional
-    public AuthResponse issue(User user, WorkspaceMembership membership) {
+    public AuthSessionResult issue(User user, WorkspaceMembership membership) {
         requireActiveMembership(user, membership);
         membership.markAccessed();
         return issueTokens(user, membership);
     }
 
     @Transactional
-    public AuthResponse refresh(String plainRefreshToken) {
+    public AuthSessionResult refresh(String plainRefreshToken) {
         RefreshToken refreshToken = refreshTokenService.requireActiveTokenForUpdate(plainRefreshToken);
         User user = refreshToken.getUser();
         WorkspaceMembership membership = refreshToken.getWorkspaceMembership();
@@ -44,7 +44,7 @@ public class AuthSessionService {
     }
 
     @Transactional
-    public AuthResponse rotateTo(
+    public AuthSessionResult rotateTo(
             String plainRefreshToken,
             User expectedUser,
             WorkspaceMembership targetMembership
@@ -60,21 +60,23 @@ public class AuthSessionService {
         return issueTokens(expectedUser, targetMembership);
     }
 
-    private AuthResponse issueTokens(User user, WorkspaceMembership membership) {
+    private AuthSessionResult issueTokens(User user, WorkspaceMembership membership) {
         String accessToken = jwtService.generateAccessToken(user, membership);
         String refreshToken = refreshTokenService.createRefreshToken(user, membership);
         Workspace workspace = membership.getWorkspace();
 
-        return new AuthResponse(
-                accessToken,
-                refreshToken,
-                new UserResponse(user.getId(), user.getEmail(), user.getDisplayName()),
-                new WorkspaceResponse(
-                        workspace.getId(),
-                        workspace.getName(),
-                        workspace.getSlug(),
-                        membership.getRole().name()
-                )
+        return new AuthSessionResult(
+                new AuthResponse(
+                        accessToken,
+                        new UserResponse(user.getId(), user.getEmail(), user.getDisplayName()),
+                        new WorkspaceResponse(
+                                workspace.getId(),
+                                workspace.getName(),
+                                workspace.getSlug(),
+                                membership.getRole().name()
+                        )
+                ),
+                refreshToken
         );
     }
 

@@ -174,19 +174,22 @@ class ManagementIntegrationTests extends AbstractMockMvcIntegrationTest {
                                 """))
                 .andExpect(status().isNoContent());
 
-        postJson("/api/auth/refresh", refreshBody(session.refreshToken()), null)
+        postJson("/api/auth/refresh", "{}", null, session.refreshToken())
                 .andExpect(status().isUnauthorized());
         postJson("/api/auth/login", loginBody(session.email(), "password123"), null)
                 .andExpect(status().isUnauthorized());
-        JsonNode loggedIn = readJson(postJson(
+        var loginActions = postJson(
                 "/api/auth/login",
                 loginBody(session.email(), "new-password-123"),
                 null
-        ).andExpect(status().isOk()));
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.refreshToken").doesNotExist());
+        JsonNode loggedIn = readJson(loginActions);
+        String loggedInRefreshToken = refreshToken(loginActions);
 
-        postJson("/api/auth/logout", refreshBody(loggedIn.get("refreshToken").asText()), null)
+        postJson("/api/auth/logout", "{}", null, loggedInRefreshToken)
                 .andExpect(status().isNoContent());
-        postJson("/api/auth/refresh", refreshBody(loggedIn.get("refreshToken").asText()), null)
+        postJson("/api/auth/refresh", "{}", null, loggedInRefreshToken)
                 .andExpect(status().isUnauthorized());
     }
 
@@ -222,7 +225,7 @@ class ManagementIntegrationTests extends AbstractMockMvcIntegrationTest {
 
     private Session register(String prefix) throws Exception {
         String email = prefix + "+" + uniqueId() + "@example.com";
-        JsonNode response = readJson(postJson(
+        var registerActions = postJson(
                 "/api/auth/register",
                 """
                 {
@@ -233,19 +236,15 @@ class ManagementIntegrationTests extends AbstractMockMvcIntegrationTest {
                 }
                 """.formatted(email),
                 null
-        ).andExpect(status().isOk()));
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.refreshToken").doesNotExist());
+        JsonNode response = readJson(registerActions);
         return new Session(
                 email,
                 response.get("accessToken").asText(),
-                response.get("refreshToken").asText(),
+                refreshToken(registerActions),
                 response.get("workspace").get("id").asText()
         );
-    }
-
-    private String refreshBody(String token) {
-        return """
-                { "refreshToken": "%s" }
-                """.formatted(token);
     }
 
     private String loginBody(String email, String password) {

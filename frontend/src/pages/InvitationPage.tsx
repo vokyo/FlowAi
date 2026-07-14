@@ -3,13 +3,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowRight, Building2, CheckCircle2, Loader2, LogOut, ShieldCheck } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { ApiError } from '@/api/client'
-import { getCurrentSession } from '@/auth/auth-api'
+import { getCurrentSession, logout } from '@/auth/auth-api'
 import {
-  clearAuthTokens,
-  getRefreshToken,
+  clearAccessToken,
   hasAccessToken,
-  saveAuthTokens,
-} from '@/auth/token-storage'
+  setAccessToken,
+} from '@/auth/access-token'
 import { Button } from '@/components/ui/button'
 import {
   acceptWorkspaceInvitation,
@@ -42,15 +41,9 @@ export function InvitationPage({ onSessionChanged }: InvitationPageProps) {
   })
 
   const acceptMutation = useMutation({
-    mutationFn: async () => {
-      const refreshToken = getRefreshToken()
-      if (!refreshToken) {
-        throw new Error('Your session cannot accept this invitation. Sign in again.')
-      }
-      return acceptWorkspaceInvitation(token, refreshToken)
-    },
+    mutationFn: () => acceptWorkspaceInvitation(token),
     onSuccess: async (response) => {
-      saveAuthTokens(response)
+      setAccessToken(response.accessToken)
       await queryClient.cancelQueries()
       queryClient.clear()
       onSessionChanged()
@@ -58,11 +51,17 @@ export function InvitationPage({ onSessionChanged }: InvitationPageProps) {
     },
   })
 
-  function switchAccount() {
-    clearAuthTokens()
-    queryClient.clear()
-    onSessionChanged()
-    navigate(`/login?returnTo=${encodeURIComponent(returnTo)}`, { replace: true })
+  async function switchAccount() {
+    try {
+      await logout()
+    } catch {
+      // Switching accounts must still clear the in-memory session if logout fails.
+    } finally {
+      clearAccessToken()
+      queryClient.clear()
+      onSessionChanged()
+      navigate(`/login?returnTo=${encodeURIComponent(returnTo)}`, { replace: true })
+    }
   }
 
   const invitation = invitationQuery.data
@@ -148,7 +147,7 @@ export function InvitationPage({ onSessionChanged }: InvitationPageProps) {
                   This invitation is for <strong>{invitation.email}</strong>, but you are signed in
                   as <strong>{session?.user.email ?? 'another account'}</strong>.
                 </p>
-                <Button type="button" variant="outline" onClick={switchAccount}>
+                <Button type="button" variant="outline" onClick={() => void switchAccount()}>
                   <LogOut aria-hidden="true" />
                   Switch account
                 </Button>

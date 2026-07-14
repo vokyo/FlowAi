@@ -1,8 +1,6 @@
 package com.vokyo.backend.auth;
 
-import com.vokyo.backend.auth.dto.AuthResponse;
 import com.vokyo.backend.auth.dto.LoginRequest;
-import com.vokyo.backend.auth.dto.RefreshTokenRequest;
 import com.vokyo.backend.auth.dto.RegisterRequest;
 import com.vokyo.backend.auth.dto.RegisterWithInvitationRequest;
 import com.vokyo.backend.user.User;
@@ -12,6 +10,10 @@ import com.vokyo.backend.workspace.WorkspaceMembership;
 import com.vokyo.backend.workspace.WorkspaceMembershipRepository;
 import com.vokyo.backend.workspace.WorkspaceInvitationService;
 import com.vokyo.backend.workspace.WorkspaceProvisioningService;
+import com.vokyo.backend.security.ratelimit.RateLimitDecision;
+import com.vokyo.backend.security.ratelimit.RateLimitExceededException;
+import com.vokyo.backend.security.ratelimit.RateLimitPolicy;
+import com.vokyo.backend.security.ratelimit.RateLimitService;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -32,6 +34,7 @@ public class AuthService {
     private final WorkspaceInvitationService workspaceInvitationService;
     private final AuthSessionService authSessionService;
     private final RefreshTokenService refreshTokenService;
+    private final RateLimitService rateLimitService;
 
     public AuthService(
             UserRepository userRepository,
@@ -40,7 +43,8 @@ public class AuthService {
             WorkspaceProvisioningService workspaceProvisioningService,
             WorkspaceInvitationService workspaceInvitationService,
             AuthSessionService authSessionService,
-            RefreshTokenService refreshTokenService
+            RefreshTokenService refreshTokenService,
+            RateLimitService rateLimitService
     ) {
         this.userRepository = userRepository;
         this.membershipRepository = membershipRepository;
@@ -49,10 +53,11 @@ public class AuthService {
         this.workspaceInvitationService = workspaceInvitationService;
         this.authSessionService = authSessionService;
         this.refreshTokenService = refreshTokenService;
+        this.rateLimitService = rateLimitService;
     }
 
     @Transactional
-    public AuthResponse register(RegisterRequest request) {
+    public AuthSessionResult register(RegisterRequest request) {
         String email = normalize(request.email());
         if (userRepository.existsByEmail(email)) {
             throw new ResponseStatusException(CONFLICT, "Email is already registered");
@@ -72,31 +77,46 @@ public class AuthService {
     }
 
     @Transactional
-    public AuthResponse login(LoginRequest request) {
-        User user = userRepository.findByEmail(normalize(request.email()))
-                .orElseThrow(() -> new BadCredentialsException("Invalid email or password"));
-
-        if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
-            throw new BadCredentialsException("Invalid email or password");
+    public AuthSessionResult login(LoginRequest request) {
+        String email = normalize(request.email());
+        RateLimitDecision decision = rateLimitService.consume(RateLimitPolicy.LOGIN_EMAIL_FAILURE, email);
+        if (!decision.allowed()) {
+            throw new RateLimitExceededException(decision.retryAfterSeconds());
         }
 
-        WorkspaceMembership membership = findDefaultMembership(user);
-        return authSessionService.issue(user, membership);
+        try {
+            User user = userRepository.findByEmail(email)
+                    .orElseThrow(() -> new BadCredentialsException("Invalid email or password"));
+
+            if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+                throw new BadCredentialsException("Invalid email or password");
+            }
+
+            WorkspaceMembership membership = findDefaultMembership(user);
+            AuthSessionResult session = authSessionService.issue(user, membership);
+            rateLimitService.clear(RateLimitPolicy.LOGIN_EMAIL_FAILURE, email);
+            return session;
+        } catch (BadCredentialsException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            rateLimitService.refund(RateLimitPolicy.LOGIN_EMAIL_FAILURE, email);
+            throw exception;
+        }
     }
 
     @Transactional
-    public AuthResponse refresh(RefreshTokenRequest request) {
-        return authSessionService.refresh(request.refreshToken());
+    public AuthSessionResult refresh(String refreshToken) {
+        return authSessionService.refresh(refreshToken);
     }
 
     @Transactional
-    public AuthResponse registerWithInvitation(RegisterWithInvitationRequest request) {
+    public AuthSessionResult registerWithInvitation(RegisterWithInvitationRequest request) {
         return workspaceInvitationService.registerWithInvitation(request);
     }
 
     @Transactional
-    public void logout(RefreshTokenRequest request) {
-        refreshTokenService.revoke(request.refreshToken());
+    public void logout(String refreshToken) {
+        refreshTokenService.revoke(refreshToken);
     }
 
     private WorkspaceMembership findDefaultMembership(User user) {

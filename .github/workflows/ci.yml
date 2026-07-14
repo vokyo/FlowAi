@@ -6,25 +6,8 @@ on:
   pull_request:
 
 jobs:
-  backend-test:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-          cache: maven
-
-      - run: chmod +x mvnw
-      - run: ./mvnw test
-
-  frontend-check:
+  frontend:
+    name: Frontend lint, test, and build
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -40,11 +23,72 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - run: npm ci
-      - run: npm test
       - run: npm run lint
+      - run: npm test
       - run: npm run build
 
+  backend-unit:
+    name: Backend unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - run: chmod +x mvnw
+      - run: ./mvnw --batch-mode test
+
+  backend-integration:
+    name: Backend Testcontainers integration tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - run: chmod +x mvnw
+      - run: ./mvnw --batch-mode -Pintegration verify
+
+  flyway-empty-database:
+    name: Flyway migration on empty PostgreSQL 17
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - run: chmod +x mvnw
+      - name: Migrate a fresh PostgreSQL 17 database
+        run: >-
+          ./mvnw --batch-mode -Pintegration -DskipUnitTests=true
+          -Dit.test=FlywayEmptyDatabaseIntegrationTests verify
+
   e2e:
+    name: Browser end-to-end tests
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -77,11 +121,13 @@ jobs:
           path: frontend/playwright-report/
           retention-days: 7
 
-  docker-build:
+  docker-compose:
+    name: Docker Compose build and health check
     runs-on: ubuntu-latest
     env:
       POSTGRES_PASSWORD: ci-password
       JWT_SECRET: ci-jwt-secret-at-least-32-bytes-long
+      REFRESH_COOKIE_SECURE: "false"
 
     steps:
       - uses: actions/checkout@v4
@@ -92,3 +138,20 @@ jobs:
       - name: Build Docker images
         run: docker compose build
 
+      - name: Start Compose stack
+        run: docker compose up --detach --wait --wait-timeout 240
+
+      - name: Verify frontend health endpoint
+        run: curl --fail --silent --show-error http://127.0.0.1:8080/health
+
+      - name: Verify same-origin auth through Nginx
+        run: >-
+          curl --fail --silent --show-error
+          --header 'Origin: http://127.0.0.1:8080'
+          --header 'Content-Type: application/json'
+          --data '{"email":"compose-ci@example.com","password":"password123","displayName":"Compose CI","workspaceName":"Compose CI"}'
+          http://127.0.0.1:8080/api/auth/register
+
+      - name: Stop Compose stack
+        if: always()
+        run: docker compose down --volumes --remove-orphans

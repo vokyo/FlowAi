@@ -1,12 +1,11 @@
 package com.vokyo.backend.workspace;
 
 import com.vokyo.backend.auth.AuthSessionService;
-import com.vokyo.backend.auth.dto.AuthResponse;
+import com.vokyo.backend.auth.AuthSessionResult;
 import com.vokyo.backend.auth.dto.WorkspaceResponse;
 import com.vokyo.backend.user.User;
 import com.vokyo.backend.user.UserRepository;
 import com.vokyo.backend.workspace.dto.CreateWorkspaceRequest;
-import com.vokyo.backend.workspace.dto.SwitchWorkspaceRequest;
 import com.vokyo.backend.workspace.dto.UpdateWorkspaceMemberRequest;
 import com.vokyo.backend.workspace.dto.WorkspaceMemberResponse;
 import com.vokyo.backend.auth.RefreshTokenService;
@@ -65,7 +64,7 @@ public class WorkspaceService {
     }
 
     @Transactional
-    public AuthResponse switchWorkspace(Jwt jwt, UUID workspaceId, SwitchWorkspaceRequest request) {
+    public AuthSessionResult switchWorkspace(Jwt jwt, UUID workspaceId, String refreshToken) {
         User user = requireUser(jwt);
         WorkspaceMembership membership = membershipRepository.findByWorkspace_IdAndUser_IdAndStatus(
                         workspaceId,
@@ -74,7 +73,7 @@ public class WorkspaceService {
                 )
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Workspace not found"));
 
-        return authSessionService.rotateTo(request.refreshToken(), user, membership);
+        return authSessionService.rotateTo(refreshToken, user, membership);
     }
 
     @Transactional

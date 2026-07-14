@@ -2,10 +2,13 @@ package com.vokyo.backend.workspace;
 
 import com.vokyo.backend.auth.AuthSessionService;
 import com.vokyo.backend.auth.dto.AuthResponse;
+import com.vokyo.backend.auth.AuthSessionResult;
 import com.vokyo.backend.auth.dto.RegisterWithInvitationRequest;
 import com.vokyo.backend.user.User;
 import com.vokyo.backend.user.UserRepository;
-import com.vokyo.backend.workspace.dto.AcceptWorkspaceInvitationRequest;
+import com.vokyo.backend.pagination.CursorCodec;
+import com.vokyo.backend.pagination.CursorPage;
+import com.vokyo.backend.pagination.CursorPagination;
 import com.vokyo.backend.workspace.dto.CreateWorkspaceInvitationRequest;
 import com.vokyo.backend.workspace.dto.WorkspaceInvitationCreatedResponse;
 import com.vokyo.backend.workspace.dto.WorkspaceInvitationPreviewResponse;
@@ -14,6 +17,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -34,6 +38,7 @@ public class WorkspaceInvitationService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuthSessionService authSessionService;
+    private final CursorCodec cursorCodec;
 
     public WorkspaceInvitationService(
             WorkspaceAccessService workspaceAccessService,
@@ -43,7 +48,8 @@ public class WorkspaceInvitationService {
             WorkspaceInvitationProperties properties,
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
-            AuthSessionService authSessionService
+            AuthSessionService authSessionService,
+            CursorCodec cursorCodec
     ) {
         this.workspaceAccessService = workspaceAccessService;
         this.membershipRepository = membershipRepository;
@@ -53,6 +59,7 @@ public class WorkspaceInvitationService {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.authSessionService = authSessionService;
+        this.cursorCodec = cursorCodec;
     }
 
     @Transactional
@@ -97,14 +104,32 @@ public class WorkspaceInvitationService {
     }
 
     @Transactional(readOnly = true)
-    public List<WorkspaceInvitationResponse> listInvitations(Jwt jwt) {
+    public CursorPage<WorkspaceInvitationResponse> listInvitations(Jwt jwt, String cursor, int requestedLimit) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         workspaceAccessService.requireCanManageInvitations(context);
+        int limit = CursorPagination.validateLimit(requestedLimit);
+        UUID workspaceId = context.workspace().getId();
+        String scope = "workspace-invitations:" + workspaceId;
+        PageRequest pageRequest = PageRequest.of(0, limit + 1);
+        List<WorkspaceInvitation> invitations;
+        if (cursor == null) {
+            invitations = invitationRepository.findFirstPage(workspaceId, pageRequest);
+        } else {
+            CursorCodec.TimeCursor decoded = cursorCodec.decodeTime(cursor, scope);
+            invitations = invitationRepository.findPageAfter(
+                    workspaceId,
+                    decoded.createdAt(),
+                    decoded.id(),
+                    pageRequest
+            );
+        }
 
-        return invitationRepository.findByWorkspace_IdOrderByCreatedAtDesc(context.workspace().getId())
-                .stream()
-                .map(this::toResponse)
-                .toList();
+        return CursorPagination.page(
+                invitations,
+                limit,
+                this::toResponse,
+                invitation -> cursorCodec.encodeTime(scope, invitation.getCreatedAt(), invitation.getId())
+        );
     }
 
     @Transactional
@@ -148,10 +173,10 @@ public class WorkspaceInvitationService {
     }
 
     @Transactional
-    public AuthResponse acceptInvitation(
+    public AuthSessionResult acceptInvitation(
             Jwt jwt,
             String token,
-            AcceptWorkspaceInvitationRequest request
+            String refreshToken
     ) {
         User user = requireUser(jwt);
         WorkspaceInvitation invitation = requirePendingInvitationForUpdate(token);
@@ -162,11 +187,11 @@ public class WorkspaceInvitationService {
 
         WorkspaceMembership membership = activateMembership(invitation, user);
         invitation.accept(user, Instant.now());
-        return authSessionService.rotateTo(request.refreshToken(), user, membership);
+        return authSessionService.rotateTo(refreshToken, user, membership);
     }
 
     @Transactional
-    public AuthResponse registerWithInvitation(RegisterWithInvitationRequest request) {
+    public AuthSessionResult registerWithInvitation(RegisterWithInvitationRequest request) {
         WorkspaceInvitation invitation = requirePendingInvitationForUpdate(request.token());
         String email = normalize(request.email());
         if (!invitation.getEmail().equals(email)) {

@@ -1,4 +1,5 @@
 import { api } from '@/api/client'
+import type { CursorPage } from '@/api/pagination'
 import type { AuthUser } from '@/auth/auth-api'
 
 export type Project = {
@@ -85,13 +86,12 @@ export type IssueComment = {
   createdAt: string
 }
 
-export type IssueDetail = IssueSummary & {
-  comments: IssueComment[]
-}
+export type IssueDetail = IssueSummary
 
 export type BoardColumn = {
   workflowState: ProjectWorkflowState
   issues: IssueSummary[]
+  nextCursor: string | null
 }
 
 export type ProjectBoard = {
@@ -311,7 +311,12 @@ export function deleteProjectWorkflowState(
   })
 }
 
-export function listIssues(projectId: string, filters: ListIssuesFilters = {}) {
+export function listIssues(
+  projectId: string,
+  filters: ListIssuesFilters = {},
+  cursor?: string | null,
+  limit = 50,
+) {
   const params = new URLSearchParams({ projectId })
 
   if (filters.status) {
@@ -332,13 +337,32 @@ export function listIssues(projectId: string, filters: ListIssuesFilters = {}) {
   if (filters.q) {
     params.set('q', filters.q)
   }
+  if (cursor) {
+    params.set('cursor', cursor)
+  }
+  params.set('limit', String(limit))
 
-  return api.get<IssueSummary[]>(`/issues?${params.toString()}`)
+  return api.get<CursorPage<IssueSummary>>(`/issues?${params.toString()}`)
 }
 
 export function getProjectBoard(projectId: string) {
   const params = new URLSearchParams({ projectId })
   return api.get<ProjectBoard>(`/issues/board?${params.toString()}`)
+}
+
+export function getBoardColumnPage(
+  projectId: string,
+  workflowStateId: string,
+  cursor?: string | null,
+  limit = 50,
+) {
+  const params = new URLSearchParams({ projectId, limit: String(limit) })
+  if (cursor) {
+    params.set('cursor', cursor)
+  }
+  return api.get<CursorPage<IssueSummary>>(
+    `/issues/board/states/${workflowStateId}?${params.toString()}`,
+  )
 }
 
 export function createIssue(request: CreateIssueRequest) {
@@ -365,6 +389,22 @@ export function createIssueComment(issueId: string, request: CreateCommentReques
   return api.post<IssueComment>(`/issues/${issueId}/comments`, request)
 }
 
-export function listIssueActivities(issueId: string) {
-  return api.get<ActivityEvent[]>(`/issues/${issueId}/activities`)
+export function listIssueComments(issueId: string, cursor?: string | null, limit = 50) {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (cursor) {
+    params.set('cursor', cursor)
+  }
+  return api.get<CursorPage<IssueComment>>(
+    `/issues/${issueId}/comments?${params.toString()}`,
+  )
+}
+
+export function listIssueActivities(issueId: string, cursor?: string | null, limit = 50) {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (cursor) {
+    params.set('cursor', cursor)
+  }
+  return api.get<CursorPage<ActivityEvent>>(
+    `/issues/${issueId}/activities?${params.toString()}`,
+  )
 }

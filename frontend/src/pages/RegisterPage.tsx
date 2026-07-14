@@ -8,7 +8,7 @@ import { ArrowRight, Loader2 } from 'lucide-react'
 import { ApiError } from '@/api/client'
 import { register, registerWithInvitation } from '@/auth/auth-api'
 import { safeAuthReturnTo } from '@/auth/auth-navigation'
-import { saveAuthTokens } from '@/auth/token-storage'
+import { setAccessToken } from '@/auth/access-token'
 import { Button } from '@/components/ui/button'
 import { getWorkspaceInvitationPreview } from '@/workspace/workspace-api'
 
@@ -90,7 +90,7 @@ export function RegisterPage({
             password: values.password,
             workspaceName: values.workspaceName.trim(),
           })
-      saveAuthTokens(response)
+      setAccessToken(response.accessToken)
       onAuthenticated()
       navigate('/app', { replace: true })
     } catch (caughtError) {

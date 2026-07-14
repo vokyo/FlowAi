@@ -19,6 +19,12 @@ app:
   workspace:
     invitation-ttl: 7d
   security:
+    rate-limit:
+      enabled: ${RATE_LIMIT_ENABLED:true}
+      max-entries: ${RATE_LIMIT_MAX_ENTRIES:10000}
+      idle-ttl: ${RATE_LIMIT_IDLE_TTL:1h}
+    refresh-cookie:
+      secure: ${REFRESH_COOKIE_SECURE:false}
     jwt:
       secret: ${JWT_SECRET:dev-secret-must-be-long-enough-for-hmac-sha256}
       access-token-ttl: 15m
@@ -33,4 +39,4 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,metrics

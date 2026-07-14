@@ -21,6 +21,7 @@ import com.vokyo.backend.workspace.MembershipStatus;
 import com.vokyo.backend.workspace.WorkspaceAccessService;
 import com.vokyo.backend.workspace.WorkspaceMembership;
 import com.vokyo.backend.workspace.WorkspaceMembershipRepository;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
@@ -43,6 +44,7 @@ public class ProjectService {
     private static final int TODO_POSITION = 10_000;
     private static final int IN_PROGRESS_POSITION = 20_000;
     private static final int DONE_POSITION = 30_000;
+    private static final int WORKFLOW_STATE_REASSIGNMENT_BATCH_SIZE = 100;
 
     private final ProjectRepository projectRepository;
     private final ProjectLabelRepository projectLabelRepository;
@@ -370,11 +372,19 @@ public class ProjectService {
         if (states.size() <= 1) {
             throw conflict("A project must have at least one workflow state");
         }
-        var issues = issueRepository.findByWorkspace_IdAndProject_IdAndWorkflowState_Id(
-                project.getWorkspace().getId(), project.getId(), workflowStateId
-        );
-        issues.forEach(issue -> issue.changeWorkflowState(replacement));
-        issueRepository.saveAll(issues);
+        while (true) {
+            var issues = issueRepository.findWorkflowStateBatch(
+                    project.getWorkspace().getId(),
+                    project.getId(),
+                    workflowStateId,
+                    PageRequest.of(0, WORKFLOW_STATE_REASSIGNMENT_BATCH_SIZE)
+            );
+            if (issues.isEmpty()) {
+                break;
+            }
+            issues.forEach(issue -> issue.changeWorkflowState(replacement));
+            issueRepository.saveAllAndFlush(issues);
+        }
         projectWorkflowStateRepository.delete(workflowState);
     }
 

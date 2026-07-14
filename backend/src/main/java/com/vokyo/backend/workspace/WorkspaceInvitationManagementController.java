@@ -1,5 +1,7 @@
 package com.vokyo.backend.workspace;
 
+import com.vokyo.backend.pagination.CursorPage;
+import com.vokyo.backend.pagination.CursorPagination;
 import com.vokyo.backend.workspace.dto.CreateWorkspaceInvitationRequest;
 import com.vokyo.backend.workspace.dto.WorkspaceInvitationCreatedResponse;
 import com.vokyo.backend.workspace.dto.WorkspaceInvitationResponse;
@@ -13,10 +15,10 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -30,8 +32,12 @@ public class WorkspaceInvitationManagementController {
     }
 
     @GetMapping
-    public List<WorkspaceInvitationResponse> listInvitations(@AuthenticationPrincipal Jwt jwt) {
-        return invitationService.listInvitations(jwt);
+    public CursorPage<WorkspaceInvitationResponse> listInvitations(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "" + CursorPagination.DEFAULT_LIMIT) int limit
+    ) {
+        return invitationService.listInvitations(jwt, cursor, limit);
     }
 
     @PostMapping

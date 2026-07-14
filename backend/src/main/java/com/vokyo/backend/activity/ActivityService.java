@@ -7,6 +7,10 @@ import com.vokyo.backend.issue.IssueComment;
 import com.vokyo.backend.issue.IssuePriority;
 import com.vokyo.backend.project.Project;
 import com.vokyo.backend.user.User;
+import com.vokyo.backend.pagination.CursorCodec;
+import com.vokyo.backend.pagination.CursorPage;
+import com.vokyo.backend.pagination.CursorPagination;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,9 +24,11 @@ import java.util.UUID;
 public class ActivityService {
 
     private final ActivityEventRepository activityEventRepository;
+    private final CursorCodec cursorCodec;
 
-    public ActivityService(ActivityEventRepository activityEventRepository) {
+    public ActivityService(ActivityEventRepository activityEventRepository, CursorCodec cursorCodec) {
         this.activityEventRepository = activityEventRepository;
+        this.cursorCodec = cursorCodec;
     }
 
     @Transactional
@@ -71,11 +77,41 @@ public class ActivityService {
     }
 
     @Transactional(readOnly = true)
-    public List<ActivityEventResponse> listIssueActivities(UUID issueId, UUID workspaceId) {
-        return activityEventRepository.findByIssue_IdAndWorkspace_IdOrderByCreatedAtAsc(issueId, workspaceId)
-                .stream()
-                .map(this::toResponse)
-                .toList();
+    public CursorPage<ActivityEventResponse> listIssueActivities(
+            UUID issueId,
+            UUID workspaceId,
+            UUID projectId,
+            String cursor,
+            int requestedLimit
+    ) {
+        int limit = CursorPagination.validateLimit(requestedLimit);
+        String scope = activityCursorScope(workspaceId, projectId, issueId);
+        PageRequest pageRequest = PageRequest.of(0, limit + 1);
+        List<ActivityEvent> events;
+        if (cursor == null) {
+            events = activityEventRepository.findFirstPage(workspaceId, projectId, issueId, pageRequest);
+        } else {
+            CursorCodec.TimeCursor decoded = cursorCodec.decodeTime(cursor, scope);
+            events = activityEventRepository.findPageAfter(
+                    workspaceId,
+                    projectId,
+                    issueId,
+                    decoded.createdAt(),
+                    decoded.id(),
+                    pageRequest
+            );
+        }
+
+        return CursorPagination.page(
+                events,
+                limit,
+                this::toResponse,
+                event -> cursorCodec.encodeTime(scope, event.getCreatedAt(), event.getId())
+        );
+    }
+
+    private String activityCursorScope(UUID workspaceId, UUID projectId, UUID issueId) {
+        return "issue-activities:" + workspaceId + ":" + projectId + ":" + issueId;
     }
 
     private ActivityEventResponse toResponse(ActivityEvent event) {

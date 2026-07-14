@@ -151,9 +151,10 @@ class ProjectIssueWorkflowIntegrationTests {
                         .queryParam("projectId", projectId)
                         .header("Authorization", bearer(session.accessToken())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].id").value(issueId))
-                .andExpect(jsonPath("$[0].title").value("Create work APIs"))
-                .andExpect(jsonPath("$[0].creator.email").value(session.email()));
+                .andExpect(jsonPath("$.items[0].id").value(issueId))
+                .andExpect(jsonPath("$.items[0].title").value("Create work APIs"))
+                .andExpect(jsonPath("$.items[0].creator.email").value(session.email()))
+                .andExpect(jsonPath("$.nextCursor").isEmpty());
 
         JsonNode comment = postJson(
                 "/api/issues/%s/comments".formatted(issueId),
@@ -174,16 +175,21 @@ class ProjectIssueWorkflowIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(issueId))
                 .andExpect(jsonPath("$.creator.email").value(session.email()))
-                .andExpect(jsonPath("$.comments[0].id").value(comment.get("id").asText()))
-                .andExpect(jsonPath("$.comments[0].body").value("This is ready for the frontend."));
+                .andExpect(jsonPath("$.comments").doesNotExist());
+
+        mockMvc.perform(get("/api/issues/{issueId}/comments", issueId)
+                        .header("Authorization", bearer(session.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(comment.get("id").asText()))
+                .andExpect(jsonPath("$.items[0].body").value("This is ready for the frontend."));
 
         mockMvc.perform(get("/api/issues/{issueId}/activities", issueId)
                         .header("Authorization", bearer(session.accessToken())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].eventType").value("ISSUE_CREATED"))
-                .andExpect(jsonPath("$[0].actor.email").value(session.email()))
-                .andExpect(jsonPath("$[1].eventType").value("COMMENT_CREATED"))
-                .andExpect(jsonPath("$[1].actor.email").value(session.email()));
+                .andExpect(jsonPath("$.items[0].eventType").value("COMMENT_CREATED"))
+                .andExpect(jsonPath("$.items[0].actor.email").value(session.email()))
+                .andExpect(jsonPath("$.items[1].eventType").value("ISSUE_CREATED"))
+                .andExpect(jsonPath("$.items[1].actor.email").value(session.email()));
 
         assertThat(projectRepository.findAll()).hasSize(1);
         assertThat(projectWorkflowStateRepository.findAll())
@@ -306,7 +312,7 @@ class ProjectIssueWorkflowIntegrationTests {
                 .andExpect(jsonPath("$.status").value("DONE"))
                 .andExpect(jsonPath("$.priority").value("URGENT"))
                 .andExpect(jsonPath("$.creator.email").value(session.email()))
-                .andExpect(jsonPath("$.comments").isArray());
+                .andExpect(jsonPath("$.comments").doesNotExist());
 
         assertThat(issueRepository.findById(UUID.fromString(issueId)))
                 .get()
@@ -316,18 +322,18 @@ class ProjectIssueWorkflowIntegrationTests {
         mockMvc.perform(get("/api/issues/{issueId}/activities", issueId)
                         .header("Authorization", bearer(session.accessToken())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].eventType").value("ISSUE_CREATED"))
-                .andExpect(jsonPath("$[1].eventType").value("ISSUE_TITLE_CHANGED"))
-                .andExpect(jsonPath("$[1].metadata.fromTitle").value("Move through workflow"))
-                .andExpect(jsonPath("$[1].metadata.toTitle").value("Workflow shipped"))
-                .andExpect(jsonPath("$[2].eventType").value("ISSUE_STATUS_CHANGED"))
-                .andExpect(jsonPath("$[2].metadata.fromStatus").value("Todo"))
-                .andExpect(jsonPath("$[2].metadata.toStatus").value("Done"))
-                .andExpect(jsonPath("$[2].metadata.fromWorkflowStateId").isString())
-                .andExpect(jsonPath("$[2].metadata.toWorkflowStateId").isString())
-                .andExpect(jsonPath("$[3].eventType").value("ISSUE_PRIORITY_CHANGED"))
-                .andExpect(jsonPath("$[3].metadata.fromPriority").value("LOW"))
-                .andExpect(jsonPath("$[3].metadata.toPriority").value("URGENT"));
+                .andExpect(jsonPath("$.items[0].eventType").value("ISSUE_PRIORITY_CHANGED"))
+                .andExpect(jsonPath("$.items[0].metadata.fromPriority").value("LOW"))
+                .andExpect(jsonPath("$.items[0].metadata.toPriority").value("URGENT"))
+                .andExpect(jsonPath("$.items[1].eventType").value("ISSUE_STATUS_CHANGED"))
+                .andExpect(jsonPath("$.items[1].metadata.fromStatus").value("Todo"))
+                .andExpect(jsonPath("$.items[1].metadata.toStatus").value("Done"))
+                .andExpect(jsonPath("$.items[1].metadata.fromWorkflowStateId").isString())
+                .andExpect(jsonPath("$.items[1].metadata.toWorkflowStateId").isString())
+                .andExpect(jsonPath("$.items[2].eventType").value("ISSUE_TITLE_CHANGED"))
+                .andExpect(jsonPath("$.items[2].metadata.fromTitle").value("Move through workflow"))
+                .andExpect(jsonPath("$.items[2].metadata.toTitle").value("Workflow shipped"))
+                .andExpect(jsonPath("$.items[3].eventType").value("ISSUE_CREATED"));
     }
 
     @Test
@@ -364,11 +370,11 @@ class ProjectIssueWorkflowIntegrationTests {
         mockMvc.perform(get("/api/issues/{issueId}/activities", issueId)
                         .header("Authorization", bearer(session.accessToken())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].eventType").value("ISSUE_CREATED"))
-                .andExpect(jsonPath("$[1].eventType").value("ISSUE_PRIORITY_CHANGED"))
-                .andExpect(jsonPath("$[1].metadata.fromPriority").value("LOW"))
-                .andExpect(jsonPath("$[1].metadata.toPriority").value("HIGH"))
-                .andExpect(jsonPath("$[2]").doesNotExist());
+                .andExpect(jsonPath("$.items[0].eventType").value("ISSUE_PRIORITY_CHANGED"))
+                .andExpect(jsonPath("$.items[0].metadata.fromPriority").value("LOW"))
+                .andExpect(jsonPath("$.items[0].metadata.toPriority").value("HIGH"))
+                .andExpect(jsonPath("$.items[1].eventType").value("ISSUE_CREATED"))
+                .andExpect(jsonPath("$.items[2]").doesNotExist());
 
         assertThat(activityEventRepository.findAll())
                 .extracting(activity -> activity.getEventType().name())
@@ -613,15 +619,15 @@ class ProjectIssueWorkflowIntegrationTests {
         mockMvc.perform(get("/api/issues/{issueId}/activities", issueId)
                         .header("Authorization", bearer(owner.accessToken())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].eventType").value("ISSUE_CREATED"))
-                .andExpect(jsonPath("$[1].eventType").value("ISSUE_TITLE_CHANGED"))
-                .andExpect(jsonPath("$[2].eventType").value("ISSUE_PRIORITY_CHANGED"))
-                .andExpect(jsonPath("$[3].eventType").value("ISSUE_ASSIGNEE_CHANGED"))
-                .andExpect(jsonPath("$[3].metadata.fromAssigneeUserId").value(userId(member)))
-                .andExpect(jsonPath("$[3].metadata.toAssigneeUserId").value(userId(owner)))
-                .andExpect(jsonPath("$[4].eventType").value("ISSUE_DUE_DATE_CHANGED"))
-                .andExpect(jsonPath("$[4].metadata.fromDueDate").value("2026-08-01"))
-                .andExpect(jsonPath("$[4].metadata.toDueDate").value("2026-08-05"));
+                .andExpect(jsonPath("$.items[0].eventType").value("ISSUE_DUE_DATE_CHANGED"))
+                .andExpect(jsonPath("$.items[0].metadata.fromDueDate").value("2026-08-01"))
+                .andExpect(jsonPath("$.items[0].metadata.toDueDate").value("2026-08-05"))
+                .andExpect(jsonPath("$.items[1].eventType").value("ISSUE_ASSIGNEE_CHANGED"))
+                .andExpect(jsonPath("$.items[1].metadata.fromAssigneeUserId").value(userId(member)))
+                .andExpect(jsonPath("$.items[1].metadata.toAssigneeUserId").value(userId(owner)))
+                .andExpect(jsonPath("$.items[2].eventType").value("ISSUE_PRIORITY_CHANGED"))
+                .andExpect(jsonPath("$.items[3].eventType").value("ISSUE_TITLE_CHANGED"))
+                .andExpect(jsonPath("$.items[4].eventType").value("ISSUE_CREATED"));
 
         JsonNode clearedIssue = patchJson(
                 "/api/issues/%s".formatted(issueId),
@@ -1030,11 +1036,11 @@ class ProjectIssueWorkflowIntegrationTests {
         mockMvc.perform(get("/api/issues/{issueId}/activities", defaultIssueId)
                         .header("Authorization", bearer(owner.accessToken())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].eventType").value("ISSUE_CREATED"))
-                .andExpect(jsonPath("$[1].eventType").value("ISSUE_STATUS_CHANGED"))
-                .andExpect(jsonPath("$[1].metadata.fromStatus").value("Todo"))
-                .andExpect(jsonPath("$[1].metadata.toStatus").value("Review"))
-                .andExpect(jsonPath("$[1].metadata.toWorkflowStateId").value(reviewStateId));
+                .andExpect(jsonPath("$.items[0].eventType").value("ISSUE_STATUS_CHANGED"))
+                .andExpect(jsonPath("$.items[0].metadata.fromStatus").value("Todo"))
+                .andExpect(jsonPath("$.items[0].metadata.toStatus").value("Review"))
+                .andExpect(jsonPath("$.items[0].metadata.toWorkflowStateId").value(reviewStateId))
+                .andExpect(jsonPath("$.items[1].eventType").value("ISSUE_CREATED"));
 
         patchJson(
                 "/api/issues/%s".formatted(reviewIssue.get("id").asText()),
@@ -1407,10 +1413,10 @@ class ProjectIssueWorkflowIntegrationTests {
         mockMvc.perform(get("/api/issues/{issueId}/activities", movedIssueId)
                         .header("Authorization", bearer(owner.accessToken())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].eventType").value("ISSUE_CREATED"))
-                .andExpect(jsonPath("$[1].eventType").value("ISSUE_STATUS_CHANGED"))
-                .andExpect(jsonPath("$[1].metadata.toWorkflowStateId").value(inProgressStateId));
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.items[0].eventType").value("ISSUE_STATUS_CHANGED"))
+                .andExpect(jsonPath("$.items[0].metadata.toWorkflowStateId").value(inProgressStateId))
+                .andExpect(jsonPath("$.items[1].eventType").value("ISSUE_CREATED"));
     }
 
     @Test
@@ -1490,12 +1496,12 @@ class ProjectIssueWorkflowIntegrationTests {
         mockMvc.perform(get("/api/issues/{issueId}/activities", issueB.get("id").asText())
                         .header("Authorization", bearer(owner.accessToken())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1));
+                .andExpect(jsonPath("$.items.length()").value(1));
         mockMvc.perform(get("/api/issues/{issueId}/activities", issueC.get("id").asText())
                         .header("Authorization", bearer(owner.accessToken())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[1].eventType").value("ISSUE_STATUS_CHANGED"));
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.items[0].eventType").value("ISSUE_STATUS_CHANGED"));
     }
 
     @Test
@@ -1595,7 +1601,8 @@ class ProjectIssueWorkflowIntegrationTests {
                 }
                 """.formatted(issueA.get("id").asText(), todoStateId, issueA.get("id").asText()),
                 owner.accessToken()
-        ).andExpect(status().isBadRequest());
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.columns[0].issues[0].id").value(issueA.get("id").asText()));
         patchJson(
                 "/api/issues/reorder",
                 """
@@ -2696,7 +2703,7 @@ class ProjectIssueWorkflowIntegrationTests {
 
     private List<String> issueTitles(JsonNode issues) {
         List<String> titles = new ArrayList<>();
-        issues.forEach(issue -> titles.add(issue.get("title").asText()));
+        issues.get("items").forEach(issue -> titles.add(issue.get("title").asText()));
         return titles;
     }
 

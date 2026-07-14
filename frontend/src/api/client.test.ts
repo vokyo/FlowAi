@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   api,
+  refreshAccessToken,
   clearAccessTokenProvider,
   clearUnauthorizedHandler,
   setUnauthorizedHandler,
 } from './client'
-import { saveAuthTokens } from '@/auth/token-storage'
+import {
+  clearAccessToken,
+  getAccessToken,
+  setAccessToken,
+} from '@/auth/access-token'
 
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -16,13 +21,14 @@ function jsonResponse(payload: unknown, status = 200) {
 
 describe('api client', () => {
   beforeEach(() => {
-    saveAuthTokens({ accessToken: 'old-access', refreshToken: 'refresh-token' })
+    setAccessToken('old-access')
     clearAccessTokenProvider()
     clearUnauthorizedHandler()
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
+    clearAccessToken()
     clearAccessTokenProvider()
     clearUnauthorizedHandler()
   })
@@ -35,14 +41,15 @@ describe('api client', () => {
       const url = String(input)
       if (url === '/api/auth/refresh') {
         refreshCalls += 1
-        expect(init?.body).toBe(JSON.stringify({ refreshToken: 'refresh-token' }))
+        expect(init?.body).toBeUndefined()
+        expect(init?.credentials).toBe('same-origin')
         return jsonResponse({
           accessToken: 'new-access',
-          refreshToken: 'new-refresh',
         })
       }
 
       protectedAttempts += 1
+      expect(init?.credentials).toBe('same-origin')
       authorizationHeaders.push(new Headers(init?.headers).get('Authorization'))
       if (protectedAttempts <= 2) {
         return jsonResponse({ message: 'Expired access token' }, 401)
@@ -84,8 +91,42 @@ describe('api client', () => {
 
     await expect(api.get('/projects')).rejects.toMatchObject({ status: 401 })
 
-    expect(window.localStorage.getItem('flowai.accessToken')).toBeNull()
-    expect(window.localStorage.getItem('flowai.refreshToken')).toBeNull()
+    expect(getAccessToken()).toBeNull()
     expect(unauthorizedHandler).toHaveBeenCalledOnce()
+  })
+
+  it('clears the session and invokes the unauthorized handler when refresh cannot be reached', async () => {
+    const unauthorizedHandler = vi.fn()
+    setUnauthorizedHandler(unauthorizedHandler)
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === '/api/auth/refresh') {
+        throw new TypeError('Network unavailable')
+      }
+      return jsonResponse({ message: 'Expired access token' }, 401)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(api.get('/projects')).rejects.toMatchObject({ status: 401 })
+
+    expect(getAccessToken()).toBeNull()
+    expect(unauthorizedHandler).toHaveBeenCalledOnce()
+  })
+
+  it('restores an access token from the refresh cookie without a request body', async () => {
+    clearAccessToken()
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.credentials).toBe('same-origin')
+      expect(init?.body).toBeUndefined()
+      return jsonResponse({ accessToken: 'restored-access' })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(refreshAccessToken()).resolves.toBe(true)
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/auth/refresh', {
+      method: 'POST',
+      credentials: 'same-origin',
+    })
+    expect(getAccessToken()).toBe('restored-access')
   })
 })

@@ -1,8 +1,8 @@
 package com.vokyo.backend;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vokyo.backend.auth.RefreshToken;
+import com.vokyo.backend.auth.RefreshTokenCookieService;
 import com.vokyo.backend.auth.RefreshTokenRepository;
 import com.vokyo.backend.auth.RefreshTokenService;
 import com.vokyo.backend.security.JwtService;
@@ -14,17 +14,14 @@ import com.vokyo.backend.workspace.WorkspaceMembership;
 import com.vokyo.backend.workspace.WorkspaceMembershipRepository;
 import com.vokyo.backend.workspace.WorkspaceRepository;
 import com.vokyo.backend.workspace.WorkspaceRole;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
-
-import java.util.UUID;
+import org.springframework.test.web.servlet.ResultActions;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -35,13 +32,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(TestcontainersConfiguration.class)
 @AutoConfigureMockMvc
 @SpringBootTest(properties = "spring.ai.openai.api-key=dummy")
-class AuthFlowIntegrationTests {
-
-    @Autowired
-    private MockMvc mockMvc;
-
-    @Autowired
-    private ObjectMapper objectMapper;
+class AuthFlowIntegrationTests extends AbstractMockMvcIntegrationTest {
 
     @Autowired
     private UserRepository userRepository;
@@ -61,30 +52,31 @@ class AuthFlowIntegrationTests {
     @Autowired
     private JwtService jwtService;
 
-    @Autowired
-    private IntegrationTestDatabaseCleaner databaseCleaner;
-
-    @BeforeEach
-    void cleanDatabase() {
-        databaseCleaner.clean();
-    }
-
     @Test
     void registerCreatesDefaultWorkspaceAndOwnerMembership() throws Exception {
-        JsonNode response = register(
+        AuthSessionResponse registered = register(
                 "MixedCase+" + uniqueId() + "@Example.COM",
                 "password123",
                 "  Ada Lovelace  ",
                 "  FlowAI Team  "
         );
+        JsonNode response = registered.body();
 
         String accessToken = response.get("accessToken").asText();
-        String refreshToken = response.get("refreshToken").asText();
+        String refreshToken = registered.refreshToken();
         JsonNode userNode = response.get("user");
         JsonNode workspaceNode = response.get("workspace");
 
         assertThat(accessToken).isNotBlank();
         assertThat(refreshToken).isNotBlank();
+        assertThat(response.has("refreshToken")).isFalse();
+        assertThat(registered.setCookieHeader())
+                .contains(RefreshTokenCookieService.COOKIE_NAME + "=" + refreshToken)
+                .contains("Path=/api")
+                .contains("Max-Age=604800")
+                .contains("HttpOnly")
+                .contains("SameSite=Strict")
+                .doesNotContain("Secure");
         assertThat(userNode.get("email").asText()).startsWith("mixedcase+").endsWith("@example.com");
         assertThat(userNode.get("displayName").asText()).isEqualTo("Ada Lovelace");
         assertThat(workspaceNode.get("name").asText()).isEqualTo("FlowAI Team");
@@ -119,27 +111,29 @@ class AuthFlowIntegrationTests {
     }
 
     @Test
-    void loginReturnsTokensForExistingUser() throws Exception {
+    void loginReturnsSessionForExistingUser() throws Exception {
         String email = "login+" + uniqueId() + "@example.com";
-        JsonNode registered = register(email, "password123", "Grace Hopper", "Compiler Team");
+        AuthSessionResponse registered = register(email, "password123", "Grace Hopper", "Compiler Team");
 
-        JsonNode response = postJson(
+        ResultActions loginActions = postJson(
                 "/api/auth/login",
                 """
                 {
                   "email": "%s",
                   "password": "password123"
                 }
-                """.formatted(email.toUpperCase())
+                """.formatted(email.toUpperCase()),
+                null
         ).andExpect(status().isOk())
                 .andExpect(jsonPath("$.accessToken").isString())
-                .andExpect(jsonPath("$.refreshToken").isString())
+                .andExpect(jsonPath("$.refreshToken").doesNotExist())
                 .andExpect(jsonPath("$.user.email").value(email))
                 .andExpect(jsonPath("$.workspace.name").value("Compiler Team"))
-                .andExpect(jsonPath("$.workspace.role").value("OWNER"))
-                .andReturnJson();
+                .andExpect(jsonPath("$.workspace.role").value("OWNER"));
+        JsonNode response = readJson(loginActions);
+        String loginRefreshToken = refreshToken(loginActions);
 
-        assertThat(response.get("refreshToken").asText()).isNotEqualTo(registered.get("refreshToken").asText());
+        assertThat(loginRefreshToken).isNotEqualTo(registered.refreshToken());
 
         User user = userRepository.findByEmail(email).orElseThrow();
         Workspace workspace = workspaceRepository.findFirstByOwner_IdOrderByCreatedAtAsc(user.getId()).orElseThrow();
@@ -153,13 +147,14 @@ class AuthFlowIntegrationTests {
 
     @Test
     void meRequiresAuthAndReturnsCurrentSession() throws Exception {
-        JsonNode registered = register(
+        AuthSessionResponse registered = register(
                 "me+" + uniqueId() + "@example.com",
                 "password123",
                 "Katherine Johnson",
                 "Orbital Mechanics"
         );
-        String accessToken = registered.get("accessToken").asText();
+        JsonNode response = registered.body();
+        String accessToken = response.get("accessToken").asText();
 
         mockMvc.perform(get("/api/me"))
                 .andExpect(status().isUnauthorized());
@@ -167,7 +162,7 @@ class AuthFlowIntegrationTests {
         mockMvc.perform(get("/api/me")
                         .header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.user.email").value(registered.get("user").get("email").asText()))
+                .andExpect(jsonPath("$.user.email").value(response.get("user").get("email").asText()))
                 .andExpect(jsonPath("$.user.displayName").value("Katherine Johnson"))
                 .andExpect(jsonPath("$.workspace.name").value("Orbital Mechanics"))
                 .andExpect(jsonPath("$.workspace.role").value("OWNER"));
@@ -175,31 +170,29 @@ class AuthFlowIntegrationTests {
 
     @Test
     void refreshRotatesTokenAndKeepsSessionUsable() throws Exception {
-        JsonNode registered = register(
+        AuthSessionResponse registered = register(
                 "refresh+" + uniqueId() + "@example.com",
                 "password123",
                 "Margaret Hamilton",
                 "Apollo Software"
         );
-        String oldAccessToken = registered.get("accessToken").asText();
-        String oldRefreshToken = registered.get("refreshToken").asText();
+        String oldAccessToken = registered.body().get("accessToken").asText();
+        String oldRefreshToken = registered.refreshToken();
 
         Thread.sleep(1_100L);
 
-        JsonNode refreshed = postJson(
+        ResultActions refreshActions = postJson(
                 "/api/auth/refresh",
-                """
-                {
-                  "refreshToken": "%s"
-                }
-                """.formatted(oldRefreshToken)
+                "{}",
+                null,
+                oldRefreshToken
         ).andExpect(status().isOk())
                 .andExpect(jsonPath("$.accessToken").isString())
-                .andExpect(jsonPath("$.refreshToken").isString())
-                .andReturnJson();
+                .andExpect(jsonPath("$.refreshToken").doesNotExist());
+        JsonNode refreshed = readJson(refreshActions);
 
         String newAccessToken = refreshed.get("accessToken").asText();
-        String newRefreshToken = refreshed.get("refreshToken").asText();
+        String newRefreshToken = refreshToken(refreshActions);
 
         assertThat(newAccessToken).isNotEqualTo(oldAccessToken);
         assertThat(newRefreshToken).isNotEqualTo(oldRefreshToken);
@@ -216,22 +209,59 @@ class AuthFlowIntegrationTests {
         mockMvc.perform(get("/api/me")
                         .header("Authorization", "Bearer " + newAccessToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.user.email").value(registered.get("user").get("email").asText()))
+                .andExpect(jsonPath("$.user.email").value(registered.body().get("user").get("email").asText()))
                 .andExpect(jsonPath("$.workspace.name").value("Apollo Software"));
     }
 
     @Test
+    void cookieAuthenticatedWritesAcceptSameOriginAndRejectCrossSiteRequests() throws Exception {
+        AuthSessionResponse registered = register(
+                "origin+" + uniqueId() + "@example.com",
+                "password123",
+                "Origin User",
+                "Origin Workspace"
+        );
+
+        mockMvc.perform(post("/api/auth/refresh")
+                        .cookie(refreshCookie(registered.refreshToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}")
+                        .header(HttpHeaders.ORIGIN, "https://attacker.example"))
+                .andExpect(status().isForbidden());
+
+        ResultActions sameOriginRefresh = mockMvc.perform(post("/api/auth/refresh")
+                        .cookie(refreshCookie(registered.refreshToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}")
+                        .header(HttpHeaders.ORIGIN, "http://localhost"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.refreshToken").doesNotExist());
+        String rotatedRefreshToken = refreshToken(sameOriginRefresh);
+
+        mockMvc.perform(post("/api/auth/logout")
+                        .cookie(refreshCookie(rotatedRefreshToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}")
+                        .header("Sec-Fetch-Site", "cross-site"))
+                .andExpect(status().isForbidden());
+
+        postJson("/api/auth/refresh", "{}", null, rotatedRefreshToken)
+                .andExpect(status().isOk());
+    }
+
+    @Test
     void workspaceEndpointsUseJwtContext() throws Exception {
-        JsonNode registered = register(
+        AuthSessionResponse registered = register(
                 "workspace+" + uniqueId() + "@example.com",
                 "password123",
                 "Dorothy Vaughan",
                 "Analysis Group"
         );
-        String accessToken = registered.get("accessToken").asText();
-        String userId = registered.get("user").get("id").asText();
-        String email = registered.get("user").get("email").asText();
-        String workspaceId = registered.get("workspace").get("id").asText();
+        JsonNode response = registered.body();
+        String accessToken = response.get("accessToken").asText();
+        String userId = response.get("user").get("id").asText();
+        String email = response.get("user").get("email").asText();
+        String workspaceId = response.get("workspace").get("id").asText();
 
         mockMvc.perform(get("/api/workspaces/current")
                         .header("Authorization", "Bearer " + accessToken))
@@ -264,7 +294,8 @@ class AuthFlowIntegrationTests {
                   "displayName": "Second User",
                   "workspaceName": "Second Workspace"
                 }
-                """.formatted(email.toUpperCase())
+                """.formatted(email.toUpperCase()),
+                null
         ).andExpect(status().isConflict());
 
         assertThat(userRepository.findAll()).hasSize(1);
@@ -272,13 +303,13 @@ class AuthFlowIntegrationTests {
         assertThat(membershipRepository.findAll()).hasSize(1);
     }
 
-    private JsonNode register(
+    private AuthSessionResponse register(
             String email,
             String password,
             String displayName,
             String workspaceName
     ) throws Exception {
-        return postJson(
+        ResultActions registerActions = postJson(
                 "/api/auth/register",
                 """
                 {
@@ -287,41 +318,24 @@ class AuthFlowIntegrationTests {
                   "displayName": "%s",
                   "workspaceName": "%s"
                 }
-                """.formatted(email, password, displayName, workspaceName)
+                """.formatted(email, password, displayName, workspaceName),
+                null
         ).andExpect(status().isOk())
                 .andExpect(jsonPath("$.accessToken").isString())
-                .andExpect(jsonPath("$.refreshToken").isString())
+                .andExpect(jsonPath("$.refreshToken").doesNotExist())
                 .andExpect(jsonPath("$.user.id").isString())
-                .andExpect(jsonPath("$.workspace.id").isString())
-                .andReturnJson();
+                .andExpect(jsonPath("$.workspace.id").isString());
+        return new AuthSessionResponse(
+                readJson(registerActions),
+                refreshToken(registerActions),
+                registerActions.andReturn().getResponse().getHeader(HttpHeaders.SET_COOKIE)
+        );
     }
 
-    private ResultActionsWithJson postJson(String path, String json) throws Exception {
-        return new ResultActionsWithJson(mockMvc.perform(post(path)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(json)));
-    }
-
-    private String uniqueId() {
-        return UUID.randomUUID().toString().replace("-", "");
-    }
-
-    private final class ResultActionsWithJson {
-
-        private final org.springframework.test.web.servlet.ResultActions resultActions;
-
-        private ResultActionsWithJson(org.springframework.test.web.servlet.ResultActions resultActions) {
-            this.resultActions = resultActions;
-        }
-
-        private ResultActionsWithJson andExpect(org.springframework.test.web.servlet.ResultMatcher matcher) throws Exception {
-            resultActions.andExpect(matcher);
-            return this;
-        }
-
-        private JsonNode andReturnJson() throws Exception {
-            MvcResult result = resultActions.andReturn();
-            return objectMapper.readTree(result.getResponse().getContentAsString());
-        }
+    private record AuthSessionResponse(
+            JsonNode body,
+            String refreshToken,
+            String setCookieHeader
+    ) {
     }
 }

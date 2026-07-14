@@ -24,7 +24,6 @@ public record IssueDetailResponse(
         Instant archivedAt,
         long boardPosition,
         Instant createdAt,
-        Instant updatedAt,
-        List<IssueCommentResponse> comments
+        Instant updatedAt
 ) {
 }
