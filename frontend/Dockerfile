@@ -15,7 +15,7 @@ RUN npm run build
 
 FROM nginx:1.28-alpine AS runtime
 
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY nginx.conf /etc/nginx/templates/default.conf.template
 
 COPY --from=build \
     /workspace/dist \
