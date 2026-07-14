@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import {
   ChartColumn,
@@ -17,13 +17,14 @@ import {
   UserCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import type { AuthWorkspace } from '@/auth/auth-api'
+import type { AuthUser, AuthWorkspace } from '@/auth/auth-api'
 import type { Project } from '@/work/work-api'
 import type { BoardIssueView } from '@/work/board-utils'
 
 type IssueViewMode = 'BOARD' | 'LIST'
 
 export function WorkspaceSidebar({
+  currentUser,
   currentWorkspace,
   workspaces,
   isLoadingWorkspace,
@@ -53,7 +54,10 @@ export function WorkspaceSidebar({
   onAnalyticsSelect,
   onProjectSelect,
   onSignOut,
+  isMobileOpen,
+  onMobileClose,
 }: {
+  currentUser: AuthUser | null
   currentWorkspace: AuthWorkspace | null
   workspaces: AuthWorkspace[]
   isLoadingWorkspace: boolean
@@ -83,10 +87,29 @@ export function WorkspaceSidebar({
   onAnalyticsSelect: () => void
   onProjectSelect: (projectId: string) => void
   onSignOut: () => void
+  isMobileOpen: boolean
+  onMobileClose: () => void
 }) {
   const navigate = useNavigate()
   return (
-    <aside className="app-sidebar">
+    <aside className="app-sidebar" data-mobile-open={isMobileOpen}>
+      <div className="sidebar-brand-row">
+        <div className="sidebar-brand" aria-label="FlowAI">
+          <img src="/favicon.svg" alt="" aria-hidden="true" />
+          <strong>FlowAI</strong>
+        </div>
+        <UserMenu
+          currentUser={currentUser}
+          onOpenSettings={() => {
+            onMobileClose()
+            navigate('/app/settings')
+          }}
+          onSignOut={() => {
+            onMobileClose()
+            onSignOut()
+          }}
+        />
+      </div>
       <div className="sidebar-topbar">
         <WorkspaceSwitcher
           currentWorkspace={currentWorkspace}
@@ -98,14 +121,20 @@ export function WorkspaceSidebar({
           isSwitching={isSwitchingWorkspace}
           onToggle={onToggleWorkspaceMenu}
           onClose={onCloseWorkspaceMenu}
-          onSelect={onWorkspaceSelect}
-          onCreate={onOpenCreateWorkspace}
-          onManageInvitations={onOpenWorkspaceInvitations}
+          onSelect={(workspaceId) => {
+            onMobileClose()
+            onWorkspaceSelect(workspaceId)
+          }}
+          onCreate={() => {
+            onMobileClose()
+            onOpenCreateWorkspace()
+          }}
+          onManageInvitations={() => {
+            onMobileClose()
+            onOpenWorkspaceInvitations()
+          }}
           canManageInvitations={canManageWorkspaceInvitations}
         />
-        <Button type="button" variant="ghost" size="icon" onClick={onSignOut} aria-label="Sign out">
-          <LogOut aria-hidden="true" />
-        </Button>
       </div>
 
       <nav className="sidebar-section" aria-label="Views">
@@ -123,7 +152,10 @@ export function WorkspaceSidebar({
             }
             type="button"
             disabled={!canSelectViews}
-            onClick={() => onViewSelect('ALL')}
+            onClick={() => {
+              onMobileClose()
+              onViewSelect('ALL')
+            }}
             aria-current={
               !isAnalyticsRoute && issueViewMode === 'BOARD' && boardIssueView === 'ALL'
                 ? 'page'
@@ -142,7 +174,10 @@ export function WorkspaceSidebar({
             }
             type="button"
             disabled={!canSelectViews}
-            onClick={() => onViewSelect('MINE')}
+            onClick={() => {
+              onMobileClose()
+              onViewSelect('MINE')
+            }}
             aria-current={
               !isAnalyticsRoute && issueViewMode === 'BOARD' && boardIssueView === 'MINE'
                 ? 'page'
@@ -163,7 +198,10 @@ export function WorkspaceSidebar({
             }
             type="button"
             disabled={!canSelectViews}
-            onClick={() => onViewSelect('UNASSIGNED')}
+            onClick={() => {
+              onMobileClose()
+              onViewSelect('UNASSIGNED')
+            }}
             aria-current={
               !isAnalyticsRoute &&
               issueViewMode === 'BOARD' &&
@@ -182,21 +220,16 @@ export function WorkspaceSidebar({
             data-active={isAnalyticsRoute}
             type="button"
             disabled={!canSelectViews}
-            onClick={onAnalyticsSelect}
+            onClick={() => {
+              onMobileClose()
+              onAnalyticsSelect()
+            }}
             aria-current={isAnalyticsRoute ? 'page' : undefined}
           >
             <ChartColumn aria-hidden="true" />
             <span>
               <strong>Analytics</strong>
             </span>
-          </button>
-          <button
-            className="sidebar-list-item sidebar-view-item"
-            type="button"
-            onClick={() => navigate('/app/settings')}
-          >
-            <Settings aria-hidden="true" />
-            <span><strong>Settings</strong></span>
           </button>
         </div>
       </nav>
@@ -223,7 +256,10 @@ export function WorkspaceSidebar({
               type="button"
               variant="ghost"
               size="icon-xs"
-              onClick={onOpenCreateProject}
+              onClick={() => {
+                onMobileClose()
+                onOpenCreateProject()
+              }}
               disabled={!canCreateProject}
               aria-label="Create project"
               title="Create project"
@@ -238,12 +274,96 @@ export function WorkspaceSidebar({
           <ProjectList
             projects={projects}
             selectedProjectId={selectedProjectId}
-            onProjectSelect={onProjectSelect}
+            onProjectSelect={(projectId) => {
+              onMobileClose()
+              onProjectSelect(projectId)
+            }}
             isLoading={isLoadingProjects}
           />
         ) : null}
       </nav>
     </aside>
+  )
+}
+
+function UserMenu({
+  currentUser,
+  onOpenSettings,
+  onSignOut,
+}: {
+  currentUser: AuthUser | null
+  onOpenSettings: () => void
+  onSignOut: () => void
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+
+    function closeWhenOutside(event: PointerEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setIsOpen(false)
+      }
+    }
+
+    document.addEventListener('pointerdown', closeWhenOutside)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeWhenOutside)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [isOpen])
+
+  return (
+    <div className="sidebar-user-menu-root" ref={rootRef}>
+      <button
+        className="sidebar-user-trigger"
+        type="button"
+        aria-label="Open user menu"
+        aria-expanded={isOpen}
+        aria-haspopup="menu"
+        onClick={() => setIsOpen((open) => !open)}
+      >
+        {getInitials(currentUser?.displayName || currentUser?.email || 'User')}
+      </button>
+      {isOpen ? (
+        <div className="sidebar-user-menu" role="menu" aria-label="User menu">
+          <div className="sidebar-user-summary">
+            <strong>{currentUser?.displayName || 'FlowAI user'}</strong>
+            {currentUser?.email ? <small>{currentUser.email}</small> : null}
+          </div>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setIsOpen(false)
+              onOpenSettings()
+            }}
+          >
+            <Settings aria-hidden="true" />
+            Settings
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setIsOpen(false)
+              onSignOut()
+            }}
+          >
+            <LogOut aria-hidden="true" />
+            Sign out
+          </button>
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -419,4 +539,3 @@ function getInitials(value: string) {
 function titleCaseWorkspaceRole(role: string) {
   return role.charAt(0) + role.slice(1).toLowerCase()
 }
-

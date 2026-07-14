@@ -43,6 +43,7 @@ import {
   LayoutList,
   Loader2,
   Maximize2,
+  Menu,
   MessageSquare,
   MoreHorizontal,
   PanelRight,
@@ -336,6 +337,7 @@ export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
   const [isProjectMembersDialogOpen, setIsProjectMembersDialogOpen] = useState(false)
   const [isProjectWorkflowDialogOpen, setIsProjectWorkflowDialogOpen] = useState(false)
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false)
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
   const [isCreateWorkspaceDialogOpen, setIsCreateWorkspaceDialogOpen] = useState(false)
   const [isWorkspaceInvitationsDialogOpen, setIsWorkspaceInvitationsDialogOpen] = useState(false)
   const [latestInvitationLink, setLatestInvitationLink] = useState<string | null>(null)
@@ -1092,12 +1094,6 @@ export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
     )
   }
 
-  function handleBoardIssueViewChange(nextView: BoardIssueView) {
-    setSearchParams(
-      workViewSearchParams(searchParams, issueViewMode, nextView),
-    )
-  }
-
   function handleSidebarViewSelect(nextView: BoardIssueView) {
     if (!currentWorkspaceId || !selectedProjectId) {
       return
@@ -1403,7 +1399,27 @@ export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
 
   return (
     <main className="app-shell">
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        className="mobile-sidebar-trigger"
+        aria-label="Open navigation"
+        aria-expanded={isMobileSidebarOpen}
+        onClick={() => setIsMobileSidebarOpen(true)}
+      >
+        <Menu aria-hidden="true" />
+      </Button>
+      {isMobileSidebarOpen ? (
+        <button
+          className="mobile-sidebar-backdrop"
+          type="button"
+          aria-label="Close navigation"
+          onClick={() => setIsMobileSidebarOpen(false)}
+        />
+      ) : null}
       <WorkspaceSidebar
+        currentUser={currentUser}
         currentWorkspace={currentWorkspace}
         workspaces={workspaces}
         isLoadingWorkspace={currentSessionQuery.isLoading}
@@ -1433,6 +1449,8 @@ export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
         onAnalyticsSelect={handleAnalyticsSelect}
         onProjectSelect={handleProjectSelect}
         onSignOut={onSignOut}
+        isMobileOpen={isMobileSidebarOpen}
+        onMobileClose={() => setIsMobileSidebarOpen(false)}
       />
 
       <section className="app-main">
@@ -1529,7 +1547,6 @@ export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
             onIssueLabelFilterChange={setIssueLabelFilter}
             onIssueAssigneeFilterChange={setIssueAssigneeFilter}
             onIssueViewModeChange={handleIssueViewModeChange}
-            onBoardIssueViewChange={handleBoardIssueViewChange}
             onClearIssueFilters={clearIssueFilters}
             onOpenProjectMembers={openProjectMembersDialog}
             onOpenProjectWorkflow={openProjectWorkflowDialog}
@@ -1693,7 +1710,6 @@ function ProjectIssuesView({
   onIssueLabelFilterChange,
   onIssueAssigneeFilterChange,
   onIssueViewModeChange,
-  onBoardIssueViewChange,
   onClearIssueFilters,
   onOpenProjectMembers,
   onOpenProjectWorkflow,
@@ -1738,7 +1754,6 @@ function ProjectIssuesView({
   onIssueLabelFilterChange: (labelId: string) => void
   onIssueAssigneeFilterChange: (assigneeUserId: string) => void
   onIssueViewModeChange: (viewMode: IssueViewMode) => void
-  onBoardIssueViewChange: (view: BoardIssueView) => void
   onClearIssueFilters: () => void
   onOpenProjectMembers: () => void
   onOpenProjectWorkflow: () => void
@@ -1856,40 +1871,6 @@ function ProjectIssuesView({
           title="No project selected"
           body="Create or select a project from the sidebar to start tracking issues."
         />
-      ) : null}
-      {selectedProject && issueViewMode === 'BOARD' ? (
-        <div className="board-view-switch" role="group" aria-label="Board issue view">
-          <Button
-            type="button"
-            variant={boardIssueView === 'ALL' ? 'secondary' : 'ghost'}
-            size="sm"
-            aria-pressed={boardIssueView === 'ALL'}
-            onClick={() => onBoardIssueViewChange('ALL')}
-          >
-            <FolderKanban aria-hidden="true" />
-            All
-          </Button>
-          <Button
-            type="button"
-            variant={boardIssueView === 'MINE' ? 'secondary' : 'ghost'}
-            size="sm"
-            aria-pressed={boardIssueView === 'MINE'}
-            onClick={() => onBoardIssueViewChange('MINE')}
-          >
-            <UserCircle aria-hidden="true" />
-            My issues
-          </Button>
-          <Button
-            type="button"
-            variant={boardIssueView === 'UNASSIGNED' ? 'secondary' : 'ghost'}
-            size="sm"
-            aria-pressed={boardIssueView === 'UNASSIGNED'}
-            onClick={() => onBoardIssueViewChange('UNASSIGNED')}
-          >
-            <Circle aria-hidden="true" />
-            Unassigned
-          </Button>
-        </div>
       ) : null}
       {issueViewMode === 'LIST' && isLoadingIssues ? (
         <InlineState>Loading issues.</InlineState>

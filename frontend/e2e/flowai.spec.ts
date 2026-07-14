@@ -156,6 +156,7 @@ async function createIssue(
 }
 
 async function dragIssueToColumn(page: Page, issueTitle: string, columnName: string) {
+  await page.waitForLoadState('networkidle')
   const escapedColumnName = columnName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const targetColumn = page.getByRole('region', {
     name: new RegExp(`^${escapedColumnName} issues$`, 'i'),
@@ -166,12 +167,8 @@ async function dragIssueToColumn(page: Page, issueTitle: string, columnName: str
   await expect(targetColumnBody).toBeVisible()
   const sourceBox = await dragHandle.boundingBox()
   const targetBox = await targetColumnBody.boundingBox()
-
-  if (!sourceBox) {
-    throw new Error('Could not find the issue drag handle')
-  }
-  if (!targetBox) {
-    throw new Error('Could not find the target column')
+  if (!sourceBox || !targetBox) {
+    throw new Error('Could not resolve stable drag coordinates')
   }
 
   await page.mouse.move(
@@ -308,7 +305,9 @@ test('manages profile and project configuration from settings', async ({ page, r
   const project = await createProject(request, registered.accessToken, 'Settings project')
 
   await login(page, registered.user.email)
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.getByRole('button', { name: 'Open user menu' }).click()
+  await page.getByRole('menu', { name: 'User menu' })
+    .getByRole('menuitem', { name: 'Settings' }).click()
   await expect(page).toHaveURL(/\/app\/settings$/)
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
 
@@ -368,11 +367,12 @@ test('drags issues in My issues and Unassigned boards and persists the moves', a
   )
 
   await login(page, registered.user.email)
-  const boardView = page.getByRole('group', { name: 'Board issue view' })
-  await boardView.getByRole('button', { name: 'My issues', exact: true }).click()
+  await expect(page.getByRole('button', { name: `Move ${myIssueTitle}` })).toBeVisible()
+  const views = page.getByRole('navigation', { name: 'Views' })
+  await views.getByRole('button', { name: 'My issues', exact: true }).click()
   await dragIssueToColumn(page, myIssueTitle, inProgress!.name)
 
-  await boardView.getByRole('button', { name: 'Unassigned', exact: true }).click()
+  await views.getByRole('button', { name: 'Unassigned', exact: true }).click()
   await dragIssueToColumn(page, unassignedIssueTitle, inProgress!.name)
 
   await expect.poll(async () => {
@@ -387,6 +387,27 @@ test('drags issues in My issues and Unassigned boards and persists the moves', a
       targetIssues.some((issue) => issue.title === title),
     )
   }).toBe(true)
+})
+
+test('opens the mobile navigation drawer and closes it after navigation', async ({
+  page,
+  request,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const registered = await registerUser(request, uniqueValue('Mobile workspace'))
+  await createProject(request, registered.accessToken, 'Mobile project')
+
+  await login(page, registered.user.email)
+  const navigationTrigger = page.getByRole('button', { name: 'Open navigation' })
+  await expect(navigationTrigger).toBeVisible()
+  await navigationTrigger.click()
+  await expect(navigationTrigger).toHaveAttribute('aria-expanded', 'true')
+
+  await page.getByRole('navigation', { name: 'Views' })
+    .getByRole('button', { name: 'My issues', exact: true }).click()
+
+  await expect(page).toHaveURL(/[?&]view=mine(?:&|$)/)
+  await expect(navigationTrigger).toHaveAttribute('aria-expanded', 'false')
 })
 
 test('opens project analytics and persists the selected range in the URL', async ({

@@ -131,10 +131,138 @@
   display: grid;
   align-content: start;
   gap: 18px;
+  position: sticky;
+  top: 0;
+  height: 100svh;
   min-width: 0;
+  overflow-y: auto;
   border-right: 1px solid var(--border);
   background: color-mix(in oklch, var(--muted), var(--background) 45%);
   padding: 14px 12px;
+}
+
+.sidebar-brand-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 32px;
+  padding: 0 4px;
+  color: var(--foreground);
+}
+
+.sidebar-brand img {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+}
+
+.sidebar-brand strong {
+  font-size: 15px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+
+.sidebar-user-menu-root {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.sidebar-user-trigger {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid color-mix(in oklch, #6d5dfb, var(--border) 58%);
+  border-radius: 999px;
+  background: color-mix(in oklch, #6d5dfb, var(--background) 88%);
+  color: color-mix(in oklch, #6d5dfb, var(--foreground) 18%);
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.sidebar-user-trigger:hover,
+.sidebar-user-trigger[aria-expanded='true'] {
+  background: color-mix(in oklch, #6d5dfb, var(--background) 80%);
+}
+
+.sidebar-user-menu {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 7px);
+  right: 0;
+  display: grid;
+  gap: 3px;
+  width: 220px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--background);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
+  padding: 7px;
+}
+
+.sidebar-user-summary {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 6px 7px 9px;
+  text-align: left;
+}
+
+.sidebar-user-summary strong,
+.sidebar-user-summary small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-user-summary strong {
+  font-size: 13px;
+}
+
+.sidebar-user-summary small {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.sidebar-user-menu > button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 8px;
+  text-align: left;
+}
+
+.sidebar-user-menu > button:hover {
+  background: var(--muted);
+}
+
+.sidebar-user-menu > button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.mobile-sidebar-trigger,
+.mobile-sidebar-backdrop {
+  display: none;
 }
 
 .sidebar-topbar,
@@ -433,6 +561,16 @@ button.workspace-switcher:focus-visible {
 .sidebar-list-item:hover,
 .sidebar-list-item[data-active='true'] {
   background: color-mix(in oklch, var(--muted), var(--foreground) 5%);
+}
+
+.sidebar-list-item[data-active='true'] {
+  background: color-mix(in oklch, #6d5dfb, var(--background) 90%);
+  box-shadow: inset 3px 0 0 #6d5dfb;
+}
+
+.sidebar-list-item[data-active='true'] > svg,
+.sidebar-list-item[data-active='true'] strong {
+  color: #6d5dfb;
 }
 
 .sidebar-list-item:disabled {
@@ -1969,13 +2107,45 @@ button.workspace-switcher:focus-visible {
   }
 
   .app-sidebar {
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
+    position: fixed;
+    z-index: 70;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(84vw, 300px);
+    height: 100svh;
+    border-right: 1px solid var(--border);
+    box-shadow: 18px 0 50px rgba(15, 23, 42, 0.16);
+    transform: translateX(-105%);
+    transition: transform 180ms ease;
+  }
+
+  .app-sidebar[data-mobile-open='true'] {
+    transform: translateX(0);
+  }
+
+  .mobile-sidebar-trigger {
+    position: fixed;
+    z-index: 60;
+    top: 12px;
+    left: 12px;
+    display: inline-flex;
+    background: color-mix(in oklch, var(--background), transparent 4%);
+    box-shadow: 0 6px 22px rgba(15, 23, 42, 0.12);
+  }
+
+  .mobile-sidebar-backdrop {
+    position: fixed;
+    z-index: 65;
+    inset: 0;
+    display: block;
+    border: 0;
+    background: rgba(15, 23, 42, 0.34);
   }
 
   .content-page {
     min-height: auto;
-    padding: 16px;
+    padding: 66px 16px 24px;
   }
 
   .content-header,
