@@ -35,6 +35,9 @@ public class Project {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "archived_at")
+    private Instant archivedAt;
+
     protected Project() {
     }
 
@@ -85,11 +88,25 @@ public class Project {
         return updatedAt;
     }
 
+    public Instant getArchivedAt() {
+        return archivedAt;
+    }
+
     public void rename(String name) {
         this.name = name;
     }
 
     public void changeDescription(String description) {
         this.description = description;
+    }
+
+    public void archive() {
+        if (this.archivedAt == null) {
+            this.archivedAt = Instant.now();
+        }
+    }
+
+    public void restore() {
+        this.archivedAt = null;
     }
 }

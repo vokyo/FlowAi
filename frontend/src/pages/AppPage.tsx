@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   DndContext,
@@ -14,7 +14,6 @@ import {
 } from '@dnd-kit/core'
 import {
   SortableContext,
-  arrayMove,
   sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
@@ -32,9 +31,6 @@ import {
   ArrowUp,
   Building2,
   CalendarDays,
-  ChartColumn,
-  ChevronDown,
-  ChevronRight,
   CheckCircle2,
   Circle,
   CircleDot,
@@ -46,11 +42,9 @@ import {
   GripVertical,
   LayoutList,
   Loader2,
-  LogOut,
   Maximize2,
   MessageSquare,
   MoreHorizontal,
-  Mail,
   PanelRight,
   Pencil,
   Plus,
@@ -71,7 +65,6 @@ import {
   getProjectAnalytics,
   type AnalyticsRangeDays,
 } from '@/analytics/analytics-api'
-import { ProjectAnalyticsView } from '@/analytics/ProjectAnalyticsView'
 import { getCurrentSession, type AuthUser, type AuthWorkspace } from '@/auth/auth-api'
 import { getRefreshToken, saveAuthTokens } from '@/auth/token-storage'
 import { Button } from '@/components/ui/button'
@@ -126,6 +119,26 @@ import {
   type WorkspaceInvitationCreated,
   type WorkspaceRole,
 } from '@/workspace/workspace-api'
+import { WorkspaceSidebar } from '@/workspace/WorkspaceSidebar'
+import {
+  appendIssueToBoard,
+  boardEmptyColumnLabel,
+  buildOptimisticBoard,
+  defaultWorkflowStateIdForStatus,
+  filterProjectBoard,
+  findBoardIssue,
+  groupIssuesByWorkflowState,
+  kanbanColumnId,
+  type BoardIssueView,
+  type IssueGroup,
+  type IssueWorkflowFilter,
+} from '@/work/board-utils'
+
+const ProjectAnalyticsView = lazy(() =>
+  import('@/analytics/ProjectAnalyticsView').then((module) => ({
+    default: module.ProjectAnalyticsView,
+  })),
+)
 
 const ISSUE_STATUSES = ['TODO', 'IN_PROGRESS', 'DONE', 'ARCHIVED'] as const
 const WORKFLOW_STATE_CATEGORIES = ['TODO', 'IN_PROGRESS', 'DONE'] as const
@@ -178,16 +191,7 @@ type AppRouteParams = {
   issueId?: string
 }
 
-type IssueGroup = {
-  status: IssueStatus
-  workflowState: ProjectWorkflowState | null
-  label: string
-  issues: IssueSummary[]
-}
-
-type IssueWorkflowFilter = 'ACTIVE' | 'ARCHIVED' | string
 type IssueViewMode = 'BOARD' | 'LIST'
-type BoardIssueView = 'ALL' | 'MINE' | 'UNASSIGNED'
 
 type CreateDialog = 'project' | 'issue' | null
 
@@ -380,7 +384,7 @@ export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
 
   const projectsQuery = useQuery({
     queryKey: ['projects', currentWorkspaceId],
-    queryFn: listProjects,
+    queryFn: () => listProjects(),
     enabled: canLoadCurrentWorkspace,
     retry: false,
   })
@@ -1472,14 +1476,16 @@ export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
             onResetUpdateIssueError={() => updateIssueMutation.reset()}
           />
         ) : isAnalyticsRoute ? (
-          <ProjectAnalyticsView
-            project={selectedProject}
-            overview={projectAnalyticsQuery.data ?? null}
-            rangeDays={analyticsRangeDays}
-            isLoading={projectAnalyticsQuery.isLoading}
-            error={projectAnalyticsQuery.error}
-            onRangeChange={handleAnalyticsRangeChange}
-          />
+          <Suspense fallback={<BoardLoadingState workflowStates={projectWorkflowStates} />}>
+            <ProjectAnalyticsView
+              project={selectedProject}
+              overview={projectAnalyticsQuery.data ?? null}
+              rangeDays={analyticsRangeDays}
+              isLoading={projectAnalyticsQuery.isLoading}
+              error={projectAnalyticsQuery.error}
+              onRangeChange={handleAnalyticsRangeChange}
+            />
+          </Suspense>
         ) : (
           <ProjectIssuesView
             currentWorkspace={currentWorkspace}
@@ -1648,376 +1654,6 @@ export function AppPage({ onSignOut, onSessionChanged }: AppPageProps) {
         }
       />
     </main>
-  )
-}
-
-function WorkspaceSidebar({
-  currentWorkspace,
-  workspaces,
-  isLoadingWorkspace,
-  isLoadingWorkspaces,
-  workspacesError,
-  isWorkspaceMenuOpen,
-  isSwitchingWorkspace,
-  onToggleWorkspaceMenu,
-  onCloseWorkspaceMenu,
-  onWorkspaceSelect,
-  onOpenCreateWorkspace,
-  onOpenWorkspaceInvitations,
-  canManageWorkspaceInvitations,
-  projects,
-  selectedProjectId,
-  isAnalyticsRoute,
-  issueViewMode,
-  boardIssueView,
-  isLoadingProjects,
-  projectsError,
-  areProjectsOpen,
-  onToggleProjects,
-  onOpenCreateProject,
-  canCreateProject,
-  canSelectViews,
-  onViewSelect,
-  onAnalyticsSelect,
-  onProjectSelect,
-  onSignOut,
-}: {
-  currentWorkspace: AuthWorkspace | null
-  workspaces: AuthWorkspace[]
-  isLoadingWorkspace: boolean
-  isLoadingWorkspaces: boolean
-  workspacesError: Error | null
-  isWorkspaceMenuOpen: boolean
-  isSwitchingWorkspace: boolean
-  onToggleWorkspaceMenu: () => void
-  onCloseWorkspaceMenu: () => void
-  onWorkspaceSelect: (workspaceId: string) => void
-  onOpenCreateWorkspace: () => void
-  onOpenWorkspaceInvitations: () => void
-  canManageWorkspaceInvitations: boolean
-  projects: Project[]
-  selectedProjectId: string | null
-  isAnalyticsRoute: boolean
-  issueViewMode: IssueViewMode
-  boardIssueView: BoardIssueView
-  isLoadingProjects: boolean
-  projectsError: Error | null
-  areProjectsOpen: boolean
-  onToggleProjects: () => void
-  onOpenCreateProject: () => void
-  canCreateProject: boolean
-  canSelectViews: boolean
-  onViewSelect: (view: BoardIssueView) => void
-  onAnalyticsSelect: () => void
-  onProjectSelect: (projectId: string) => void
-  onSignOut: () => void
-}) {
-  return (
-    <aside className="app-sidebar">
-      <div className="sidebar-topbar">
-        <WorkspaceSwitcher
-          currentWorkspace={currentWorkspace}
-          workspaces={workspaces}
-          isLoadingWorkspace={isLoadingWorkspace}
-          isLoadingWorkspaces={isLoadingWorkspaces}
-          error={workspacesError}
-          isOpen={isWorkspaceMenuOpen}
-          isSwitching={isSwitchingWorkspace}
-          onToggle={onToggleWorkspaceMenu}
-          onClose={onCloseWorkspaceMenu}
-          onSelect={onWorkspaceSelect}
-          onCreate={onOpenCreateWorkspace}
-          onManageInvitations={onOpenWorkspaceInvitations}
-          canManageInvitations={canManageWorkspaceInvitations}
-        />
-        <Button type="button" variant="ghost" size="icon" onClick={onSignOut} aria-label="Sign out">
-          <LogOut aria-hidden="true" />
-        </Button>
-      </div>
-
-      <nav className="sidebar-section" aria-label="Views">
-        <div className="sidebar-section-header">
-          <span>
-            <PanelRight aria-hidden="true" />
-            Views
-          </span>
-        </div>
-        <div className="sidebar-list sidebar-view-list">
-          <button
-            className="sidebar-list-item sidebar-view-item"
-            data-active={
-              !isAnalyticsRoute && issueViewMode === 'BOARD' && boardIssueView === 'ALL'
-            }
-            type="button"
-            disabled={!canSelectViews}
-            onClick={() => onViewSelect('ALL')}
-            aria-current={
-              !isAnalyticsRoute && issueViewMode === 'BOARD' && boardIssueView === 'ALL'
-                ? 'page'
-                : undefined
-            }
-          >
-            <LayoutList aria-hidden="true" />
-            <span>
-              <strong>All issues</strong>
-            </span>
-          </button>
-          <button
-            className="sidebar-list-item sidebar-view-item"
-            data-active={
-              !isAnalyticsRoute && issueViewMode === 'BOARD' && boardIssueView === 'MINE'
-            }
-            type="button"
-            disabled={!canSelectViews}
-            onClick={() => onViewSelect('MINE')}
-            aria-current={
-              !isAnalyticsRoute && issueViewMode === 'BOARD' && boardIssueView === 'MINE'
-                ? 'page'
-                : undefined
-            }
-          >
-            <UserCircle aria-hidden="true" />
-            <span>
-              <strong>My issues</strong>
-            </span>
-          </button>
-          <button
-            className="sidebar-list-item sidebar-view-item"
-            data-active={
-              !isAnalyticsRoute &&
-              issueViewMode === 'BOARD' &&
-              boardIssueView === 'UNASSIGNED'
-            }
-            type="button"
-            disabled={!canSelectViews}
-            onClick={() => onViewSelect('UNASSIGNED')}
-            aria-current={
-              !isAnalyticsRoute &&
-              issueViewMode === 'BOARD' &&
-              boardIssueView === 'UNASSIGNED'
-                ? 'page'
-                : undefined
-            }
-          >
-            <Circle aria-hidden="true" />
-            <span>
-              <strong>Unassigned</strong>
-            </span>
-          </button>
-          <button
-            className="sidebar-list-item sidebar-view-item"
-            data-active={isAnalyticsRoute}
-            type="button"
-            disabled={!canSelectViews}
-            onClick={onAnalyticsSelect}
-            aria-current={isAnalyticsRoute ? 'page' : undefined}
-          >
-            <ChartColumn aria-hidden="true" />
-            <span>
-              <strong>Analytics</strong>
-            </span>
-          </button>
-        </div>
-      </nav>
-
-      <nav className="sidebar-section" aria-label="Projects">
-        <div className="sidebar-section-header sidebar-section-header-interactive">
-          <button
-            className="sidebar-collapse-button"
-            type="button"
-            onClick={onToggleProjects}
-            aria-expanded={areProjectsOpen}
-          >
-            {areProjectsOpen ? (
-              <ChevronDown aria-hidden="true" />
-            ) : (
-              <ChevronRight aria-hidden="true" />
-            )}
-            <FolderKanban aria-hidden="true" />
-            Projects
-          </button>
-          <span className="sidebar-section-actions">
-            <small>{projects.length}</small>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              onClick={onOpenCreateProject}
-              disabled={!canCreateProject}
-              aria-label="Create project"
-              title="Create project"
-            >
-              <Plus aria-hidden="true" />
-            </Button>
-          </span>
-        </div>
-        {isLoadingProjects ? <InlineState>Loading projects.</InlineState> : null}
-        {projectsError ? <ErrorState error={projectsError} /> : null}
-        {areProjectsOpen ? (
-          <ProjectList
-            projects={projects}
-            selectedProjectId={selectedProjectId}
-            onProjectSelect={onProjectSelect}
-            isLoading={isLoadingProjects}
-          />
-        ) : null}
-      </nav>
-    </aside>
-  )
-}
-
-function WorkspaceSwitcher({
-  currentWorkspace,
-  workspaces,
-  isLoadingWorkspace,
-  isLoadingWorkspaces,
-  error,
-  isOpen,
-  isSwitching,
-  onToggle,
-  onClose,
-  onSelect,
-  onCreate,
-  onManageInvitations,
-  canManageInvitations,
-}: {
-  currentWorkspace: AuthWorkspace | null
-  workspaces: AuthWorkspace[]
-  isLoadingWorkspace: boolean
-  isLoadingWorkspaces: boolean
-  error: Error | null
-  isOpen: boolean
-  isSwitching: boolean
-  onToggle: () => void
-  onClose: () => void
-  onSelect: (workspaceId: string) => void
-  onCreate: () => void
-  onManageInvitations: () => void
-  canManageInvitations: boolean
-}) {
-  const rootRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!isOpen) return
-
-    function handlePointerDown(event: PointerEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        onClose()
-      }
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        onClose()
-      }
-    }
-
-    document.addEventListener('pointerdown', handlePointerDown)
-    document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isOpen, onClose])
-
-  return (
-    <div className="workspace-switcher-root" ref={rootRef}>
-      <button
-        className="workspace-switcher"
-        type="button"
-        onClick={onToggle}
-        aria-expanded={isOpen}
-        aria-haspopup="menu"
-        disabled={isLoadingWorkspace || isSwitching}
-      >
-        <span className="workspace-avatar" aria-hidden="true">
-          {isSwitching ? <Loader2 className="auth-spin" /> : getInitials(currentWorkspace?.name ?? 'FlowAI')}
-        </span>
-        <span className="workspace-select-label">
-          Workspace
-          <strong>{isLoadingWorkspace ? 'Loading workspace' : currentWorkspace?.name ?? 'Workspace'}</strong>
-        </span>
-        <ChevronDown aria-hidden="true" className="workspace-switcher-chevron" />
-      </button>
-
-      {isOpen ? (
-        <div className="workspace-menu" role="menu" aria-label="Workspaces">
-          <div className="workspace-menu-heading">Your workspaces</div>
-          {isLoadingWorkspaces ? <small>Loading workspaces...</small> : null}
-          {error ? <small className="workspace-menu-error">{error.message}</small> : null}
-          <div className="workspace-menu-list">
-            {workspaces.map((workspace) => (
-              <button
-                key={workspace.id}
-                className="workspace-menu-item"
-                type="button"
-                role="menuitem"
-                data-active={workspace.id === currentWorkspace?.id}
-                onClick={() => onSelect(workspace.id)}
-                disabled={isSwitching}
-              >
-                <span className="workspace-avatar workspace-avatar-small" aria-hidden="true">
-                  {getInitials(workspace.name)}
-                </span>
-                <span>
-                  <strong>{workspace.name}</strong>
-                  <small>{titleCaseWorkspaceRole(workspace.role)}</small>
-                </span>
-                {workspace.id === currentWorkspace?.id ? <Check aria-hidden="true" /> : null}
-              </button>
-            ))}
-          </div>
-          <div className="workspace-menu-actions">
-            <button type="button" role="menuitem" onClick={onCreate}>
-              <Plus aria-hidden="true" />
-              Create workspace
-            </button>
-            {canManageInvitations ? (
-              <button type="button" role="menuitem" onClick={onManageInvitations}>
-                <Mail aria-hidden="true" />
-                Manage invitations
-              </button>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-function ProjectList({
-  projects,
-  selectedProjectId,
-  onProjectSelect,
-  isLoading,
-}: {
-  projects: Project[]
-  selectedProjectId: string | null
-  onProjectSelect: (projectId: string) => void
-  isLoading: boolean
-}) {
-  if (!isLoading && projects.length === 0) {
-    return <InlineState>No projects yet.</InlineState>
-  }
-
-  return (
-    <div className="sidebar-list">
-      {projects.map((project) => (
-        <button
-          className="sidebar-list-item"
-          data-active={project.id === selectedProjectId}
-          key={project.id}
-          type="button"
-          onClick={() => onProjectSelect(project.id)}
-        >
-          <FolderKanban aria-hidden="true" />
-          <span>
-            <strong>{project.name}</strong>
-            {project.description ? <small>{project.description}</small> : null}
-          </span>
-        </button>
-      ))}
-    </div>
   )
 }
 
@@ -5035,221 +4671,6 @@ function ProjectMemberMutationErrorState({
   return <p className="app-error">{getProjectMemberMutationErrorMessage(error, action)}</p>
 }
 
-function kanbanColumnId(workflowStateId: string) {
-  return `kanban-column-${workflowStateId}`
-}
-
-function filterProjectBoard(
-  board: ProjectBoard | null,
-  view: BoardIssueView,
-  currentUserId: string | null,
-) {
-  if (!board || view === 'ALL') {
-    return board
-  }
-
-  return {
-    ...board,
-    columns: board.columns.map((column) => ({
-      ...column,
-      issues: column.issues.filter((issue) =>
-        view === 'MINE'
-          ? Boolean(currentUserId && issue.assignee?.id === currentUserId)
-          : !issue.assignee,
-      ),
-    })),
-  }
-}
-
-function boardEmptyColumnLabel(view: BoardIssueView) {
-  if (view === 'MINE') {
-    return 'No issues assigned to you'
-  }
-
-  if (view === 'UNASSIGNED') {
-    return 'No unassigned issues'
-  }
-
-  return 'No issues'
-}
-
-function appendIssueToBoard(
-  board: ProjectBoard | undefined,
-  issue: IssueSummary,
-) {
-  if (!board || board.projectId !== issue.projectId) {
-    return board
-  }
-
-  return {
-    ...board,
-    columns: board.columns.map((column) => {
-      if (
-        column.workflowState.id !== issue.workflowState.id ||
-        column.issues.some((currentIssue) => currentIssue.id === issue.id)
-      ) {
-        return column
-      }
-
-      return {
-        ...column,
-        issues: [...column.issues, issue].sort(
-          (left, right) => left.boardPosition - right.boardPosition,
-        ),
-      }
-    }),
-  }
-}
-
-function findBoardIssue(board: ProjectBoard, issueId: string) {
-  for (const column of board.columns) {
-    const issue = column.issues.find((candidate) => candidate.id === issueId)
-    if (issue) {
-      return issue
-    }
-  }
-
-  return null
-}
-
-function buildOptimisticBoard(
-  board: ProjectBoard,
-  issueId: string,
-  targetWorkflowStateId: string,
-  overIssueId: string | null,
-) {
-  const sourceColumnIndex = board.columns.findIndex((column) =>
-    column.issues.some((issue) => issue.id === issueId),
-  )
-  const targetColumnIndex = board.columns.findIndex(
-    (column) => column.workflowState.id === targetWorkflowStateId,
-  )
-  if (sourceColumnIndex < 0 || targetColumnIndex < 0) {
-    return null
-  }
-
-  const sourceColumn = board.columns[sourceColumnIndex]
-  const targetColumn = board.columns[targetColumnIndex]
-  const sourceIssueIndex = sourceColumn.issues.findIndex((issue) => issue.id === issueId)
-  const draggedIssue = sourceColumn.issues[sourceIssueIndex]
-  if (!draggedIssue) {
-    return null
-  }
-
-  if (sourceColumnIndex === targetColumnIndex) {
-    const targetIssueIndex = overIssueId
-      ? sourceColumn.issues.findIndex((issue) => issue.id === overIssueId)
-      : sourceColumn.issues.length - 1
-    if (targetIssueIndex < 0 || targetIssueIndex === sourceIssueIndex) {
-      return null
-    }
-
-    const reorderedIssues = normalizeBoardPositions(
-      arrayMove(sourceColumn.issues, sourceIssueIndex, targetIssueIndex),
-    )
-    return {
-      ...board,
-      columns: board.columns.map((column, index) =>
-        index === sourceColumnIndex ? { ...column, issues: reorderedIssues } : column,
-      ),
-    }
-  }
-
-  const targetIssueIndex = overIssueId
-    ? targetColumn.issues.findIndex((issue) => issue.id === overIssueId)
-    : targetColumn.issues.length
-  if (targetIssueIndex < 0) {
-    return null
-  }
-
-  const nextTargetIssues = [...targetColumn.issues]
-  nextTargetIssues.splice(targetIssueIndex, 0, {
-    ...draggedIssue,
-    status: targetColumn.workflowState.category,
-    workflowState: targetColumn.workflowState,
-  })
-  const reorderedTargetIssues = normalizeBoardPositions(nextTargetIssues)
-  const nextSourceIssues = sourceColumn.issues.filter((issue) => issue.id !== issueId)
-
-  return {
-    ...board,
-    columns: board.columns.map((column, index) => {
-      if (index === sourceColumnIndex) {
-        return { ...column, issues: nextSourceIssues }
-      }
-      if (index === targetColumnIndex) {
-        return { ...column, issues: reorderedTargetIssues }
-      }
-      return column
-    }),
-  }
-}
-
-function normalizeBoardPositions(issues: IssueSummary[]) {
-  return issues.map((issue, index) => ({
-    ...issue,
-    boardPosition: (index + 1) * 10_000,
-  }))
-}
-
-function groupIssuesByWorkflowState(
-  issues: IssueSummary[],
-  workflowStates: ProjectWorkflowState[],
-  workflowFilter: IssueWorkflowFilter,
-) {
-  if (workflowFilter === 'ARCHIVED') {
-    return [
-      {
-        status: 'ARCHIVED',
-        workflowState: null,
-        label: 'Archived',
-        issues,
-      },
-    ]
-  }
-
-  const visibleWorkflowStates =
-    workflowFilter === 'ACTIVE'
-      ? workflowStates
-      : workflowStates.filter((workflowState) => workflowState.id === workflowFilter)
-  const grouped = new Map<string, IssueSummary[]>()
-
-  visibleWorkflowStates.forEach((workflowState) => grouped.set(workflowState.id, []))
-  issues.forEach((issue) => {
-    const workflowState = issue.workflowState
-    if (!grouped.has(workflowState.id)) {
-      grouped.set(workflowState.id, [])
-    }
-
-    const group = grouped.get(workflowState.id) ?? []
-    group.push(issue)
-    grouped.set(workflowState.id, group)
-  })
-
-  const knownWorkflowStateIds = new Set(workflowStates.map((workflowState) => workflowState.id))
-  const dynamicWorkflowStates = issues
-    .map((issue) => issue.workflowState)
-    .filter((workflowState, index, allWorkflowStates) =>
-      !knownWorkflowStateIds.has(workflowState.id) &&
-      allWorkflowStates.findIndex((candidate) => candidate.id === workflowState.id) === index,
-    )
-  const groups = [...visibleWorkflowStates, ...dynamicWorkflowStates]
-
-  return groups.map((workflowState) => ({
-    status: workflowState.category,
-    workflowState,
-    label: workflowState.name,
-    issues: grouped.get(workflowState.id) ?? [],
-  }))
-}
-
-function defaultWorkflowStateIdForStatus(
-  workflowStates: ProjectWorkflowState[],
-  status: IssueStatus,
-) {
-  const category = status === 'DONE' || status === 'IN_PROGRESS' ? status : 'TODO'
-  return workflowStates.find((workflowState) => workflowState.category === category)?.id ?? ''
-}
 
 function statusForIcon(issue: IssueSummary | IssueDetail) {
   return issue.status === 'ARCHIVED' ? 'ARCHIVED' : issue.workflowState.category

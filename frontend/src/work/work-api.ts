@@ -7,6 +7,7 @@ export type Project = {
   description?: string | null
   createdAt: string
   updatedAt: string
+  archivedAt?: string | null
 }
 
 export type ProjectMemberRole = 'OWNER' | 'MEMBER' | string
@@ -196,8 +197,8 @@ export type ListIssuesFilters = {
   q?: string
 }
 
-export function listProjects() {
-  return api.get<Project[]>('/projects')
+export function listProjects(includeArchived = false) {
+  return api.get<Project[]>(includeArchived ? '/projects?includeArchived=true' : '/projects')
 }
 
 export function getProject(projectId: string) {
@@ -206,6 +207,22 @@ export function getProject(projectId: string) {
 
 export function createProject(request: CreateProjectRequest) {
   return api.post<Project>('/projects', request)
+}
+
+export function updateProject(projectId: string, request: CreateProjectRequest) {
+  return api.patch<Project>(`/projects/${projectId}`, request)
+}
+
+export function archiveProject(projectId: string) {
+  return api.post<Project>(`/projects/${projectId}/archive`)
+}
+
+export function restoreProject(projectId: string) {
+  return api.post<Project>(`/projects/${projectId}/restore`)
+}
+
+export function deleteProject(projectId: string) {
+  return api.delete<void>(`/projects/${projectId}`)
 }
 
 export function listProjectMembers(projectId: string) {
@@ -240,6 +257,18 @@ export function createProjectLabel(projectId: string, request: CreateProjectLabe
   return api.post<ProjectLabel>(`/projects/${projectId}/labels`, request)
 }
 
+export function updateProjectLabel(
+  projectId: string,
+  labelId: string,
+  request: CreateProjectLabelRequest,
+) {
+  return api.patch<ProjectLabel>(`/projects/${projectId}/labels/${labelId}`, request)
+}
+
+export function deleteProjectLabel(projectId: string, labelId: string) {
+  return api.delete<void>(`/projects/${projectId}/labels/${labelId}`)
+}
+
 export function listProjectWorkflowStates(projectId: string) {
   return api.get<ProjectWorkflowState[]>(`/projects/${projectId}/workflow-states`)
 }
@@ -270,6 +299,16 @@ export function reorderProjectWorkflowStates(
     `/projects/${projectId}/workflow-states/order`,
     request,
   )
+}
+
+export function deleteProjectWorkflowState(
+  projectId: string,
+  workflowStateId: string,
+  replacementWorkflowStateId: string,
+) {
+  return api.delete<void>(`/projects/${projectId}/workflow-states/${workflowStateId}`, {
+    replacementWorkflowStateId,
+  })
 }
 
 export function listIssues(projectId: string, filters: ListIssuesFilters = {}) {

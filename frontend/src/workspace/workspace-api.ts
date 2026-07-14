@@ -59,6 +59,20 @@ export function revokeWorkspaceInvitation(invitationId: string) {
   return api.delete<void>(`/workspaces/current/invitations/${invitationId}`)
 }
 
+export function updateWorkspaceMember(
+  memberId: string,
+  request: { role?: WorkspaceRole; status?: 'ACTIVE' | 'DISABLED' },
+) {
+  return api.patch<import('@/work/work-api').WorkspaceMember>(
+    `/workspaces/current/members/${memberId}`,
+    request,
+  )
+}
+
+export function removeWorkspaceMember(memberId: string) {
+  return api.delete<void>(`/workspaces/current/members/${memberId}`)
+}
+
 export function getWorkspaceInvitationPreview(token: string) {
   return api.get<WorkspaceInvitationPreview>(`/workspace-invitations/${token}`, {
     auth: false,

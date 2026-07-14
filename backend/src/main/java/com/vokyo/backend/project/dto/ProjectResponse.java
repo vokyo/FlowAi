@@ -8,6 +8,7 @@ public record ProjectResponse(
         String name,
         String description,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        Instant archivedAt
 ) {
 }

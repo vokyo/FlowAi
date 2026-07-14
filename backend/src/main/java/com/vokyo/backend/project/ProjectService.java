@@ -13,6 +13,9 @@ import com.vokyo.backend.project.dto.ProjectWorkflowStateResponse;
 import com.vokyo.backend.project.dto.ReorderProjectWorkflowStatesRequest;
 import com.vokyo.backend.project.dto.UpdateProjectWorkflowStateRequest;
 import com.vokyo.backend.project.dto.UpdateProjectMemberRequest;
+import com.vokyo.backend.project.dto.UpdateProjectRequest;
+import com.vokyo.backend.project.dto.UpdateProjectLabelRequest;
+import com.vokyo.backend.project.dto.DeleteProjectWorkflowStateRequest;
 import com.vokyo.backend.workspace.CurrentWorkspaceContext;
 import com.vokyo.backend.workspace.MembershipStatus;
 import com.vokyo.backend.workspace.WorkspaceAccessService;
@@ -23,6 +26,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import jakarta.persistence.EntityManager;
 
 import java.time.Instant;
 import java.util.HashSet;
@@ -48,6 +52,7 @@ public class ProjectService {
     private final WorkspaceAccessService workspaceAccessService;
     private final WorkspaceMembershipRepository workspaceMembershipRepository;
     private final ActivityService activityService;
+    private final EntityManager entityManager;
 
     public ProjectService(
             ProjectRepository projectRepository,
@@ -57,7 +62,8 @@ public class ProjectService {
             ProjectAccessService projectAccessService,
             WorkspaceAccessService workspaceAccessService,
             WorkspaceMembershipRepository workspaceMembershipRepository,
-            ActivityService activityService
+            ActivityService activityService,
+            EntityManager entityManager
     ) {
         this.projectRepository = projectRepository;
         this.projectLabelRepository = projectLabelRepository;
@@ -67,13 +73,15 @@ public class ProjectService {
         this.workspaceAccessService = workspaceAccessService;
         this.workspaceMembershipRepository = workspaceMembershipRepository;
         this.activityService = activityService;
+        this.entityManager = entityManager;
     }
 
     @Transactional(readOnly = true)
-    public List<ProjectResponse> listProjects(Jwt jwt) {
+    public List<ProjectResponse> listProjects(Jwt jwt, boolean includeArchived) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         return projectAccessService.listAccessibleProjects(context)
                 .stream()
+                .filter(project -> includeArchived || project.getArchivedAt() == null)
                 .map(this::toResponse)
                 .toList();
     }
@@ -99,6 +107,43 @@ public class ProjectService {
         createDefaultWorkflowStates(project);
         activityService.recordProjectCreated(project, context.user());
         return toResponse(project);
+    }
+
+    @Transactional
+    public ProjectResponse updateProject(Jwt jwt, UUID projectId, UpdateProjectRequest request) {
+        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
+        Project project = projectAccessService.requireOwnedProjectForUpdate(projectId, context);
+        project.rename(request.name().trim());
+        project.changeDescription(normalizeOptionalText(request.description()));
+        return toResponse(project);
+    }
+
+    @Transactional
+    public ProjectResponse archiveProject(Jwt jwt, UUID projectId) {
+        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
+        Project project = projectAccessService.requireOwnedProjectForUpdate(projectId, context);
+        project.archive();
+        return toResponse(project);
+    }
+
+    @Transactional
+    public ProjectResponse restoreProject(Jwt jwt, UUID projectId) {
+        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
+        Project project = projectAccessService.requireOwnedProjectForUpdate(projectId, context);
+        project.restore();
+        return toResponse(project);
+    }
+
+    @Transactional
+    public void deleteProject(Jwt jwt, UUID projectId) {
+        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
+        projectAccessService.requireOwnedProjectForUpdate(projectId, context);
+        entityManager.flush();
+        entityManager.clear();
+        entityManager.createNativeQuery("delete from projects where id = :projectId and workspace_id = :workspaceId")
+                .setParameter("projectId", projectId)
+                .setParameter("workspaceId", context.workspace().getId())
+                .executeUpdate();
     }
 
     @Transactional(readOnly = true)
@@ -161,6 +206,34 @@ public class ProjectService {
         ));
 
         return toLabelResponse(label);
+    }
+
+    @Transactional
+    public ProjectLabelResponse updateProjectLabel(
+            Jwt jwt,
+            UUID projectId,
+            UUID labelId,
+            UpdateProjectLabelRequest request
+    ) {
+        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
+        Project project = projectAccessService.requireAccessibleProjectForUpdate(projectId, context);
+        ProjectLabel label = requireProjectLabel(project, labelId);
+        String name = request.name().trim();
+        if (projectLabelRepository.existsByWorkspace_IdAndProject_IdAndNameIgnoreCaseAndIdNot(
+                project.getWorkspace().getId(), project.getId(), name, labelId
+        )) {
+            throw conflict("Project label already exists");
+        }
+        label.rename(name);
+        label.changeColor(normalizeLabelColor(request.color()));
+        return toLabelResponse(label);
+    }
+
+    @Transactional
+    public void deleteProjectLabel(Jwt jwt, UUID projectId, UUID labelId) {
+        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
+        Project project = projectAccessService.requireOwnedProjectForUpdate(projectId, context);
+        projectLabelRepository.delete(requireProjectLabel(project, labelId));
     }
 
     @Transactional
@@ -274,6 +347,38 @@ public class ProjectService {
     }
 
     @Transactional
+    public void deleteProjectWorkflowState(
+            Jwt jwt,
+            UUID projectId,
+            UUID workflowStateId,
+            DeleteProjectWorkflowStateRequest request
+    ) {
+        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
+        Project project = projectAccessService.requireOwnedProjectForUpdate(projectId, context);
+        ProjectWorkflowState workflowState = requireProjectWorkflowState(project, workflowStateId);
+        if (workflowStateId.equals(request.replacementWorkflowStateId())) {
+            throw badRequest("Replacement workflow state must be different");
+        }
+        ProjectWorkflowState replacement = requireProjectWorkflowState(
+                project,
+                request.replacementWorkflowStateId()
+        );
+        List<ProjectWorkflowState> states = projectWorkflowStateRepository
+                .findByWorkspace_IdAndProject_IdOrderByPositionAscNameAsc(
+                        project.getWorkspace().getId(), project.getId()
+                );
+        if (states.size() <= 1) {
+            throw conflict("A project must have at least one workflow state");
+        }
+        var issues = issueRepository.findByWorkspace_IdAndProject_IdAndWorkflowState_Id(
+                project.getWorkspace().getId(), project.getId(), workflowStateId
+        );
+        issues.forEach(issue -> issue.changeWorkflowState(replacement));
+        issueRepository.saveAll(issues);
+        projectWorkflowStateRepository.delete(workflowState);
+    }
+
+    @Transactional
     public ProjectMemberResponse addProjectMember(Jwt jwt, UUID projectId, AddProjectMemberRequest request) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Project project = projectAccessService.requireOwnedProject(projectId, context);
@@ -351,7 +456,8 @@ public class ProjectService {
                 project.getName(),
                 project.getDescription(),
                 project.getCreatedAt(),
-                project.getUpdatedAt()
+                project.getUpdatedAt(),
+                project.getArchivedAt()
         );
     }
 
@@ -445,6 +551,13 @@ public class ProjectService {
                         workflowStateId
                 )
                 .orElseThrow(() -> notFound("Project workflow state not found"));
+    }
+
+    private ProjectLabel requireProjectLabel(Project project, UUID labelId) {
+        return projectLabelRepository.findByWorkspace_IdAndProject_IdAndId(
+                        project.getWorkspace().getId(), project.getId(), labelId
+                )
+                .orElseThrow(() -> notFound("Project label not found"));
     }
 
     private void synchronizeWorkflowStateIssueCompletion(

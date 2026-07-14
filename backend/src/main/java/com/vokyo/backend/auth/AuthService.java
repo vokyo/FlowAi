@@ -31,6 +31,7 @@ public class AuthService {
     private final WorkspaceProvisioningService workspaceProvisioningService;
     private final WorkspaceInvitationService workspaceInvitationService;
     private final AuthSessionService authSessionService;
+    private final RefreshTokenService refreshTokenService;
 
     public AuthService(
             UserRepository userRepository,
@@ -38,7 +39,8 @@ public class AuthService {
             PasswordEncoder passwordEncoder,
             WorkspaceProvisioningService workspaceProvisioningService,
             WorkspaceInvitationService workspaceInvitationService,
-            AuthSessionService authSessionService
+            AuthSessionService authSessionService,
+            RefreshTokenService refreshTokenService
     ) {
         this.userRepository = userRepository;
         this.membershipRepository = membershipRepository;
@@ -46,6 +48,7 @@ public class AuthService {
         this.workspaceProvisioningService = workspaceProvisioningService;
         this.workspaceInvitationService = workspaceInvitationService;
         this.authSessionService = authSessionService;
+        this.refreshTokenService = refreshTokenService;
     }
 
     @Transactional
@@ -89,6 +92,11 @@ public class AuthService {
     @Transactional
     public AuthResponse registerWithInvitation(RegisterWithInvitationRequest request) {
         return workspaceInvitationService.registerWithInvitation(request);
+    }
+
+    @Transactional
+    public void logout(RefreshTokenRequest request) {
+        refreshTokenService.revoke(request.refreshToken());
     }
 
     private WorkspaceMembership findDefaultMembership(User user) {

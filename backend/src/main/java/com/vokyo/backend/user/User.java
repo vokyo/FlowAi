@@ -94,4 +94,8 @@ public class User {
     public void changeAvatarUrl(String avatarUrl) {
         this.avatarUrl = avatarUrl;
     }
+
+    public void changePasswordHash(String passwordHash) {
+        this.passwordHash = passwordHash;
+    }
 }

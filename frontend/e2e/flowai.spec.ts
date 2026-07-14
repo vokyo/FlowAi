@@ -263,6 +263,37 @@ test('logs in and switches between workspaces', async ({ page, request }) => {
   await expect(page.getByText(homeProject.name, { exact: true })).toHaveCount(0)
 })
 
+test('manages profile and project configuration from settings', async ({ page, request }) => {
+  const registered = await registerUser(request, uniqueValue('Settings workspace'))
+  const project = await createProject(request, registered.accessToken, 'Settings project')
+
+  await login(page, registered.user.email)
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await expect(page).toHaveURL(/\/app\/settings$/)
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
+
+  await page.getByLabel('Display name').fill('Updated E2E User')
+  await page.getByRole('button', { name: 'Save profile' }).click()
+  await expect(page.getByText('Profile saved.')).toBeVisible()
+
+  await expect(page.locator('.settings-card-wide > label.settings-field select')).toHaveValue(project.id)
+  await page.getByLabel('Name', { exact: true }).fill('Renamed settings project')
+  await page.getByLabel('Description').fill('Managed from the settings route')
+  await page.getByRole('button', { name: 'Save project' }).click()
+  await expect(page.getByText('Project saved.')).toBeVisible()
+
+  await page.getByLabel('New label name').fill('E2E label')
+  await page.getByRole('button', { name: 'Add label' }).click()
+  await expect(page.getByLabel('Name for E2E label')).toHaveValue('E2E label')
+
+  await page.getByLabel('New workflow state name').fill('Ready to ship')
+  await page.getByRole('button', { name: 'Add state' }).click()
+  await expect(page.getByLabel('Name for Ready to ship')).toHaveValue('Ready to ship')
+
+  await page.getByRole('button', { name: 'Back to workspace' }).click()
+  await expect(page.getByRole('heading', { name: 'Renamed settings project' })).toBeVisible()
+})
+
 test('drags an issue between workflow columns and persists the move', async ({
   page,
   request,
@@ -348,9 +379,9 @@ test('opens project analytics and persists the selected range in the URL', async
   await expect(page.locator('.analytics-metric').filter({ hasText: 'Completed' })
     .locator('strong')).toHaveText('1')
 
-  await page.getByRole('button', { name: '7d' }).click()
+  await page.getByRole('button', { name: '7d', exact: true }).click()
   await expect(page).toHaveURL(new RegExp(`/projects/${project.id}/analytics[?]range=7$`))
-  await expect(page.getByRole('button', { name: '7d' })).toHaveAttribute(
+  await expect(page.getByRole('button', { name: '7d', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   )

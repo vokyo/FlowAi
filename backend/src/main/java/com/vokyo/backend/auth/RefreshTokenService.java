@@ -14,6 +14,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.UUID;
 
 @Service
 public class RefreshTokenService {
@@ -63,6 +64,26 @@ public class RefreshTokenService {
         } catch (NoSuchAlgorithmException ex) {
             throw new IllegalStateException("SHA-256 is not available", ex);
         }
+    }
+
+    @Transactional
+    public void revoke(String plainToken) {
+        refreshTokenRepository.findByTokenHashForUpdate(hashToken(plainToken))
+                .ifPresent(token -> {
+                    if (!token.isRevoked()) {
+                        token.revoke();
+                    }
+                });
+    }
+
+    @Transactional
+    public void revokeMembershipSessions(UUID membershipId) {
+        refreshTokenRepository.revokeAllByMembershipId(membershipId, Instant.now());
+    }
+
+    @Transactional
+    public void revokeUserSessions(UUID userId) {
+        refreshTokenRepository.revokeAllByUserId(userId, Instant.now());
     }
 
     private String generatePlainToken() {

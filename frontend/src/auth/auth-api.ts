@@ -59,3 +59,19 @@ export function registerWithInvitation(request: RegisterWithInvitationRequest) {
 export function getCurrentSession() {
   return api.get<CurrentSessionResponse>('/me')
 }
+
+export function logout(refreshToken: string) {
+  return api.post<void>('/auth/logout', { refreshToken }, { auth: false })
+}
+
+export function updateProfile(request: { displayName: string }) {
+  return api.patch<AuthUser>('/me/profile', request)
+}
+
+export function changePassword(request: { currentPassword: string; newPassword: string }) {
+  return api.put<void>('/me/password', request)
+}
+
+export function revokeAllSessions() {
+  return api.delete<void>('/me/sessions')
+}

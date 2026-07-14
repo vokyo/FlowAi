@@ -98,6 +98,12 @@ public interface IssueRepository extends JpaRepository<Issue, UUID>, JpaSpecific
             Collection<UUID> issueIds
     );
 
+    List<Issue> findByWorkspace_IdAndProject_IdAndWorkflowState_Id(
+            UUID workspaceId,
+            UUID projectId,
+            UUID workflowStateId
+    );
+
     @Modifying(flushAutomatically = true)
     @Query("""
             update Issue issue

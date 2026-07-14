@@ -24,4 +24,6 @@ public interface WorkspaceMembershipRepository extends JpaRepository<WorkspaceMe
     );
 
     boolean existsByWorkspace_IdAndUser_Id(UUID workspaceId, UUID userId);
+
+    long countByWorkspace_IdAndRoleAndStatus(UUID workspaceId, WorkspaceRole role, MembershipStatus status);
 }

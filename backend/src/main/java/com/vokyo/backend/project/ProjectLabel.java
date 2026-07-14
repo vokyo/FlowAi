@@ -83,4 +83,12 @@ public class ProjectLabel {
     public Instant getUpdatedAt() {
         return updatedAt;
     }
+
+    public void rename(String name) {
+        this.name = name;
+    }
+
+    public void changeColor(String color) {
+        this.color = color;
+    }
 }

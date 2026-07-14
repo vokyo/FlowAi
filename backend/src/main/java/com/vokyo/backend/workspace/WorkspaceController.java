@@ -14,6 +14,11 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.http.HttpStatus;
+import com.vokyo.backend.workspace.dto.UpdateWorkspaceMemberRequest;
 
 import java.util.List;
 import java.util.UUID;
@@ -63,5 +68,23 @@ public class WorkspaceController {
     @GetMapping("/current/members")
     public List<WorkspaceMemberResponse> currentWorkspaceMembers(@AuthenticationPrincipal Jwt jwt) {
         return workspaceQueryService.getCurrentWorkspaceMembers(jwt);
+    }
+
+    @PatchMapping("/current/members/{memberId}")
+    public WorkspaceMemberResponse updateCurrentWorkspaceMember(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID memberId,
+            @Valid @RequestBody UpdateWorkspaceMemberRequest request
+    ) {
+        return workspaceService.updateMember(jwt, memberId, request);
+    }
+
+    @DeleteMapping("/current/members/{memberId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeCurrentWorkspaceMember(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID memberId
+    ) {
+        workspaceService.removeMember(jwt, memberId);
     }
 }

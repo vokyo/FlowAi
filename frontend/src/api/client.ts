@@ -104,8 +104,8 @@ export const api = {
   patch<T>(path: string, body?: unknown, options: ApiRequestWithoutMethod = {}) {
     return apiRequest<T>(path, { ...options, method: 'PATCH', body })
   },
-  delete<T>(path: string, options: ApiRequestWithoutBody = {}) {
-    return apiRequest<T>(path, { ...options, method: 'DELETE' })
+  delete<T>(path: string, body?: unknown, options: ApiRequestWithoutMethod = {}) {
+    return apiRequest<T>(path, { ...options, method: 'DELETE', body })
   },
 }
 

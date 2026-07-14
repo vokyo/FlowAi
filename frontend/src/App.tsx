@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Navigate, Route, Routes, useNavigate } from 'react-router'
 import {
   clearAccessTokenProvider,
@@ -9,13 +9,17 @@ import {
 import {
   clearAuthTokens,
   getAccessToken,
+  getRefreshToken,
   hasAccessToken,
 } from '@/auth/token-storage'
-import { AppPage } from '@/pages/AppPage'
+import { logout } from '@/auth/auth-api'
 import { LoginPage } from '@/pages/LoginPage'
 import { RegisterPage } from '@/pages/RegisterPage'
-import { InvitationPage } from '@/pages/InvitationPage'
 import './App.css'
+
+const AppPage = lazy(() => import('@/pages/AppPage').then((module) => ({ default: module.AppPage })))
+const InvitationPage = lazy(() => import('@/pages/InvitationPage').then((module) => ({ default: module.InvitationPage })))
+const SettingsPage = lazy(() => import('@/pages/SettingsPage').then((module) => ({ default: module.SettingsPage })))
 
 function App() {
   return <AppRoutes />
@@ -29,7 +33,15 @@ function AppRoutes() {
     setSessionVersion((version) => version + 1)
   }
 
-  function signOut() {
+  async function signOut() {
+    const refreshToken = getRefreshToken()
+    if (refreshToken) {
+      try {
+        await logout(refreshToken)
+      } catch {
+        // Local sign-out must still complete when the server is unavailable.
+      }
+    }
     clearAuthTokens()
     refreshSession()
     navigate('/login', { replace: true })
@@ -56,11 +68,9 @@ function AppRoutes() {
   function renderAppPage() {
     return (
       <RequireAuth sessionVersion={sessionVersion}>
-        <AppPage
-          key={sessionVersion}
-          onSignOut={signOut}
-          onSessionChanged={refreshSession}
-        />
+        <Suspense fallback={<RouteLoading />}>
+          <AppPage key={sessionVersion} onSignOut={() => void signOut()} onSessionChanged={refreshSession} />
+        </Suspense>
       </RequireAuth>
     )
   }
@@ -91,7 +101,7 @@ function AppRoutes() {
       />
       <Route
         path="/invite/:token"
-        element={<InvitationPage onSessionChanged={refreshSession} />}
+        element={<Suspense fallback={<RouteLoading />}><InvitationPage onSessionChanged={refreshSession} /></Suspense>}
       />
       <Route
         path="/app"
@@ -109,9 +119,21 @@ function AppRoutes() {
         path="/app/workspaces/:workspaceId/projects/:projectId/issues/:issueId"
         element={renderAppPage()}
       />
+      <Route
+        path="/app/settings"
+        element={
+          <RequireAuth sessionVersion={sessionVersion}>
+            <Suspense fallback={<RouteLoading />}><SettingsPage onSessionChanged={refreshSession} /></Suspense>
+          </RequireAuth>
+        }
+      />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
+}
+
+function RouteLoading() {
+  return <main className="route-loading" role="status" aria-label="Loading page"><span /></main>
 }
 
 function RequireAuth({
