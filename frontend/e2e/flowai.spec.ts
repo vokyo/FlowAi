@@ -154,7 +154,6 @@ async function createIssue(
 }
 
 async function dragIssueToColumn(page: Page, issueTitle: string, columnName: string) {
-  await page.waitForLoadState('networkidle')
   const escapedColumnName = columnName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const targetColumn = page.getByRole('region', {
     name: new RegExp(`^${escapedColumnName} issues$`, 'i'),
@@ -162,9 +161,15 @@ async function dragIssueToColumn(page: Page, issueTitle: string, columnName: str
   const dragHandle = page.getByRole('button', { name: `Move ${issueTitle}` })
   const targetColumnBody = targetColumn.locator('.kanban-column-body')
   await expect(dragHandle).toBeVisible()
+  await expect(dragHandle).toBeEnabled()
   await expect(targetColumnBody).toBeVisible()
-  const sourceBox = await dragHandle.boundingBox()
-  const targetBox = await targetColumnBody.boundingBox()
+  let sourceBox = await dragHandle.boundingBox()
+  let targetBox = await targetColumnBody.boundingBox()
+  await expect.poll(async () => {
+    sourceBox = await dragHandle.boundingBox()
+    targetBox = await targetColumnBody.boundingBox()
+    return Boolean(sourceBox && targetBox)
+  }).toBe(true)
   if (!sourceBox || !targetBox) {
     throw new Error('Could not resolve stable drag coordinates')
   }
@@ -174,19 +179,25 @@ async function dragIssueToColumn(page: Page, issueTitle: string, columnName: str
     sourceBox.y + sourceBox.height / 2,
   )
   await page.mouse.down()
-  await page.mouse.move(
-    sourceBox.x + sourceBox.width / 2 + 15,
-    sourceBox.y + sourceBox.height / 2,
-    { steps: 5 },
-  )
-  await page.mouse.move(
-    targetBox.x + targetBox.width / 2,
-    targetBox.y + Math.min(100, targetBox.height / 2),
-    { steps: 20 },
-  )
-  await page.mouse.up()
+  try {
+    await page.mouse.move(
+      sourceBox.x + sourceBox.width / 2 + 15,
+      sourceBox.y + sourceBox.height / 2,
+      { steps: 5 },
+    )
+    await page.mouse.move(
+      targetBox.x + targetBox.width / 2,
+      targetBox.y + Math.min(100, targetBox.height / 2),
+      { steps: 20 },
+    )
+    await expect(targetColumnBody).toHaveAttribute('data-over', 'true')
+  } finally {
+    await page.mouse.up()
+  }
 
   await expect(targetColumn.getByText(issueTitle)).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Project board' }))
+    .toHaveAttribute('aria-busy', 'false')
 }
 
 async function login(page: Page, email: string) {
@@ -303,6 +314,7 @@ test('manages profile and project configuration from settings', async ({ page, r
   const project = await createProject(request, registered.accessToken, 'Settings project')
 
   await login(page, registered.user.email)
+  await expect(page).toHaveURL(/\/app\/workspaces\/[^/]+\/projects\/[^/?]+(?:[?]|$)/)
   await page.getByRole('button', { name: 'Open user menu' }).click()
   await page.getByRole('menu', { name: 'User menu' })
     .getByRole('menuitem', { name: 'Settings' }).click()
