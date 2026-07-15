@@ -129,4 +129,19 @@ describe('api client', () => {
     })
     expect(getAccessToken()).toBe('restored-access')
   })
+
+  it('rejects absolute URLs before sending credentials, regardless of auth mode', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(api.get('https://provider.example/models')).rejects.toThrow(
+      'API client only accepts same-origin paths',
+    )
+    await expect(
+      api.get('http://provider.example/health', { auth: false }),
+    ).rejects.toThrow('API client only accepts same-origin paths')
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(getAccessToken()).toBe('old-access')
+  })
 })

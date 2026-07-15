@@ -171,8 +171,8 @@ function isAccessTokenResponse(payload: unknown): payload is { accessToken: stri
 }
 
 function toApiUrl(path: string) {
-  if (/^https?:\/\//.test(path)) {
-    return path
+  if (/^https?:\/\//i.test(path)) {
+    throw new TypeError('API client only accepts same-origin paths')
   }
 
   const normalizedPath = path.startsWith('/') ? path : `/${path}`

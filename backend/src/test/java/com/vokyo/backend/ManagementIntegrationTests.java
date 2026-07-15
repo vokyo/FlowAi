@@ -194,7 +194,7 @@ class ManagementIntegrationTests extends AbstractMockMvcIntegrationTest {
     }
 
     @Test
-    void ownerChangesAndDisablesWorkspaceMemberAndRevokesMembershipSessions() throws Exception {
+    void ownerDisablesWorkspaceMemberRevokesSessionsAndBlocksExistingAccess() throws Exception {
         Session owner = register("workspace-owner");
         Session memberHome = register("workspace-member");
         Workspace workspace = workspaceRepository.findById(UUID.fromString(owner.workspaceId())).orElseThrow();
@@ -202,7 +202,14 @@ class ManagementIntegrationTests extends AbstractMockMvcIntegrationTest {
         WorkspaceMembership member = membershipRepository.saveAndFlush(
                 new WorkspaceMembership(workspace, memberUser, WorkspaceRole.MEMBER)
         );
-        String memberRefreshToken = refreshTokenService.createRefreshToken(memberUser, member);
+        var switchActions = postJson(
+                "/api/workspaces/%s/switch".formatted(owner.workspaceId()),
+                "{}",
+                memberHome.accessToken(),
+                memberHome.refreshToken()
+        ).andExpect(status().isOk());
+        String memberWorkspaceAccessToken = readJson(switchActions).get("accessToken").asText();
+        String memberWorkspaceRefreshToken = refreshToken(switchActions);
 
         mockMvc.perform(patch("/api/workspaces/current/members/{memberId}", member.getId())
                         .header("Authorization", bearer(owner.accessToken()))
@@ -219,8 +226,18 @@ class ManagementIntegrationTests extends AbstractMockMvcIntegrationTest {
 
         WorkspaceMembership disabled = membershipRepository.findById(member.getId()).orElseThrow();
         assertThat(disabled.getStatus().name()).isEqualTo("DISABLED");
-        assertThat(refreshTokenRepository.findByTokenHash(refreshTokenService.hashToken(memberRefreshToken))
+        assertThat(refreshTokenRepository.findByTokenHash(refreshTokenService.hashToken(memberWorkspaceRefreshToken))
                 .orElseThrow().isRevoked()).isTrue();
+
+        mockMvc.perform(get("/api/workspaces/current")
+                        .header("Authorization", bearer(memberWorkspaceAccessToken)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+
+        mockMvc.perform(get("/api/workspaces/current/members")
+                        .header("Authorization", bearer(memberWorkspaceAccessToken)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
     }
 
     private Session register(String prefix) throws Exception {

@@ -2,53 +2,48 @@ package com.vokyo.backend.workspace;
 
 import com.vokyo.backend.auth.dto.WorkspaceResponse;
 import com.vokyo.backend.workspace.dto.WorkspaceMemberResponse;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Comparator;
 import java.util.List;
-import java.util.UUID;
 
 @Service
 public class WorkspaceQueryService {
 
     private final WorkspaceMembershipRepository membershipRepository;
+    private final WorkspaceAccessService workspaceAccessService;
 
-    public WorkspaceQueryService(WorkspaceMembershipRepository membershipRepository) {
+    public WorkspaceQueryService(
+            WorkspaceMembershipRepository membershipRepository,
+            WorkspaceAccessService workspaceAccessService
+    ) {
         this.membershipRepository = membershipRepository;
+        this.workspaceAccessService = workspaceAccessService;
     }
 
     @Transactional(readOnly = true)
     public WorkspaceResponse getCurrentWorkspace(Jwt jwt) {
-        WorkspaceMembership membership = getCurrentMembership(jwt);
-        Workspace workspace = membership.getWorkspace();
+        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
 
         return new WorkspaceResponse(
-                workspace.getId(),
-                workspace.getName(),
-                workspace.getSlug(),
-                membership.getRole().name()
+                context.workspace().getId(),
+                context.workspace().getName(),
+                context.workspace().getSlug(),
+                context.membership().getRole().name()
         );
     }
 
     @Transactional(readOnly = true)
     public List<WorkspaceMemberResponse> getCurrentWorkspaceMembers(Jwt jwt) {
-        UUID workspaceId = UUID.fromString(jwt.getClaimAsString("workspaceId"));
+        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
 
-        return membershipRepository.findByWorkspace_Id(workspaceId)
+        return membershipRepository.findByWorkspace_Id(context.workspace().getId())
                 .stream()
                 .sorted(Comparator.comparing(WorkspaceMembership::getJoinedAt))
                 .map(this::toMemberResponse)
                 .toList();
-    }
-
-    private WorkspaceMembership getCurrentMembership(Jwt jwt) {
-        UUID membershipId = UUID.fromString(jwt.getClaimAsString("membershipId"));
-        return membershipRepository.findById(membershipId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Current workspace membership not found"));
     }
 
     private WorkspaceMemberResponse toMemberResponse(WorkspaceMembership membership) {
