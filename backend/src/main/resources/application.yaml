@@ -1,15 +1,14 @@
 spring:
   ai:
     model:
-      chat: none
-      embedding: none
-      image: none
-      moderation: none
-      audio:
-        speech: none
-        transcription: none
+      chat: ${SPRING_AI_MODEL_CHAT:none}
     openai:
       api-key: ${OPENAI_API_KEY:}
+      chat:
+        options:
+          model: ${AI_MODEL:gpt-4o-mini}
+    retry:
+      max-attempts: 3
   jpa:
     hibernate:
       ddl-auto: validate
@@ -35,6 +34,14 @@ app:
       secret: ${JWT_SECRET:dev-secret-must-be-long-enough-for-hmac-sha256}
       access-token-ttl: 15m
       refresh-token-ttl: 7d
+  ai:
+    enabled: ${AI_ENABLED:false}
+    suggestion-ttl: ${AI_SUGGESTION_TTL:7d}
+    request-timeout: ${AI_REQUEST_TIMEOUT:30s}
+    max-breakdown-items: ${AI_MAX_BREAKDOWN_ITEMS:8}
+    include-comments-limit: 20
+    include-activity-limit: 20
+    max-context-issues: 100
 
 
 
