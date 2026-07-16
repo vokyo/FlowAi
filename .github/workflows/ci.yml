@@ -152,6 +152,16 @@ jobs:
           --data '{"email":"compose-ci@example.com","password":"password123","displayName":"Compose CI","workspaceName":"Compose CI"}'
           http://127.0.0.1:8080/api/auth/register
 
+      - name: Verify TLS-terminated same-origin auth through Nginx
+        run: >-
+          curl --fail --silent --show-error
+          --header 'Host: flowai.example'
+          --header 'Origin: https://flowai.example'
+          --header 'X-Forwarded-Proto: https'
+          --header 'Content-Type: application/json'
+          --data '{"email":"compose-tls-ci@example.com","password":"password123","displayName":"Compose TLS CI","workspaceName":"Compose TLS CI"}'
+          http://127.0.0.1:8080/api/auth/register
+
       - name: Stop Compose stack
         if: always()
         run: docker compose down --volumes --remove-orphans
