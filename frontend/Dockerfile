@@ -15,6 +15,8 @@ RUN npm run build
 
 FROM nginx:1.28-alpine AS runtime
 
+ENV NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1
+
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 
 COPY --from=build \
