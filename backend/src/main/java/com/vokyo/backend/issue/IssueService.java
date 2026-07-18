@@ -13,6 +13,7 @@ import com.vokyo.backend.issue.dto.IssueSummaryResponse;
 import com.vokyo.backend.issue.dto.MoveIssueStateRequest;
 import com.vokyo.backend.issue.dto.ProjectBoardResponse;
 import com.vokyo.backend.issue.dto.ReorderIssuesRequest;
+import com.vokyo.backend.issue.dto.ReorderIssuesResponse;
 import com.vokyo.backend.project.Project;
 import com.vokyo.backend.project.ProjectAccessService;
 import com.vokyo.backend.project.ProjectLabel;
@@ -44,9 +45,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
-import java.util.ArrayList;
 import java.util.HexFormat;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -233,7 +232,7 @@ public class IssueService {
     }
 
     @Transactional
-    public ProjectBoardResponse reorderIssues(Jwt jwt, ReorderIssuesRequest request) {
+    public ReorderIssuesResponse reorderIssues(Jwt jwt, ReorderIssuesRequest request) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Project project = requireIssueProjectForUpdate(request.issueId(), context);
         Issue movedIssue = requireIssue(request.issueId(), context.workspace().getId());
@@ -242,63 +241,41 @@ public class IssueService {
         }
 
         ProjectWorkflowState targetWorkflowState = requireProjectWorkflowState(project, request.workflowStateId());
-        List<UUID> orderedIssueIds = request.orderedIssueIds();
-        LinkedHashSet<UUID> requestedIssueIds = new LinkedHashSet<>(orderedIssueIds);
-        if (requestedIssueIds.size() != orderedIssueIds.size()) {
-            throw badRequest("Issue order cannot contain duplicates");
-        }
-
-        List<Issue> requestedIssues = issueRepository.findByWorkspace_IdAndProject_IdAndIdIn(
-                project.getWorkspace().getId(),
-                project.getId(),
-                requestedIssueIds
+        validateDistinctBoardNeighbors(request, movedIssue);
+        Issue previousIssue = resolveBoardNeighbor(
+                project,
+                targetWorkflowState,
+                movedIssue,
+                request.previousIssueId()
         );
-        if (requestedIssues.size() != requestedIssueIds.size()) {
-            throw notFound("Issue not found");
-        }
-        if (requestedIssues.stream().anyMatch(issue -> issue.getArchivedAt() != null)) {
-            throw badRequest("Archived issues cannot be reordered");
-        }
-
-        if (!requestedIssueIds.contains(movedIssue.getId())) {
-            throw badRequest("Issue order must include the moved issue");
-        }
-        if (requestedIssues.stream().anyMatch(issue -> !issue.getId().equals(movedIssue.getId())
-                && !issue.getWorkflowState().getId().equals(targetWorkflowState.getId()))) {
-            throw badRequest("Issue order can only contain loaded issues from the target workflow state");
-        }
-
-        Map<UUID, Issue> requestedIssuesById = requestedIssues
-                .stream()
-                .collect(Collectors.toMap(Issue::getId, issue -> issue));
+        Issue requestedNextIssue = resolveBoardNeighbor(
+                project,
+                targetWorkflowState,
+                movedIssue,
+                request.nextIssueId()
+        );
+        Issue nextIssue = resolveEffectiveNextBoardNeighbor(
+                project,
+                targetWorkflowState,
+                movedIssue,
+                previousIssue,
+                requestedNextIssue
+        );
         ProjectWorkflowState previousWorkflowState = movedIssue.getWorkflowState();
         String previousStatus = displayStatus(movedIssue);
         boolean workflowStateChanged = !previousWorkflowState.getId().equals(targetWorkflowState.getId());
-
-        long shiftOffset;
-        try {
-            shiftOffset = Math.multiplyExact(orderedIssueIds.size() + 1L, BOARD_POSITION_STEP);
-        } catch (ArithmeticException exception) {
-            throw badRequest("Issue order is too large");
-        }
-        issueRepository.shiftActiveWorkflowStateBoardPositions(
-                project.getWorkspace().getId(),
-                project.getId(),
-                targetWorkflowState.getId(),
-                shiftOffset
+        BoardPositionResult boardPosition = allocateBoardPosition(
+                project,
+                targetWorkflowState,
+                movedIssue,
+                previousIssue,
+                nextIssue
         );
 
         if (workflowStateChanged) {
             movedIssue.changeWorkflowState(targetWorkflowState);
         }
-
-        List<Issue> orderedIssues = new ArrayList<>(orderedIssueIds.size());
-        for (int index = 0; index < orderedIssueIds.size(); index++) {
-            Issue issue = requestedIssuesById.get(orderedIssueIds.get(index));
-            issue.moveOnBoard((index + 1L) * BOARD_POSITION_STEP);
-            orderedIssues.add(issue);
-        }
-        issueRepository.saveAll(orderedIssues);
+        movedIssue.moveOnBoard(boardPosition.value());
 
         if (workflowStateChanged) {
             activityService.recordIssueStatusChanged(
@@ -311,7 +288,171 @@ public class IssueService {
             );
         }
 
-        return loadBoard(project);
+        return new ReorderIssuesResponse(
+                movedIssue.getId(),
+                targetWorkflowState.getId(),
+                boardPosition.value(),
+                boardPosition.rebalanced()
+        );
+    }
+
+    private void validateDistinctBoardNeighbors(ReorderIssuesRequest request, Issue movedIssue) {
+        if (Objects.equals(request.previousIssueId(), request.nextIssueId())
+                && request.previousIssueId() != null) {
+            throw badRequest("Previous and next issues must be different");
+        }
+        if (movedIssue.getId().equals(request.previousIssueId())
+                || movedIssue.getId().equals(request.nextIssueId())) {
+            throw badRequest("The moved issue cannot be its own neighbor");
+        }
+    }
+
+    private Issue resolveBoardNeighbor(
+            Project project,
+            ProjectWorkflowState targetWorkflowState,
+            Issue movedIssue,
+            UUID neighborIssueId
+    ) {
+        if (neighborIssueId == null) {
+            return null;
+        }
+
+        Issue neighbor = issueRepository.findByIdAndWorkspace_Id(
+                        neighborIssueId,
+                        project.getWorkspace().getId()
+                )
+                .orElseThrow(() -> notFound("Issue not found"));
+        if (!neighbor.getProject().getId().equals(project.getId())) {
+            throw notFound("Issue not found");
+        }
+        if (neighbor.getArchivedAt() != null) {
+            throw badRequest("Archived issues cannot be board neighbors");
+        }
+        if (!neighbor.getWorkflowState().getId().equals(targetWorkflowState.getId())) {
+            throw badRequest("Board neighbors must belong to the target workflow state");
+        }
+        if (neighbor.getId().equals(movedIssue.getId())) {
+            throw badRequest("The moved issue cannot be its own neighbor");
+        }
+        return neighbor;
+    }
+
+    private Issue resolveEffectiveNextBoardNeighbor(
+            Project project,
+            ProjectWorkflowState targetWorkflowState,
+            Issue movedIssue,
+            Issue previousIssue,
+            Issue requestedNextIssue
+    ) {
+        Issue actualNextIssue;
+        PageRequest firstResult = PageRequest.of(0, 1);
+        if (previousIssue == null) {
+            actualNextIssue = firstOrNull(issueRepository.findFirstActiveIssueInWorkflowStateExcludingIssue(
+                    project.getWorkspace().getId(),
+                    project.getId(),
+                    targetWorkflowState.getId(),
+                    movedIssue.getId(),
+                    firstResult
+            ));
+            if (!Objects.equals(issueId(actualNextIssue), issueId(requestedNextIssue))) {
+                throw badRequest("Next issue is not the first issue in the target workflow state");
+            }
+            return requestedNextIssue;
+        }
+
+        actualNextIssue = firstOrNull(issueRepository.findFirstActiveIssueAfterExcludingIssue(
+                project.getWorkspace().getId(),
+                project.getId(),
+                targetWorkflowState.getId(),
+                previousIssue.getBoardPosition(),
+                previousIssue.getId(),
+                movedIssue.getId(),
+                firstResult
+        ));
+        if (requestedNextIssue != null
+                && !requestedNextIssue.getId().equals(issueId(actualNextIssue))) {
+            throw badRequest("Previous and next issues are not adjacent");
+        }
+        return requestedNextIssue == null ? actualNextIssue : requestedNextIssue;
+    }
+
+    private BoardPositionResult allocateBoardPosition(
+            Project project,
+            ProjectWorkflowState targetWorkflowState,
+            Issue movedIssue,
+            Issue previousIssue,
+            Issue nextIssue
+    ) {
+        Long position = sparseBoardPosition(previousIssue, nextIssue);
+        if (position != null) {
+            return new BoardPositionResult(position, false);
+        }
+
+        rebalanceWorkflowState(project, targetWorkflowState, movedIssue);
+        position = sparseBoardPosition(previousIssue, nextIssue);
+        if (position == null) {
+            throw conflict("Unable to allocate board position");
+        }
+        return new BoardPositionResult(position, true);
+    }
+
+    private Long sparseBoardPosition(Issue previousIssue, Issue nextIssue) {
+        if (previousIssue == null && nextIssue == null) {
+            return BOARD_POSITION_STEP;
+        }
+        if (previousIssue == null) {
+            long upper = nextIssue.getBoardPosition();
+            return upper > 1 ? upper / 2 : null;
+        }
+        if (nextIssue == null) {
+            try {
+                return Math.addExact(previousIssue.getBoardPosition(), BOARD_POSITION_STEP);
+            } catch (ArithmeticException exception) {
+                return null;
+            }
+        }
+
+        long lower = previousIssue.getBoardPosition();
+        long upper = nextIssue.getBoardPosition();
+        if (lower >= upper || upper - lower <= 1) {
+            return null;
+        }
+        return lower + (upper - lower) / 2;
+    }
+
+    private void rebalanceWorkflowState(
+            Project project,
+            ProjectWorkflowState targetWorkflowState,
+            Issue movedIssue
+    ) {
+        List<Issue> issues = issueRepository.findAllActiveIssuesInWorkflowState(
+                project.getWorkspace().getId(),
+                project.getId(),
+                targetWorkflowState.getId()
+        );
+        long index = 0;
+        for (Issue issue : issues) {
+            if (issue.getId().equals(movedIssue.getId())) {
+                continue;
+            }
+            try {
+                issue.moveOnBoard(Math.multiplyExact(++index, BOARD_POSITION_STEP));
+            } catch (ArithmeticException exception) {
+                throw conflict("Workflow state contains too many issues to reorder");
+            }
+        }
+        issueRepository.saveAllAndFlush(issues);
+    }
+
+    private Issue firstOrNull(List<Issue> issues) {
+        return issues.isEmpty() ? null : issues.getFirst();
+    }
+
+    private UUID issueId(Issue issue) {
+        return issue == null ? null : issue.getId();
+    }
+
+    private record BoardPositionResult(long value, boolean rebalanced) {
     }
 
     @Transactional(readOnly = true)

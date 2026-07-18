@@ -9,8 +9,8 @@ import {
   type WorkflowStateCategory,
 } from '@/work/work-api'
 import {
+  applyBoardReorderResult,
   appendIssueToBoard,
-  mergeBoardFirstPagePreservingLoaded,
 } from '@/work/board-utils'
 import type {
   QuickCreateIssueMutationVariables,
@@ -54,10 +54,16 @@ export function useBoardMutations(workspaceId: string | null) {
     onError: (_, __, context) => {
       if (context?.previousBoard) queryClient.setQueryData(context.queryKey, context.previousBoard)
     },
-    onSuccess: (firstPageBoard, variables) => {
-      queryClient.setQueryData<ProjectBoard>(boardKey(variables.projectId), (loadedBoard) =>
-        mergeBoardFirstPagePreservingLoaded(loadedBoard, firstPageBoard),
+    onSuccess: (result, variables) => {
+      queryClient.setQueryData<ProjectBoard>(boardKey(variables.projectId), (board) =>
+        applyBoardReorderResult(board, result),
       )
+      if (result.rebalanced) {
+        queryClient.removeQueries({
+          queryKey: ['project-board-column', workspaceId, variables.projectId],
+        })
+        void queryClient.invalidateQueries({ queryKey: boardKey(variables.projectId) })
+      }
     },
     onSettled: async (_, __, variables) => {
       await Promise.all([

@@ -1450,21 +1450,29 @@ class ProjectIssueWorkflowIntegrationTests {
                 {
                   "issueId": "%s",
                   "workflowStateId": "%s",
-                  "orderedIssueIds": ["%s", "%s", "%s"]
+                  "previousIssueId": null,
+                  "nextIssueId": "%s"
                 }
                 """.formatted(
                         issueB.get("id").asText(),
                         todoStateId,
-                        issueB.get("id").asText(),
-                        issueA.get("id").asText(),
-                        issueC.get("id").asText()
+                        issueA.get("id").asText()
                 ),
                 member.accessToken()
         ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.issueId").value(issueB.get("id").asText()))
+                .andExpect(jsonPath("$.workflowStateId").value(todoStateId))
+                .andExpect(jsonPath("$.boardPosition").value(5000))
+                .andExpect(jsonPath("$.rebalanced").value(false));
+
+        mockMvc.perform(get("/api/issues/board")
+                        .queryParam("projectId", projectId)
+                        .header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.columns[0].issues[0].id").value(issueB.get("id").asText()))
-                .andExpect(jsonPath("$.columns[0].issues[0].boardPosition").value(10000))
+                .andExpect(jsonPath("$.columns[0].issues[0].boardPosition").value(5000))
                 .andExpect(jsonPath("$.columns[0].issues[1].id").value(issueA.get("id").asText()))
-                .andExpect(jsonPath("$.columns[0].issues[1].boardPosition").value(20000))
+                .andExpect(jsonPath("$.columns[0].issues[1].boardPosition").value(10000))
                 .andExpect(jsonPath("$.columns[0].issues[2].id").value(issueC.get("id").asText()))
                 .andExpect(jsonPath("$.columns[0].issues[2].boardPosition").value(30000));
 
@@ -1474,24 +1482,33 @@ class ProjectIssueWorkflowIntegrationTests {
                 {
                   "issueId": "%s",
                   "workflowStateId": "%s",
-                  "orderedIssueIds": ["%s", "%s"]
+                  "previousIssueId": null,
+                  "nextIssueId": "%s"
                 }
                 """.formatted(
                         issueC.get("id").asText(),
                         inProgressStateId,
-                        issueC.get("id").asText(),
                         issueD.get("id").asText()
                 ),
                 owner.accessToken()
         ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.issueId").value(issueC.get("id").asText()))
+                .andExpect(jsonPath("$.workflowStateId").value(inProgressStateId))
+                .andExpect(jsonPath("$.boardPosition").value(5000))
+                .andExpect(jsonPath("$.rebalanced").value(false));
+
+        mockMvc.perform(get("/api/issues/board")
+                        .queryParam("projectId", projectId)
+                        .header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.columns[0].issues.length()").value(2))
                 .andExpect(jsonPath("$.columns[0].issues[0].id").value(issueB.get("id").asText()))
                 .andExpect(jsonPath("$.columns[0].issues[1].id").value(issueA.get("id").asText()))
                 .andExpect(jsonPath("$.columns[1].issues[0].id").value(issueC.get("id").asText()))
                 .andExpect(jsonPath("$.columns[1].issues[0].workflowState.id").value(inProgressStateId))
-                .andExpect(jsonPath("$.columns[1].issues[0].boardPosition").value(10000))
+                .andExpect(jsonPath("$.columns[1].issues[0].boardPosition").value(5000))
                 .andExpect(jsonPath("$.columns[1].issues[1].id").value(issueD.get("id").asText()))
-                .andExpect(jsonPath("$.columns[1].issues[1].boardPosition").value(20000));
+                .andExpect(jsonPath("$.columns[1].issues[1].boardPosition").value(10000));
 
         mockMvc.perform(get("/api/issues/{issueId}/activities", issueB.get("id").asText())
                         .header("Authorization", bearer(owner.accessToken())))
@@ -1502,6 +1519,58 @@ class ProjectIssueWorkflowIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()").value(2))
                 .andExpect(jsonPath("$.items[0].eventType").value("ISSUE_STATUS_CHANGED"));
+    }
+
+    @Test
+    void issueReorderRebalancesTargetWorkflowStateWhenSparseGapIsExhausted() throws Exception {
+        AuthSession owner = register("board-rebalance-owner+" + uniqueId() + "@example.com");
+        String projectId = createProject(owner, "Board Rebalance Project").get("id").asText();
+        String todoStateId = workflowStateIdByName(workflowStates(owner, projectId), "Todo");
+        JsonNode issueA = createIssue(owner, projectId, "Rebalance A", "A", "TODO", "LOW");
+        JsonNode issueB = createIssue(owner, projectId, "Rebalance B", "B", "TODO", "LOW");
+        JsonNode movedIssue = createIssue(owner, projectId, "Rebalance moved", "Moved", "TODO", "LOW");
+
+        Issue persistedIssueA = issueRepository.findById(UUID.fromString(issueA.get("id").asText())).orElseThrow();
+        Issue persistedIssueB = issueRepository.findById(UUID.fromString(issueB.get("id").asText())).orElseThrow();
+        Issue persistedMovedIssue = issueRepository.findById(
+                UUID.fromString(movedIssue.get("id").asText())
+        ).orElseThrow();
+        persistedIssueA.moveOnBoard(1);
+        persistedIssueB.moveOnBoard(2);
+        persistedMovedIssue.moveOnBoard(3);
+        issueRepository.saveAllAndFlush(List.of(persistedIssueA, persistedIssueB, persistedMovedIssue));
+
+        patchJson(
+                "/api/issues/reorder",
+                """
+                {
+                  "issueId": "%s",
+                  "workflowStateId": "%s",
+                  "previousIssueId": "%s",
+                  "nextIssueId": "%s"
+                }
+                """.formatted(
+                        movedIssue.get("id").asText(),
+                        todoStateId,
+                        issueA.get("id").asText(),
+                        issueB.get("id").asText()
+                ),
+                owner.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.issueId").value(movedIssue.get("id").asText()))
+                .andExpect(jsonPath("$.boardPosition").value(15000))
+                .andExpect(jsonPath("$.rebalanced").value(true));
+
+        mockMvc.perform(get("/api/issues/board")
+                        .queryParam("projectId", projectId)
+                        .header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.columns[0].issues[0].id").value(issueA.get("id").asText()))
+                .andExpect(jsonPath("$.columns[0].issues[0].boardPosition").value(10000))
+                .andExpect(jsonPath("$.columns[0].issues[1].id").value(movedIssue.get("id").asText()))
+                .andExpect(jsonPath("$.columns[0].issues[1].boardPosition").value(15000))
+                .andExpect(jsonPath("$.columns[0].issues[2].id").value(issueB.get("id").asText()))
+                .andExpect(jsonPath("$.columns[0].issues[2].boardPosition").value(20000));
     }
 
     @Test
@@ -1564,12 +1633,12 @@ class ProjectIssueWorkflowIntegrationTests {
                 {
                   "issueId": "%s",
                   "workflowStateId": "%s",
-                  "orderedIssueIds": ["%s", "%s"]
+                  "previousIssueId": null,
+                  "nextIssueId": "%s"
                 }
                 """.formatted(
                         issueA.get("id").asText(),
                         todoStateId,
-                        issueA.get("id").asText(),
                         issueB.get("id").asText()
                 ),
                 nonProjectMember.accessToken()
@@ -1581,12 +1650,12 @@ class ProjectIssueWorkflowIntegrationTests {
                 {
                   "issueId": "%s",
                   "workflowStateId": "%s",
-                  "orderedIssueIds": ["%s", "%s"]
+                  "previousIssueId": "%s",
+                  "nextIssueId": null
                 }
                 """.formatted(
                         issueA.get("id").asText(),
                         todoStateId,
-                        issueA.get("id").asText(),
                         issueA.get("id").asText()
                 ),
                 owner.accessToken()
@@ -1597,25 +1666,29 @@ class ProjectIssueWorkflowIntegrationTests {
                 {
                   "issueId": "%s",
                   "workflowStateId": "%s",
-                  "orderedIssueIds": ["%s"]
+                  "previousIssueId": null,
+                  "nextIssueId": "%s"
                 }
-                """.formatted(issueA.get("id").asText(), todoStateId, issueA.get("id").asText()),
+                """.formatted(
+                        issueA.get("id").asText(),
+                        todoStateId,
+                        issueB.get("id").asText()
+                ),
                 owner.accessToken()
         ).andExpect(status().isOk())
-                .andExpect(jsonPath("$.columns[0].issues[0].id").value(issueA.get("id").asText()));
+                .andExpect(jsonPath("$.issueId").value(issueA.get("id").asText()));
         patchJson(
                 "/api/issues/reorder",
                 """
                 {
                   "issueId": "%s",
                   "workflowStateId": "%s",
-                  "orderedIssueIds": ["%s", "%s", "%s"]
+                  "previousIssueId": null,
+                  "nextIssueId": "%s"
                 }
                 """.formatted(
                         issueA.get("id").asText(),
                         todoStateId,
-                        issueA.get("id").asText(),
-                        issueB.get("id").asText(),
                         otherIssue.get("id").asText()
                 ),
                 owner.accessToken()
@@ -1626,13 +1699,12 @@ class ProjectIssueWorkflowIntegrationTests {
                 {
                   "issueId": "%s",
                   "workflowStateId": "%s",
-                  "orderedIssueIds": ["%s", "%s", "%s"]
+                  "previousIssueId": null,
+                  "nextIssueId": "%s"
                 }
                 """.formatted(
                         issueA.get("id").asText(),
                         todoStateId,
-                        issueA.get("id").asText(),
-                        issueB.get("id").asText(),
                         UUID.randomUUID()
                 ),
                 owner.accessToken()
@@ -1662,12 +1734,12 @@ class ProjectIssueWorkflowIntegrationTests {
                 {
                   "issueId": "%s",
                   "workflowStateId": "%s",
-                  "orderedIssueIds": ["%s", "%s"]
+                  "previousIssueId": null,
+                  "nextIssueId": "%s"
                 }
                 """.formatted(
                         issueA.get("id").asText(),
                         todoStateId,
-                        issueA.get("id").asText(),
                         issueB.get("id").asText()
                 ),
                 owner.accessToken()

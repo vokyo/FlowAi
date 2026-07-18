@@ -185,7 +185,15 @@ export type MoveIssueStateRequest = {
 export type ReorderIssuesRequest = {
   issueId: string
   workflowStateId: string
-  orderedIssueIds: string[]
+  previousIssueId: string | null
+  nextIssueId: string | null
+}
+
+export type ReorderIssuesResponse = {
+  issueId: string
+  workflowStateId: string
+  boardPosition: number
+  rebalanced: boolean
 }
 
 export type ListIssuesFilters = {
@@ -378,7 +386,7 @@ export function moveIssueState(issueId: string, request: MoveIssueStateRequest) 
 }
 
 export function reorderIssues(request: ReorderIssuesRequest) {
-  return api.patch<ProjectBoard>('/issues/reorder', request)
+  return api.patch<ReorderIssuesResponse>('/issues/reorder', request)
 }
 
 export function getIssue(issueId: string) {

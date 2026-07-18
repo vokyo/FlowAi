@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest'
 import type { IssueSummary, ProjectBoard, ProjectWorkflowState } from './work-api'
 import {
   appendBoardColumnPage,
+  applyBoardReorderResult,
+  boardIssueNeighbors,
   buildOptimisticBoard,
   filterProjectBoard,
-  mergeBoardFirstPagePreservingLoaded,
 } from './board-utils'
 
 const todo: ProjectWorkflowState = {
@@ -104,26 +105,41 @@ describe('filtered board reordering', () => {
     expect(merged?.columns[0].nextCursor).toBeNull()
   })
 
-  it('keeps loaded issues beyond the server first page after a reorder response', () => {
-    const loadedIssues = Array.from({ length: 55 }, (_, index) => issue(`issue-${index + 1}`, todo))
-    const loadedBoard: ProjectBoard = {
-      projectId: 'project-1',
-      columns: [{ workflowState: todo, issues: loadedIssues, nextCursor: 'page-3' }],
-    }
-    const reorderedFirstPage: ProjectBoard = {
+  it('derives the sparse reorder request from the complete optimistic board', () => {
+    const board: ProjectBoard = {
       projectId: 'project-1',
       columns: [{
         workflowState: todo,
-        issues: [loadedIssues[1], loadedIssues[0], ...loadedIssues.slice(2, 50)],
-        nextCursor: 'page-2',
+        issues: [issue('one', todo), issue('two', todo), issue('three', todo)],
+        nextCursor: null,
       }],
     }
+    const optimisticBoard = buildOptimisticBoard(board, 'three', todo.id, 'two')
 
-    const merged = mergeBoardFirstPagePreservingLoaded(loadedBoard, reorderedFirstPage)
+    expect(optimisticBoard?.columns[0].issues.map(({ id }) => id)).toEqual([
+      'one',
+      'three',
+      'two',
+    ])
+    expect(boardIssueNeighbors(optimisticBoard!, todo.id, 'three')).toEqual({
+      previousIssueId: 'one',
+      nextIssueId: 'two',
+    })
+  })
 
-    expect(merged.columns[0].issues).toHaveLength(55)
-    expect(merged.columns[0].issues.slice(0, 2).map(({ id }) => id)).toEqual(['issue-2', 'issue-1'])
-    expect(merged.columns[0].issues.at(-1)?.id).toBe('issue-55')
-    expect(merged.columns[0].nextCursor).toBe('page-3')
+  it('applies the server board position without replacing loaded columns', () => {
+    const board: ProjectBoard = {
+      projectId: 'project-1',
+      columns: [{ workflowState: todo, issues: [issue('one', todo)], nextCursor: 'page-2' }],
+    }
+    const updated = applyBoardReorderResult(board, {
+      issueId: 'one',
+      workflowStateId: todo.id,
+      boardPosition: 5_000,
+      rebalanced: false,
+    })
+
+    expect(updated?.columns[0].issues[0].boardPosition).toBe(5_000)
+    expect(updated?.columns[0].nextCursor).toBe('page-2')
   })
 })

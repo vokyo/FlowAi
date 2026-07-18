@@ -1,6 +1,12 @@
 import { arrayMove } from '@dnd-kit/sortable'
 import type { CursorPage } from '@/api/pagination'
-import type { IssueStatus, IssueSummary, ProjectBoard, ProjectWorkflowState } from '@/work/work-api'
+import type {
+  IssueStatus,
+  IssueSummary,
+  ProjectBoard,
+  ProjectWorkflowState,
+  ReorderIssuesResponse,
+} from '@/work/work-api'
 
 export type IssueGroup = {
   status: IssueStatus
@@ -108,40 +114,6 @@ export function appendBoardColumnPage(
   }
 }
 
-export function mergeBoardFirstPagePreservingLoaded(
-  loadedBoard: ProjectBoard | undefined,
-  firstPageBoard: ProjectBoard,
-) {
-  if (!loadedBoard || loadedBoard.projectId !== firstPageBoard.projectId) {
-    return firstPageBoard
-  }
-
-  const firstPageIssueIds = new Set(
-    firstPageBoard.columns.flatMap((column) => column.issues.map((issue) => issue.id)),
-  )
-
-  return {
-    ...firstPageBoard,
-    columns: firstPageBoard.columns.map((column) => {
-      const loadedColumn = loadedBoard.columns.find(
-        (candidate) => candidate.workflowState.id === column.workflowState.id,
-      )
-      if (!loadedColumn || loadedColumn.issues.length <= column.issues.length) {
-        return column
-      }
-
-      const loadedTail = loadedColumn.issues.filter(
-        (issue) => !firstPageIssueIds.has(issue.id),
-      )
-      return {
-        ...column,
-        issues: [...column.issues, ...loadedTail],
-        nextCursor: loadedColumn.nextCursor,
-      }
-    }),
-  }
-}
-
 export function findBoardIssue(board: ProjectBoard, issueId: string) {
   for (const column of board.columns) {
     const issue = column.issues.find((candidate) => candidate.id === issueId)
@@ -185,8 +157,9 @@ export function buildOptimisticBoard(
       return null
     }
 
-    const reorderedIssues = normalizeBoardPositions(
+    const reorderedIssues = withTemporaryMovedIssuePosition(
       arrayMove(sourceColumn.issues, sourceIssueIndex, targetIssueIndex),
+      issueId,
     )
     return {
       ...board,
@@ -209,7 +182,7 @@ export function buildOptimisticBoard(
     status: targetColumn.workflowState.category,
     workflowState: targetColumn.workflowState,
   })
-  const reorderedTargetIssues = normalizeBoardPositions(nextTargetIssues)
+  const reorderedTargetIssues = withTemporaryMovedIssuePosition(nextTargetIssues, issueId)
   const nextSourceIssues = sourceColumn.issues.filter((issue) => issue.id !== issueId)
 
   return {
@@ -226,11 +199,62 @@ export function buildOptimisticBoard(
   }
 }
 
-export function normalizeBoardPositions(issues: IssueSummary[]) {
-  return issues.map((issue, index) => ({
-    ...issue,
-    boardPosition: (index + 1) * 10_000,
-  }))
+export function boardIssueNeighbors(
+  board: ProjectBoard,
+  workflowStateId: string,
+  issueId: string,
+) {
+  const column = board.columns.find(
+    (candidate) => candidate.workflowState.id === workflowStateId,
+  )
+  const issueIndex = column?.issues.findIndex((issue) => issue.id === issueId) ?? -1
+  if (!column || issueIndex < 0) {
+    return null
+  }
+  return {
+    previousIssueId: column.issues[issueIndex - 1]?.id ?? null,
+    nextIssueId: column.issues[issueIndex + 1]?.id ?? null,
+  }
+}
+
+export function applyBoardReorderResult(
+  board: ProjectBoard | undefined,
+  result: ReorderIssuesResponse,
+) {
+  if (!board) {
+    return board
+  }
+  return {
+    ...board,
+    columns: board.columns.map((column) => ({
+      ...column,
+      issues: column.issues.map((issue) =>
+        issue.id === result.issueId
+          ? { ...issue, boardPosition: result.boardPosition }
+          : issue,
+      ),
+    })),
+  }
+}
+
+function withTemporaryMovedIssuePosition(issues: IssueSummary[], movedIssueId: string) {
+  const movedIssueIndex = issues.findIndex((issue) => issue.id === movedIssueId)
+  if (movedIssueIndex < 0) {
+    return issues
+  }
+  const previousPosition = issues[movedIssueIndex - 1]?.boardPosition
+  const nextPosition = issues[movedIssueIndex + 1]?.boardPosition
+  let boardPosition = 10_000
+  if (previousPosition !== undefined && nextPosition !== undefined) {
+    boardPosition = previousPosition + (nextPosition - previousPosition) / 2
+  } else if (previousPosition !== undefined) {
+    boardPosition = previousPosition + 10_000
+  } else if (nextPosition !== undefined) {
+    boardPosition = nextPosition / 2
+  }
+  return issues.map((issue, index) =>
+    index === movedIssueIndex ? { ...issue, boardPosition } : issue,
+  )
 }
 
 export function groupIssuesByWorkflowState(

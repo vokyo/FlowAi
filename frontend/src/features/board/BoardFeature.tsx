@@ -40,6 +40,7 @@ import {
 } from '@/work/work-api'
 import {
   boardEmptyColumnLabel,
+  boardIssueNeighbors,
   buildOptimisticBoard,
   findBoardIssue,
   kanbanColumnId,
@@ -232,12 +233,20 @@ export function BoardFeature({
     if (!targetColumn) {
       return
     }
+    const neighbors = boardIssueNeighbors(
+      optimisticBoard,
+      overData.workflowStateId,
+      issueId,
+    )
+    if (!neighbors) {
+      return
+    }
 
     try {
       await onReorder({
         issueId,
         workflowStateId: overData.workflowStateId,
-        orderedIssueIds: targetColumn.issues.map((issue) => issue.id),
+        ...neighbors,
         optimisticBoard,
       })
     } catch {

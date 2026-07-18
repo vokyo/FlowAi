@@ -8,7 +8,6 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
-import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -94,10 +93,59 @@ public interface IssueRepository extends JpaRepository<Issue, UUID>, JpaSpecific
             Pageable pageable
     );
 
-    List<Issue> findByWorkspace_IdAndProject_IdAndIdIn(
-            UUID workspaceId,
-            UUID projectId,
-            Collection<UUID> issueIds
+    @Query("""
+            select issue
+            from Issue issue
+            where issue.workspace.id = :workspaceId
+              and issue.project.id = :projectId
+              and issue.workflowState.id = :workflowStateId
+              and issue.archivedAt is null
+              and issue.id <> :excludedIssueId
+            order by issue.boardPosition asc, issue.id asc
+            """)
+    List<Issue> findFirstActiveIssueInWorkflowStateExcludingIssue(
+            @Param("workspaceId") UUID workspaceId,
+            @Param("projectId") UUID projectId,
+            @Param("workflowStateId") UUID workflowStateId,
+            @Param("excludedIssueId") UUID excludedIssueId,
+            Pageable pageable
+    );
+
+    @Query("""
+            select issue
+            from Issue issue
+            where issue.workspace.id = :workspaceId
+              and issue.project.id = :projectId
+              and issue.workflowState.id = :workflowStateId
+              and issue.archivedAt is null
+              and issue.id <> :excludedIssueId
+              and (issue.boardPosition > :boardPosition
+                   or (issue.boardPosition = :boardPosition and issue.id > :id))
+            order by issue.boardPosition asc, issue.id asc
+            """)
+    List<Issue> findFirstActiveIssueAfterExcludingIssue(
+            @Param("workspaceId") UUID workspaceId,
+            @Param("projectId") UUID projectId,
+            @Param("workflowStateId") UUID workflowStateId,
+            @Param("boardPosition") long boardPosition,
+            @Param("id") UUID id,
+            @Param("excludedIssueId") UUID excludedIssueId,
+            Pageable pageable
+    );
+
+    @Query("""
+            select issue
+            from Issue issue
+            where issue.workspace.id = :workspaceId
+              and issue.project.id = :projectId
+              and issue.workflowState.id = :workflowStateId
+              and issue.archivedAt is null
+            order by issue.boardPosition asc, issue.id asc
+            """)
+    List<Issue> findAllActiveIssuesInWorkflowState(
+            @Param("workspaceId") UUID workspaceId,
+            @Param("projectId") UUID projectId,
+            @Param("workflowStateId") UUID workflowStateId
     );
 
     @Query("""
@@ -113,22 +161,6 @@ public interface IssueRepository extends JpaRepository<Issue, UUID>, JpaSpecific
             @Param("projectId") UUID projectId,
             @Param("workflowStateId") UUID workflowStateId,
             Pageable pageable
-    );
-
-    @Modifying(flushAutomatically = true)
-    @Query("""
-            update Issue issue
-            set issue.boardPosition = issue.boardPosition + :offset
-            where issue.workspace.id = :workspaceId
-              and issue.project.id = :projectId
-              and issue.workflowState.id = :workflowStateId
-              and issue.archivedAt is null
-            """)
-    int shiftActiveWorkflowStateBoardPositions(
-            @Param("workspaceId") UUID workspaceId,
-            @Param("projectId") UUID projectId,
-            @Param("workflowStateId") UUID workflowStateId,
-            @Param("offset") long offset
     );
 
     @Modifying(flushAutomatically = true)

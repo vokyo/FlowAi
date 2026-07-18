@@ -10,6 +10,7 @@ import com.vokyo.backend.issue.dto.IssueSummaryResponse;
 import com.vokyo.backend.issue.dto.MoveIssueStateRequest;
 import com.vokyo.backend.issue.dto.ProjectBoardResponse;
 import com.vokyo.backend.issue.dto.ReorderIssuesRequest;
+import com.vokyo.backend.issue.dto.ReorderIssuesResponse;
 import com.vokyo.backend.pagination.CursorPage;
 import com.vokyo.backend.pagination.CursorPagination;
 import jakarta.validation.Valid;
@@ -101,7 +102,7 @@ public class IssueController {
     }
 
     @PatchMapping("/reorder")
-    public ProjectBoardResponse reorderIssues(
+    public ReorderIssuesResponse reorderIssues(
             @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody ReorderIssuesRequest request
     ) {
