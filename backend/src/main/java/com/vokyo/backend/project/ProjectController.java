@@ -36,10 +36,18 @@ import java.util.UUID;
 @RequestMapping("/api/projects")
 public class ProjectController {
 
-    private final ProjectService projectService;
+    private final ProjectQueryService projectQueryService;
+    private final ProjectCommandService projectCommandService;
+    private final ProjectConfigurationService projectConfigurationService;
 
-    public ProjectController(ProjectService projectService) {
-        this.projectService = projectService;
+    public ProjectController(
+            ProjectQueryService projectQueryService,
+            ProjectCommandService projectCommandService,
+            ProjectConfigurationService projectConfigurationService
+    ) {
+        this.projectQueryService = projectQueryService;
+        this.projectCommandService = projectCommandService;
+        this.projectConfigurationService = projectConfigurationService;
     }
 
     @GetMapping
@@ -47,7 +55,7 @@ public class ProjectController {
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(defaultValue = "false") boolean includeArchived
     ) {
-        return projectService.listProjects(jwt, includeArchived);
+        return projectQueryService.listProjects(jwt, includeArchived);
     }
 
     @PostMapping
@@ -55,7 +63,7 @@ public class ProjectController {
             @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody CreateProjectRequest request
     ) {
-        return projectService.createProject(jwt, request);
+        return projectCommandService.createProject(jwt, request);
     }
 
     @GetMapping("/{projectId}")
@@ -63,7 +71,7 @@ public class ProjectController {
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID projectId
     ) {
-        return projectService.getProject(jwt, projectId);
+        return projectQueryService.getProject(jwt, projectId);
     }
 
     @PatchMapping("/{projectId}")
@@ -72,7 +80,7 @@ public class ProjectController {
             @PathVariable UUID projectId,
             @Valid @RequestBody UpdateProjectRequest request
     ) {
-        return projectService.updateProject(jwt, projectId, request);
+        return projectCommandService.updateProject(jwt, projectId, request);
     }
 
     @PostMapping("/{projectId}/archive")
@@ -80,7 +88,7 @@ public class ProjectController {
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID projectId
     ) {
-        return projectService.archiveProject(jwt, projectId);
+        return projectCommandService.archiveProject(jwt, projectId);
     }
 
     @PostMapping("/{projectId}/restore")
@@ -88,7 +96,7 @@ public class ProjectController {
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID projectId
     ) {
-        return projectService.restoreProject(jwt, projectId);
+        return projectCommandService.restoreProject(jwt, projectId);
     }
 
     @DeleteMapping("/{projectId}")
@@ -97,7 +105,7 @@ public class ProjectController {
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID projectId
     ) {
-        projectService.deleteProject(jwt, projectId);
+        projectCommandService.deleteProject(jwt, projectId);
     }
 
     @GetMapping("/{projectId}/members")
@@ -105,7 +113,7 @@ public class ProjectController {
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID projectId
     ) {
-        return projectService.listProjectMembers(jwt, projectId);
+        return projectQueryService.listProjectMembers(jwt, projectId);
     }
 
     @PostMapping("/{projectId}/members")
@@ -114,7 +122,7 @@ public class ProjectController {
             @PathVariable UUID projectId,
             @Valid @RequestBody AddProjectMemberRequest request
     ) {
-        return projectService.addProjectMember(jwt, projectId, request);
+        return projectConfigurationService.addProjectMember(jwt, projectId, request);
     }
 
     @PatchMapping("/{projectId}/members/{memberId}")
@@ -124,7 +132,7 @@ public class ProjectController {
             @PathVariable UUID memberId,
             @Valid @RequestBody UpdateProjectMemberRequest request
     ) {
-        return projectService.updateProjectMember(jwt, projectId, memberId, request);
+        return projectConfigurationService.updateProjectMember(jwt, projectId, memberId, request);
     }
 
     @DeleteMapping("/{projectId}/members/{memberId}")
@@ -134,7 +142,7 @@ public class ProjectController {
             @PathVariable UUID projectId,
             @PathVariable UUID memberId
     ) {
-        projectService.removeProjectMember(jwt, projectId, memberId);
+        projectConfigurationService.removeProjectMember(jwt, projectId, memberId);
     }
 
     @GetMapping("/{projectId}/labels")
@@ -142,7 +150,7 @@ public class ProjectController {
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID projectId
     ) {
-        return projectService.listProjectLabels(jwt, projectId);
+        return projectQueryService.listProjectLabels(jwt, projectId);
     }
 
     @PostMapping("/{projectId}/labels")
@@ -151,7 +159,7 @@ public class ProjectController {
             @PathVariable UUID projectId,
             @Valid @RequestBody CreateProjectLabelRequest request
     ) {
-        return projectService.createProjectLabel(jwt, projectId, request);
+        return projectConfigurationService.createProjectLabel(jwt, projectId, request);
     }
 
     @PatchMapping("/{projectId}/labels/{labelId}")
@@ -161,7 +169,7 @@ public class ProjectController {
             @PathVariable UUID labelId,
             @Valid @RequestBody UpdateProjectLabelRequest request
     ) {
-        return projectService.updateProjectLabel(jwt, projectId, labelId, request);
+        return projectConfigurationService.updateProjectLabel(jwt, projectId, labelId, request);
     }
 
     @DeleteMapping("/{projectId}/labels/{labelId}")
@@ -171,7 +179,7 @@ public class ProjectController {
             @PathVariable UUID projectId,
             @PathVariable UUID labelId
     ) {
-        projectService.deleteProjectLabel(jwt, projectId, labelId);
+        projectConfigurationService.deleteProjectLabel(jwt, projectId, labelId);
     }
 
     @GetMapping("/{projectId}/workflow-states")
@@ -179,7 +187,7 @@ public class ProjectController {
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID projectId
     ) {
-        return projectService.listProjectWorkflowStates(jwt, projectId);
+        return projectQueryService.listProjectWorkflowStates(jwt, projectId);
     }
 
     @PostMapping("/{projectId}/workflow-states")
@@ -188,7 +196,7 @@ public class ProjectController {
             @PathVariable UUID projectId,
             @Valid @RequestBody CreateProjectWorkflowStateRequest request
     ) {
-        return projectService.createProjectWorkflowState(jwt, projectId, request);
+        return projectConfigurationService.createProjectWorkflowState(jwt, projectId, request);
     }
 
     @PatchMapping("/{projectId}/workflow-states/{workflowStateId}")
@@ -198,7 +206,12 @@ public class ProjectController {
             @PathVariable UUID workflowStateId,
             @Valid @RequestBody UpdateProjectWorkflowStateRequest request
     ) {
-        return projectService.updateProjectWorkflowState(jwt, projectId, workflowStateId, request);
+        return projectConfigurationService.updateProjectWorkflowState(
+                jwt,
+                projectId,
+                workflowStateId,
+                request
+        );
     }
 
     @PatchMapping("/{projectId}/workflow-states/order")
@@ -207,7 +220,7 @@ public class ProjectController {
             @PathVariable UUID projectId,
             @Valid @RequestBody ReorderProjectWorkflowStatesRequest request
     ) {
-        return projectService.reorderProjectWorkflowStates(jwt, projectId, request);
+        return projectConfigurationService.reorderProjectWorkflowStates(jwt, projectId, request);
     }
 
     @DeleteMapping("/{projectId}/workflow-states/{workflowStateId}")
@@ -218,6 +231,11 @@ public class ProjectController {
             @PathVariable UUID workflowStateId,
             @Valid @RequestBody DeleteProjectWorkflowStateRequest request
     ) {
-        projectService.deleteProjectWorkflowState(jwt, projectId, workflowStateId, request);
+        projectConfigurationService.deleteProjectWorkflowState(
+                jwt,
+                projectId,
+                workflowStateId,
+                request
+        );
     }
 }

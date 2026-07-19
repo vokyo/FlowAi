@@ -1,0 +1,232 @@
+.issue-detail-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 300px);
+  gap: 26px;
+  min-width: 0;
+  width: min(100%, 1180px);
+  margin-inline: auto;
+}
+
+.issue-detail-main {
+  display: grid;
+  align-content: start;
+  gap: 24px;
+  min-width: 0;
+  padding-top: 20px;
+}
+
+.issue-title-block {
+  display: grid;
+  gap: 14px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 24px;
+}
+
+.issue-title-block h1 {
+  font-size: 30px;
+}
+
+.issue-title-display {
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+}
+
+.issue-title-content {
+  flex: 1 1 auto;
+}
+
+.issue-edit-form {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.issue-title-input,
+.issue-description-input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--input);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  outline: none;
+}
+
+.issue-title-input {
+  min-height: 46px;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 6px 8px;
+}
+
+.issue-description-input {
+  min-height: 118px;
+  color: var(--foreground);
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 8px 9px;
+  resize: vertical;
+}
+
+.issue-title-input:focus,
+.issue-description-input:focus {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring), transparent 78%);
+}
+
+.issue-edit-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.detail-section {
+  display: grid;
+  gap: 13px;
+  min-width: 0;
+}
+
+.detail-section-title,
+.property-section-title {
+  gap: 8px;
+  color: var(--foreground);
+}
+
+.detail-section-title h2,
+.property-section-title h2 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.comment-list,
+.activity-list {
+  gap: 10px;
+}
+
+.comment-item {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  padding: 12px;
+}
+
+.comment-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.comment-item p,
+.activity-item p,
+.empty-state p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--foreground);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.comment-form {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--muted), transparent 58%);
+  padding: 12px;
+}
+
+.activity-item {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.activity-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--foreground), var(--background) 30%);
+}
+
+.issue-properties {
+  align-content: start;
+  position: sticky;
+  top: 18px;
+  gap: 10px;
+  min-width: 0;
+  max-height: calc(100svh - 36px);
+  overflow: auto;
+  padding-top: 20px;
+}
+
+.property-section {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--card), transparent 3%);
+  padding: 14px;
+}
+
+.property-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.property-row {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.8fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.property-row span {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.property-row strong {
+  text-align: right;
+}
+
+.empty-state {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  max-width: 620px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--muted), transparent 52%);
+  padding: 16px;
+}
+
+.empty-state svg {
+  width: 18px;
+  height: 18px;
+  color: var(--muted-foreground);
+}
+
+.empty-state strong {
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+

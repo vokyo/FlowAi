@@ -1,0 +1,196 @@
+@keyframes flowai-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 920px) {
+  .app-shell,
+  .issue-detail-layout,
+  .issue-filter-bar,
+  .issue-create-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .app-sidebar {
+    position: fixed;
+    z-index: 70;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(84vw, 300px);
+    height: 100svh;
+    border-right: 1px solid var(--border);
+    box-shadow: 18px 0 50px rgba(15, 23, 42, 0.16);
+    transform: translateX(-105%);
+    transition: transform 180ms ease;
+  }
+
+  .app-sidebar[data-mobile-open='true'] {
+    transform: translateX(0);
+  }
+
+  .mobile-sidebar-trigger {
+    position: fixed;
+    z-index: 60;
+    top: 12px;
+    left: 12px;
+    display: inline-flex;
+    background: color-mix(in oklch, var(--background), transparent 4%);
+    box-shadow: 0 6px 22px rgba(15, 23, 42, 0.12);
+  }
+
+  .mobile-sidebar-backdrop {
+    position: fixed;
+    z-index: 65;
+    inset: 0;
+    display: block;
+    border: 0;
+    background: rgba(15, 23, 42, 0.34);
+  }
+
+  .content-page {
+    min-height: auto;
+    padding: 66px 16px 24px;
+  }
+
+  .content-header,
+  .detail-content-header,
+  .content-header-actions,
+  .issue-title-display,
+  .comment-meta {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .content-header-actions {
+    justify-content: flex-start;
+  }
+
+  .issue-view-switch,
+  .board-view-switch {
+    align-self: flex-start;
+  }
+
+  .kanban-board {
+    grid-auto-columns: minmax(260px, min(78vw, 310px));
+  }
+
+  .issue-properties {
+    position: static;
+    max-height: none;
+    padding-top: 0;
+  }
+
+  .issue-row {
+    grid-template-columns: 20px minmax(0, 1fr);
+  }
+
+  .issue-row-meta {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+
+  .modal-backdrop {
+    padding: 18px 12px;
+  }
+
+  .issue-modal-footer,
+  .modal-actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .project-member-add-form {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .workspace-invitation-form {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .issue-modal-label-create {
+    grid-template-columns: 1fr;
+  }
+
+  .project-member-row {
+    grid-template-columns: 32px minmax(0, 1fr);
+  }
+
+  .workflow-state-edit-form {
+    grid-template-columns: 1fr;
+    grid-column: 2;
+    align-items: stretch;
+  }
+
+  .workflow-state-edit-actions {
+    justify-content: flex-start;
+  }
+
+  .project-member-meta {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 560px) {
+  .auth-screen {
+    padding: 20px;
+  }
+
+  .auth-panel {
+    padding: 22px;
+  }
+
+  .app-sidebar {
+    padding: 12px;
+  }
+
+  .content-page {
+    padding: 14px;
+  }
+
+  .content-header h1,
+  .issue-title-block h1 {
+    font-size: 24px;
+  }
+
+  .kanban-board {
+    grid-auto-columns: minmax(252px, calc(100vw - 44px));
+  }
+
+  .property-row {
+    grid-template-columns: 1fr;
+  }
+
+  .property-row strong {
+    text-align: left;
+  }
+
+  .workspace-invitation-link > div,
+  .workspace-invitation-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .workspace-invitation-link [data-slot='button'] {
+    width: 100%;
+  }
+
+  .workspace-invitation-row-actions {
+    align-self: flex-end;
+  }
+
+  .invitation-summary {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .invitation-summary strong + span {
+    margin-top: 7px;
+  }
+}
+
+

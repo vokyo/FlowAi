@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Navigate, Route, Routes, useNavigate } from 'react-router'
 import {
   clearAccessTokenProvider,
@@ -27,8 +27,13 @@ function App() {
 
 function AppRoutes() {
   const navigate = useNavigate()
+  const navigateRef = useRef(navigate)
   const [sessionVersion, setSessionVersion] = useState(0)
   const [isRestoringSession, setIsRestoringSession] = useState(true)
+
+  useEffect(() => {
+    navigateRef.current = navigate
+  }, [navigate])
 
   function refreshSession() {
     setSessionVersion((version) => version + 1)
@@ -56,7 +61,7 @@ function AppRoutes() {
       const loginPath = currentPath.startsWith('/invite/')
         ? `/login?returnTo=${encodeURIComponent(currentPath)}`
         : '/login'
-      navigate(loginPath, { replace: true })
+      navigateRef.current(loginPath, { replace: true })
     })
 
     void refreshAccessToken().finally(() => {
@@ -71,7 +76,7 @@ function AppRoutes() {
       clearAccessTokenProvider()
       clearUnauthorizedHandler()
     }
-  }, [navigate])
+  }, [])
 
   if (isRestoringSession) {
     return <RouteLoading />

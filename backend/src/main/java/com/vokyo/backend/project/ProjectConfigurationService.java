@@ -1,21 +1,17 @@
 package com.vokyo.backend.project;
 
-import com.vokyo.backend.activity.ActivityService;
 import com.vokyo.backend.issue.IssueRepository;
 import com.vokyo.backend.project.dto.AddProjectMemberRequest;
 import com.vokyo.backend.project.dto.CreateProjectLabelRequest;
-import com.vokyo.backend.project.dto.CreateProjectRequest;
 import com.vokyo.backend.project.dto.CreateProjectWorkflowStateRequest;
+import com.vokyo.backend.project.dto.DeleteProjectWorkflowStateRequest;
 import com.vokyo.backend.project.dto.ProjectLabelResponse;
 import com.vokyo.backend.project.dto.ProjectMemberResponse;
-import com.vokyo.backend.project.dto.ProjectResponse;
 import com.vokyo.backend.project.dto.ProjectWorkflowStateResponse;
 import com.vokyo.backend.project.dto.ReorderProjectWorkflowStatesRequest;
-import com.vokyo.backend.project.dto.UpdateProjectWorkflowStateRequest;
-import com.vokyo.backend.project.dto.UpdateProjectMemberRequest;
-import com.vokyo.backend.project.dto.UpdateProjectRequest;
 import com.vokyo.backend.project.dto.UpdateProjectLabelRequest;
-import com.vokyo.backend.project.dto.DeleteProjectWorkflowStateRequest;
+import com.vokyo.backend.project.dto.UpdateProjectMemberRequest;
+import com.vokyo.backend.project.dto.UpdateProjectWorkflowStateRequest;
 import com.vokyo.backend.workspace.CurrentWorkspaceContext;
 import com.vokyo.backend.workspace.MembershipStatus;
 import com.vokyo.backend.workspace.WorkspaceAccessService;
@@ -27,7 +23,6 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
-import jakarta.persistence.EntityManager;
 
 import java.time.Instant;
 import java.util.HashSet;
@@ -38,156 +33,45 @@ import java.util.Set;
 import java.util.UUID;
 
 @Service
-public class ProjectService {
+public class ProjectConfigurationService {
 
     private static final String DEFAULT_LABEL_COLOR = "#64748b";
-    private static final int TODO_POSITION = 10_000;
     private static final int IN_PROGRESS_POSITION = 20_000;
     private static final int DONE_POSITION = 30_000;
     private static final int WORKFLOW_STATE_REASSIGNMENT_BATCH_SIZE = 100;
 
-    private final ProjectRepository projectRepository;
     private final ProjectLabelRepository projectLabelRepository;
     private final ProjectWorkflowStateRepository projectWorkflowStateRepository;
     private final IssueRepository issueRepository;
     private final ProjectAccessService projectAccessService;
     private final WorkspaceAccessService workspaceAccessService;
     private final WorkspaceMembershipRepository workspaceMembershipRepository;
-    private final ActivityService activityService;
-    private final EntityManager entityManager;
+    private final ProjectMapper projectMapper;
 
-    public ProjectService(
-            ProjectRepository projectRepository,
+    public ProjectConfigurationService(
             ProjectLabelRepository projectLabelRepository,
             ProjectWorkflowStateRepository projectWorkflowStateRepository,
             IssueRepository issueRepository,
             ProjectAccessService projectAccessService,
             WorkspaceAccessService workspaceAccessService,
             WorkspaceMembershipRepository workspaceMembershipRepository,
-            ActivityService activityService,
-            EntityManager entityManager
+            ProjectMapper projectMapper
     ) {
-        this.projectRepository = projectRepository;
         this.projectLabelRepository = projectLabelRepository;
         this.projectWorkflowStateRepository = projectWorkflowStateRepository;
         this.issueRepository = issueRepository;
         this.projectAccessService = projectAccessService;
         this.workspaceAccessService = workspaceAccessService;
         this.workspaceMembershipRepository = workspaceMembershipRepository;
-        this.activityService = activityService;
-        this.entityManager = entityManager;
-    }
-
-    @Transactional(readOnly = true)
-    public List<ProjectResponse> listProjects(Jwt jwt, boolean includeArchived) {
-        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
-        return projectAccessService.listAccessibleProjects(context)
-                .stream()
-                .filter(project -> includeArchived || project.getArchivedAt() == null)
-                .map(this::toResponse)
-                .toList();
-    }
-
-    @Transactional(readOnly = true)
-    public ProjectResponse getProject(Jwt jwt, UUID projectId) {
-        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
-        return toResponse(projectAccessService.requireAccessibleProject(projectId, context));
+        this.projectMapper = projectMapper;
     }
 
     @Transactional
-    public ProjectResponse createProject(Jwt jwt, CreateProjectRequest request) {
-        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
-        workspaceAccessService.requireCanCreateProject(context);
-        Project project = projectRepository.save(new Project(
-                context.workspace(),
-                context.user(),
-                request.name().trim(),
-                normalizeOptionalText(request.description())
-        ));
-
-        projectAccessService.createOwnerMembership(project, context.user());
-        createDefaultWorkflowStates(project);
-        activityService.recordProjectCreated(project, context.user());
-        return toResponse(project);
-    }
-
-    @Transactional
-    public ProjectResponse updateProject(Jwt jwt, UUID projectId, UpdateProjectRequest request) {
-        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
-        Project project = projectAccessService.requireOwnedProjectForUpdate(projectId, context);
-        project.rename(request.name().trim());
-        project.changeDescription(normalizeOptionalText(request.description()));
-        return toResponse(project);
-    }
-
-    @Transactional
-    public ProjectResponse archiveProject(Jwt jwt, UUID projectId) {
-        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
-        Project project = projectAccessService.requireOwnedProjectForUpdate(projectId, context);
-        project.archive();
-        return toResponse(project);
-    }
-
-    @Transactional
-    public ProjectResponse restoreProject(Jwt jwt, UUID projectId) {
-        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
-        Project project = projectAccessService.requireOwnedProjectForUpdate(projectId, context);
-        project.restore();
-        return toResponse(project);
-    }
-
-    @Transactional
-    public void deleteProject(Jwt jwt, UUID projectId) {
-        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
-        projectAccessService.requireOwnedProjectForUpdate(projectId, context);
-        entityManager.flush();
-        entityManager.clear();
-        entityManager.createNativeQuery("delete from projects where id = :projectId and workspace_id = :workspaceId")
-                .setParameter("projectId", projectId)
-                .setParameter("workspaceId", context.workspace().getId())
-                .executeUpdate();
-    }
-
-    @Transactional(readOnly = true)
-    public List<ProjectMemberResponse> listProjectMembers(Jwt jwt, UUID projectId) {
-        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
-        Project project = projectAccessService.requireAccessibleProject(projectId, context);
-        return projectAccessService.listProjectMembers(project)
-                .stream()
-                .map(this::toMemberResponse)
-                .toList();
-    }
-
-    @Transactional(readOnly = true)
-    public List<ProjectLabelResponse> listProjectLabels(Jwt jwt, UUID projectId) {
-        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
-        Project project = projectAccessService.requireAccessibleProject(projectId, context);
-
-        return projectLabelRepository.findByWorkspace_IdAndProject_IdOrderByNameAsc(
-                        project.getWorkspace().getId(),
-                        project.getId()
-                )
-                .stream()
-                .map(this::toLabelResponse)
-                .toList();
-    }
-
-    @Transactional(readOnly = true)
-    public List<ProjectWorkflowStateResponse> listProjectWorkflowStates(Jwt jwt, UUID projectId) {
-        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
-        Project project = projectAccessService.requireAccessibleProject(projectId, context);
-
-        return projectWorkflowStateRepository.findByWorkspace_IdAndProject_IdOrderByPositionAscNameAsc(
-                        project.getWorkspace().getId(),
-                        project.getId()
-                )
-                .stream()
-                .map(this::toWorkflowStateResponse)
-                .toList();
-    }
-
-    @Transactional
-    public ProjectLabelResponse createProjectLabel(Jwt jwt, UUID projectId, CreateProjectLabelRequest request) {
+    public ProjectLabelResponse createProjectLabel(
+            Jwt jwt,
+            UUID projectId,
+            CreateProjectLabelRequest request
+    ) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Project project = projectAccessService.requireAccessibleProject(projectId, context);
         String name = request.name().trim();
@@ -197,7 +81,7 @@ public class ProjectService {
                 project.getId(),
                 name
         )) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Project label already exists");
+            throw conflict("Project label already exists");
         }
 
         ProjectLabel label = projectLabelRepository.save(new ProjectLabel(
@@ -206,8 +90,7 @@ public class ProjectService {
                 name,
                 normalizeLabelColor(request.color())
         ));
-
-        return toLabelResponse(label);
+        return projectMapper.toLabelResponse(label);
     }
 
     @Transactional
@@ -222,13 +105,16 @@ public class ProjectService {
         ProjectLabel label = requireProjectLabel(project, labelId);
         String name = request.name().trim();
         if (projectLabelRepository.existsByWorkspace_IdAndProject_IdAndNameIgnoreCaseAndIdNot(
-                project.getWorkspace().getId(), project.getId(), name, labelId
+                project.getWorkspace().getId(),
+                project.getId(),
+                name,
+                labelId
         )) {
             throw conflict("Project label already exists");
         }
         label.rename(name);
         label.changeColor(normalizeLabelColor(request.color()));
-        return toLabelResponse(label);
+        return projectMapper.toLabelResponse(label);
     }
 
     @Transactional
@@ -253,18 +139,19 @@ public class ProjectService {
                 project.getId(),
                 name
         )) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Project workflow state already exists");
+            throw conflict("Project workflow state already exists");
         }
 
-        ProjectWorkflowState workflowState = projectWorkflowStateRepository.save(new ProjectWorkflowState(
-                project.getWorkspace(),
-                project,
-                name,
-                request.category(),
-                nextWorkflowStatePosition(project)
-        ));
-
-        return toWorkflowStateResponse(workflowState);
+        ProjectWorkflowState workflowState = projectWorkflowStateRepository.save(
+                new ProjectWorkflowState(
+                        project.getWorkspace(),
+                        project,
+                        name,
+                        request.category(),
+                        nextWorkflowStatePosition(project)
+                )
+        );
+        return projectMapper.toWorkflowStateResponse(workflowState);
     }
 
     @Transactional
@@ -286,16 +173,15 @@ public class ProjectService {
                 name,
                 workflowState.getId()
         )) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Project workflow state already exists");
+            throw conflict("Project workflow state already exists");
         }
 
         workflowState.rename(name);
         workflowState.changeCategory(request.category());
-
         if (previousCategory != request.category()) {
             synchronizeWorkflowStateIssueCompletion(project, workflowState, previousCategory);
         }
-        return toWorkflowStateResponse(workflowState);
+        return projectMapper.toWorkflowStateResponse(workflowState);
     }
 
     @Transactional
@@ -316,8 +202,8 @@ public class ProjectService {
             throw badRequest("Workflow state order cannot contain duplicates");
         }
 
-        List<ProjectWorkflowState> workflowStates =
-                projectWorkflowStateRepository.findByWorkspace_IdAndProject_IdOrderByPositionAscNameAsc(
+        List<ProjectWorkflowState> workflowStates = projectWorkflowStateRepository
+                .findByWorkspace_IdAndProject_IdOrderByPositionAscNameAsc(
                         project.getWorkspace().getId(),
                         project.getId()
                 );
@@ -331,7 +217,6 @@ public class ProjectService {
                 throw notFound("Project workflow state not found");
             }
         }
-
         if (requestedIds.size() != workflowStates.size()) {
             throw badRequest("Workflow state order must include every state");
         }
@@ -339,12 +224,10 @@ public class ProjectService {
         for (int index = 0; index < requestedIds.size(); index++) {
             workflowStatesById.get(requestedIds.get(index)).moveTo((index + 1) * 10_000);
         }
-
         projectWorkflowStateRepository.saveAll(workflowStates);
-        return requestedIds
-                .stream()
+        return requestedIds.stream()
                 .map(workflowStatesById::get)
-                .map(this::toWorkflowStateResponse)
+                .map(projectMapper::toWorkflowStateResponse)
                 .toList();
     }
 
@@ -367,11 +250,13 @@ public class ProjectService {
         );
         List<ProjectWorkflowState> states = projectWorkflowStateRepository
                 .findByWorkspace_IdAndProject_IdOrderByPositionAscNameAsc(
-                        project.getWorkspace().getId(), project.getId()
+                        project.getWorkspace().getId(),
+                        project.getId()
                 );
         if (states.size() <= 1) {
             throw conflict("A project must have at least one workflow state");
         }
+
         while (true) {
             var issues = issueRepository.findWorkflowStateBatch(
                     project.getWorkspace().getId(),
@@ -389,10 +274,13 @@ public class ProjectService {
     }
 
     @Transactional
-    public ProjectMemberResponse addProjectMember(Jwt jwt, UUID projectId, AddProjectMemberRequest request) {
+    public ProjectMemberResponse addProjectMember(
+            Jwt jwt,
+            UUID projectId,
+            AddProjectMemberRequest request
+    ) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Project project = projectAccessService.requireOwnedProject(projectId, context);
-
         if (request.role() != ProjectRole.MEMBER) {
             throw badRequest("Only MEMBER role can be added");
         }
@@ -402,19 +290,24 @@ public class ProjectService {
                 .filter(membership -> membership.getStatus() == MembershipStatus.ACTIVE)
                 .orElseThrow(() -> notFound("Workspace member not found"));
 
-        var existingMembership = projectAccessService.findProjectMembership(project, targetMembership.getUser());
+        var existingMembership = projectAccessService.findProjectMembership(
+                project,
+                targetMembership.getUser()
+        );
         if (existingMembership.isPresent()) {
             ProjectMember member = existingMembership.get();
             if (member.getStatus() != MembershipStatus.DISABLED) {
                 throw conflict("Project member already exists");
             }
-
             member.reactivate(ProjectRole.MEMBER);
-            return toMemberResponse(member);
+            return projectMapper.toMemberResponse(member);
         }
 
-        ProjectMember member = projectAccessService.createMemberMembership(project, targetMembership.getUser());
-        return toMemberResponse(member);
+        ProjectMember member = projectAccessService.createMemberMembership(
+                project,
+                targetMembership.getUser()
+        );
+        return projectMapper.toMemberResponse(member);
     }
 
     @Transactional
@@ -427,11 +320,9 @@ public class ProjectService {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Project project = projectAccessService.requireOwnedProjectForUpdate(projectId, context);
         ProjectMember member = projectAccessService.requireActiveProjectMember(project, memberId);
-
         if (member.getRole() == request.role()) {
-            return toMemberResponse(member);
+            return projectMapper.toMemberResponse(member);
         }
-
         if (member.getRole() == ProjectRole.OWNER
                 && request.role() == ProjectRole.MEMBER
                 && projectAccessService.countActiveProjectOwners(project) <= 1) {
@@ -439,7 +330,7 @@ public class ProjectService {
         }
 
         member.changeRole(request.role());
-        return toMemberResponse(member);
+        return projectMapper.toMemberResponse(member);
     }
 
     @Transactional
@@ -447,110 +338,32 @@ public class ProjectService {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Project project = projectAccessService.requireOwnedProjectForUpdate(projectId, context);
         ProjectMember member = projectAccessService.requireProjectMember(project, memberId);
-
         if (member.getStatus() == MembershipStatus.DISABLED) {
             return;
         }
-
         if (member.getRole() == ProjectRole.OWNER
                 && projectAccessService.countActiveProjectOwners(project) <= 1) {
             throw conflict("A project must have at least one active owner");
         }
-
         member.disable();
     }
 
-    private ProjectResponse toResponse(Project project) {
-        return new ProjectResponse(
-                project.getId(),
-                project.getName(),
-                project.getDescription(),
-                project.getCreatedAt(),
-                project.getUpdatedAt(),
-                project.getArchivedAt()
-        );
-    }
-
-    private ProjectMemberResponse toMemberResponse(ProjectMember member) {
-        return new ProjectMemberResponse(
-                member.getId(),
-                member.getUser().getId(),
-                member.getUser().getEmail(),
-                member.getUser().getDisplayName(),
-                member.getRole().name(),
-                member.getStatus().name(),
-                member.getJoinedAt()
-        );
-    }
-
-    private ProjectLabelResponse toLabelResponse(ProjectLabel label) {
-        return new ProjectLabelResponse(
-                label.getId(),
-                label.getProject().getId(),
-                label.getName(),
-                label.getColor(),
-                label.getCreatedAt(),
-                label.getUpdatedAt()
-        );
-    }
-
-    private ProjectWorkflowStateResponse toWorkflowStateResponse(ProjectWorkflowState workflowState) {
-        return new ProjectWorkflowStateResponse(
-                workflowState.getId(),
-                workflowState.getProject().getId(),
-                workflowState.getName(),
-                workflowState.getCategory().name(),
-                workflowState.getPosition(),
-                workflowState.getCreatedAt(),
-                workflowState.getUpdatedAt()
-        );
-    }
-
-    private void createDefaultWorkflowStates(Project project) {
-        projectWorkflowStateRepository.saveAll(List.of(
-                new ProjectWorkflowState(
-                        project.getWorkspace(),
-                        project,
-                        "Todo",
-                        WorkflowStateCategory.TODO,
-                        TODO_POSITION
-                ),
-                new ProjectWorkflowState(
-                        project.getWorkspace(),
-                        project,
-                        "In progress",
-                        WorkflowStateCategory.IN_PROGRESS,
-                        IN_PROGRESS_POSITION
-                ),
-                new ProjectWorkflowState(
-                        project.getWorkspace(),
-                        project,
-                        "Done",
-                        WorkflowStateCategory.DONE,
-                        DONE_POSITION
-                )
-        ));
-    }
-
     private int nextWorkflowStatePosition(Project project) {
-        List<ProjectWorkflowState> workflowStates =
-                projectWorkflowStateRepository.findByWorkspace_IdAndProject_IdOrderByPositionAscNameAsc(
+        List<ProjectWorkflowState> workflowStates = projectWorkflowStateRepository
+                .findByWorkspace_IdAndProject_IdOrderByPositionAscNameAsc(
                         project.getWorkspace().getId(),
                         project.getId()
                 );
-        int donePosition = workflowStates
-                .stream()
+        int donePosition = workflowStates.stream()
                 .filter(workflowState -> workflowState.getCategory() == WorkflowStateCategory.DONE)
                 .mapToInt(ProjectWorkflowState::getPosition)
                 .findFirst()
                 .orElse(DONE_POSITION);
-        int maxBeforeDone = workflowStates
-                .stream()
+        int maxBeforeDone = workflowStates.stream()
                 .filter(workflowState -> workflowState.getPosition() < donePosition)
                 .mapToInt(ProjectWorkflowState::getPosition)
                 .max()
                 .orElse(IN_PROGRESS_POSITION);
-
         return Math.min(maxBeforeDone + 1_000, donePosition - 1);
     }
 
@@ -565,7 +378,9 @@ public class ProjectService {
 
     private ProjectLabel requireProjectLabel(Project project, UUID labelId) {
         return projectLabelRepository.findByWorkspace_IdAndProject_IdAndId(
-                        project.getWorkspace().getId(), project.getId(), labelId
+                        project.getWorkspace().getId(),
+                        project.getId(),
+                        labelId
                 )
                 .orElseThrow(() -> notFound("Project label not found"));
     }
@@ -584,7 +399,6 @@ public class ProjectService {
             );
             return;
         }
-
         if (previousCategory == WorkflowStateCategory.DONE) {
             issueRepository.clearWorkflowStateIssueCompletion(
                     project.getWorkspace().getId(),
@@ -594,20 +408,8 @@ public class ProjectService {
         }
     }
 
-    private String normalizeOptionalText(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-
-        return value.trim();
-    }
-
     private String normalizeLabelColor(String value) {
-        if (value == null || value.isBlank()) {
-            return DEFAULT_LABEL_COLOR;
-        }
-
-        return value.trim();
+        return value == null || value.isBlank() ? DEFAULT_LABEL_COLOR : value.trim();
     }
 
     private ResponseStatusException badRequest(String message) {

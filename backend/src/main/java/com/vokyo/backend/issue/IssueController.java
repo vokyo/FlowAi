@@ -24,10 +24,18 @@ import java.util.UUID;
 @RequestMapping("/api/issues")
 public class IssueController {
 
-    private final IssueService issueService;
+    private final IssueQueryService issueQueryService;
+    private final IssueCommandService issueCommandService;
+    private final BoardService boardService;
 
-    public IssueController(IssueService issueService) {
-        this.issueService = issueService;
+    public IssueController(
+            IssueQueryService issueQueryService,
+            IssueCommandService issueCommandService,
+            BoardService boardService
+    ) {
+        this.issueQueryService = issueQueryService;
+        this.issueCommandService = issueCommandService;
+        this.boardService = boardService;
     }
 
     @GetMapping
@@ -43,7 +51,7 @@ public class IssueController {
             @RequestParam(required = false) String cursor,
             @RequestParam(defaultValue = "" + CursorPagination.DEFAULT_LIMIT) int limit
     ) {
-        return issueService.listIssues(
+        return issueQueryService.listIssues(
                 jwt,
                 projectId,
                 status,
@@ -62,7 +70,7 @@ public class IssueController {
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam UUID projectId
     ) {
-        return issueService.getBoard(jwt, projectId);
+        return boardService.getBoard(jwt, projectId);
     }
 
     @GetMapping("/board/states/{workflowStateId}")
@@ -73,7 +81,7 @@ public class IssueController {
             @RequestParam(required = false) String cursor,
             @RequestParam(defaultValue = "" + CursorPagination.DEFAULT_LIMIT) int limit
     ) {
-        return issueService.getBoardStatePage(jwt, projectId, workflowStateId, cursor, limit);
+        return boardService.getBoardStatePage(jwt, projectId, workflowStateId, cursor, limit);
     }
 
     @PostMapping
@@ -81,7 +89,7 @@ public class IssueController {
             @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody CreateIssueRequest request
     ) {
-        return issueService.createIssue(jwt, request);
+        return issueCommandService.createIssue(jwt, request);
     }
 
     @GetMapping("/{issueId}")
@@ -89,7 +97,7 @@ public class IssueController {
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID issueId
     ) {
-        return issueService.getIssue(jwt, issueId);
+        return issueQueryService.getIssue(jwt, issueId);
     }
 
     @PatchMapping("/{issueId}/state")
@@ -98,7 +106,7 @@ public class IssueController {
             @PathVariable UUID issueId,
             @Valid @RequestBody MoveIssueStateRequest request
     ) {
-        return issueService.moveIssueState(jwt, issueId, request);
+        return boardService.moveIssueState(jwt, issueId, request);
     }
 
     @PatchMapping("/reorder")
@@ -106,7 +114,7 @@ public class IssueController {
             @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody ReorderIssuesRequest request
     ) {
-        return issueService.reorderIssues(jwt, request);
+        return boardService.reorderIssues(jwt, request);
     }
 
     @PostMapping("/{issueId}/comments")
@@ -115,7 +123,7 @@ public class IssueController {
             @PathVariable UUID issueId,
             @Valid @RequestBody CreateCommentRequest request
     ) {
-        return issueService.createComment(jwt, issueId, request);
+        return issueCommandService.createComment(jwt, issueId, request);
     }
 
     @GetMapping("/{issueId}/comments")
@@ -125,7 +133,7 @@ public class IssueController {
             @RequestParam(required = false) String cursor,
             @RequestParam(defaultValue = "" + CursorPagination.DEFAULT_LIMIT) int limit
     ) {
-        return issueService.listIssueComments(jwt, issueId, cursor, limit);
+        return issueQueryService.listIssueComments(jwt, issueId, cursor, limit);
     }
 
     @GetMapping("/{issueId}/activities")
@@ -135,7 +143,7 @@ public class IssueController {
             @RequestParam(required = false) String cursor,
             @RequestParam(defaultValue = "" + CursorPagination.DEFAULT_LIMIT) int limit
     ) {
-        return issueService.listIssueActivities(jwt, issueId, cursor, limit);
+        return issueQueryService.listIssueActivities(jwt, issueId, cursor, limit);
     }
 
     @PatchMapping("/{issueId}")
@@ -144,6 +152,6 @@ public class IssueController {
             @PathVariable UUID issueId,
             @RequestBody JsonNode request
     ) {
-        return issueService.updateIssue(jwt, issueId, request);
+        return issueCommandService.updateIssue(jwt, issueId, request);
     }
 }

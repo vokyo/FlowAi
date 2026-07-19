@@ -1,0 +1,558 @@
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  align-items: start;
+  justify-items: center;
+  overflow: auto;
+  background: rgba(15, 23, 42, 0.22);
+  padding: 52px 18px 24px;
+}
+
+.modal-panel {
+  display: grid;
+  gap: 18px;
+  width: min(100%, 520px);
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.22);
+  padding: 18px;
+}
+
+.modal-panel[data-variant='issue'] {
+  width: min(100%, 740px);
+  padding: 0;
+}
+
+.modal-panel[data-variant='members'] {
+  width: min(100%, 660px);
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+}
+
+.modal-panel[data-variant='issue'] .modal-header {
+  border-bottom: 1px solid var(--border);
+  padding: 12px 12px 10px;
+}
+
+.modal-header h2 {
+  margin: 2px 0 0;
+  color: var(--foreground);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.modal-form {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.modal-actions {
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.issue-modal-form {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  padding: 16px 12px 12px;
+}
+
+.workspace-invitation-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.workspace-invitation-link {
+  display: grid;
+  gap: 7px;
+  border: 1px solid color-mix(in oklch, var(--ring), transparent 68%);
+  border-radius: 7px;
+  background: color-mix(in oklch, var(--ring), transparent 95%);
+  padding: 12px;
+}
+
+.workspace-invitation-link > span {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.workspace-invitation-link > div {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.workspace-invitation-link input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid var(--input);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 12px;
+  padding: 8px 9px;
+}
+
+.workspace-invitation-link small {
+  color: var(--muted-foreground);
+}
+
+.workspace-invitation-list {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.workspace-invitation-list-header,
+.workspace-invitation-row,
+.workspace-invitation-row-actions {
+  display: flex;
+  align-items: center;
+}
+
+.workspace-invitation-list-header {
+  justify-content: space-between;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  padding: 2px 4px;
+}
+
+.workspace-invitation-row {
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  border-top: 1px solid var(--border);
+  padding: 10px 4px 4px;
+}
+
+.workspace-invitation-row > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.workspace-invitation-row strong,
+.workspace-invitation-row span {
+  overflow-wrap: anywhere;
+}
+
+.workspace-invitation-row span {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.workspace-invitation-row-actions {
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+.invitation-panel {
+  display: grid;
+  gap: 16px;
+  width: min(100%, 500px);
+}
+
+.invitation-mark {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--primary), transparent 88%);
+  color: var(--primary);
+}
+
+.invitation-mark svg,
+.invitation-state svg {
+  width: 20px;
+  height: 20px;
+}
+
+.invitation-summary {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  gap: 8px 14px;
+  border-block: 1px solid var(--border);
+  padding-block: 14px;
+}
+
+.invitation-summary span {
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+
+.invitation-summary strong {
+  min-width: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.invitation-actions,
+.invitation-account-mismatch,
+.invitation-state {
+  display: grid;
+  gap: 10px;
+}
+
+.invitation-actions [data-slot='button'] {
+  width: 100%;
+}
+
+.invitation-account-mismatch p,
+.invitation-state p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.invitation-state {
+  justify-items: start;
+  border-radius: 7px;
+  background: var(--muted);
+  padding: 13px;
+}
+
+.issue-modal-title,
+.issue-modal-description {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  outline: none;
+  resize: vertical;
+}
+
+.issue-modal-title {
+  min-height: 34px;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.issue-modal-description {
+  min-height: 96px;
+  color: var(--foreground);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.issue-modal-title::placeholder,
+.issue-modal-description::placeholder {
+  color: color-mix(in oklch, var(--muted-foreground), transparent 12%);
+}
+
+.issue-modal-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-width: 0;
+}
+
+.issue-modal-chip {
+  min-height: 30px;
+  max-width: 100%;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 6px 9px;
+}
+
+.issue-modal-chip svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+}
+
+.issue-modal-chip-select {
+  padding-right: 5px;
+}
+
+.issue-modal-chip select,
+.issue-modal-chip input {
+  max-width: 140px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+  padding: 0;
+}
+
+.issue-modal-chip input {
+  max-width: 128px;
+}
+
+.issue-modal-chip-date {
+  padding-right: 8px;
+}
+
+.issue-modal-chip-muted {
+  width: 30px;
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.issue-modal-label-section {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.issue-modal-section-title {
+  gap: 7px;
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.issue-modal-section-title svg {
+  width: 14px;
+  height: 14px;
+  color: var(--muted-foreground);
+}
+
+.label-toggle-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-width: 0;
+}
+
+.label-toggle-list-inline {
+  max-height: 92px;
+  overflow: auto;
+}
+
+.label-toggle {
+  gap: 6px;
+  max-width: 100%;
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.label-toggle input {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.issue-modal-label-create {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) 72px auto;
+  gap: 9px;
+  align-items: end;
+  min-width: 0;
+}
+
+.app-field-color input {
+  min-width: 0;
+  padding: 4px;
+}
+
+.issue-modal-footer {
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.project-members-dialog,
+.project-member-list,
+.project-member-person,
+.project-member-add-section {
+  display: grid;
+  min-width: 0;
+}
+
+.project-members-dialog {
+  gap: 16px;
+}
+
+.project-member-list {
+  gap: 8px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.project-member-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--card), transparent 4%);
+  padding: 10px;
+}
+
+.project-workflow-row {
+  align-items: start;
+}
+
+.project-member-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+}
+
+.project-member-person {
+  gap: 3px;
+}
+
+.project-member-person strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.project-member-person small,
+.project-member-status {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.project-member-meta,
+.project-member-add-heading,
+.project-member-add-form {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.project-member-meta {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.project-member-role-select {
+  min-width: 92px;
+  min-height: 28px;
+  box-sizing: border-box;
+  border: 1px solid var(--input);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  outline: none;
+  padding: 5px 24px 5px 7px;
+}
+
+.project-member-role-select:focus {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring), transparent 78%);
+}
+
+.project-member-role-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.project-role-badge {
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--muted), transparent 34%);
+  color: var(--foreground);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1;
+  padding: 5px 7px;
+  white-space: nowrap;
+}
+
+.project-role-badge[data-role='OWNER'] {
+  border-color: color-mix(in oklch, var(--ring), transparent 56%);
+  background: color-mix(in oklch, var(--ring), transparent 88%);
+}
+
+.project-member-add-section {
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.project-member-add-heading {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.project-member-add-heading h3 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.project-member-add-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.workflow-state-actions {
+  align-items: center;
+}
+
+.workflow-state-edit-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(140px, 0.5fr) auto;
+  grid-column: 2 / 4;
+  gap: 10px;
+  align-items: end;
+  min-width: 0;
+}
+
+.workflow-state-edit-form .inline-notice {
+  grid-column: 1 / -1;
+}
+
+.workflow-state-edit-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+
