@@ -1,5 +1,6 @@
 package com.vokyo.backend.web;
 
+import com.vokyo.backend.ai.AiFeatureException;
 import com.vokyo.backend.security.ratelimit.RateLimitExceededException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.validation.Valid;
@@ -158,6 +159,16 @@ class ApiExceptionHandlerTests {
                 .timer().count()).isEqualTo(1L);
     }
 
+    @Test
+    void aiFeatureExceptionUsesStableAiErrorCode() throws Exception {
+        mockMvc.perform(get("/api/test/errors/ai-provider"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("AI_PROVIDER_UNAVAILABLE"))
+                .andExpect(jsonPath("$.message").value("AI provider is unavailable"))
+                .andExpect(jsonPath("$.fieldErrors").isEmpty())
+                .andExpect(jsonPath("$.traceId").isNotEmpty());
+    }
+
     @RestController
     static class ErrorTestController {
 
@@ -197,6 +208,11 @@ class ApiExceptionHandlerTests {
         @GetMapping("/api/test/errors/unknown")
         void unknown() {
             throw new IllegalStateException("password=top-secret");
+        }
+
+        @GetMapping("/api/test/errors/ai-provider")
+        void aiProvider() {
+            throw AiFeatureException.providerUnavailable();
         }
     }
 

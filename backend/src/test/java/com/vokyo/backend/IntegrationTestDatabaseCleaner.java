@@ -1,6 +1,7 @@
 package com.vokyo.backend;
 
 import com.vokyo.backend.activity.ActivityEventRepository;
+import com.vokyo.backend.ai.suggestion.AiSuggestionRepository;
 import com.vokyo.backend.auth.RefreshTokenRepository;
 import com.vokyo.backend.issue.IssueCommentRepository;
 import com.vokyo.backend.issue.IssueRepository;
@@ -16,6 +17,7 @@ import com.vokyo.backend.workspace.WorkspaceRepository;
 final class IntegrationTestDatabaseCleaner {
 
     private final ActivityEventRepository activityEventRepository;
+    private final AiSuggestionRepository aiSuggestionRepository;
     private final WorkspaceInvitationRepository invitationRepository;
     private final IssueCommentRepository issueCommentRepository;
     private final IssueRepository issueRepository;
@@ -30,6 +32,7 @@ final class IntegrationTestDatabaseCleaner {
 
     IntegrationTestDatabaseCleaner(
             ActivityEventRepository activityEventRepository,
+            AiSuggestionRepository aiSuggestionRepository,
             WorkspaceInvitationRepository invitationRepository,
             IssueCommentRepository issueCommentRepository,
             IssueRepository issueRepository,
@@ -43,6 +46,7 @@ final class IntegrationTestDatabaseCleaner {
             UserRepository userRepository
     ) {
         this.activityEventRepository = activityEventRepository;
+        this.aiSuggestionRepository = aiSuggestionRepository;
         this.invitationRepository = invitationRepository;
         this.issueCommentRepository = issueCommentRepository;
         this.issueRepository = issueRepository;
@@ -57,6 +61,7 @@ final class IntegrationTestDatabaseCleaner {
     }
 
     void clean() {
+        aiSuggestionRepository.deleteAllInBatch();
         activityEventRepository.deleteAllInBatch();
         invitationRepository.deleteAllInBatch();
         issueCommentRepository.deleteAllInBatch();

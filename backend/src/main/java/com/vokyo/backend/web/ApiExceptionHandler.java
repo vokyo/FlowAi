@@ -1,5 +1,6 @@
 package com.vokyo.backend.web;
 
+import com.vokyo.backend.ai.AiFeatureException;
 import com.vokyo.backend.security.ratelimit.RateLimitExceededException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
@@ -394,5 +395,18 @@ public class ApiExceptionHandler {
         return ResponseEntity.status(status)
                 .header(TraceIds.HEADER, body.traceId())
                 .body(body);
+    }
+
+    @ExceptionHandler(AiFeatureException.class)
+    ResponseEntity<ApiErrorResponse> handleAiFeatureException(
+            AiFeatureException exception,
+            HttpServletRequest request
+    ) {
+        return response(exception.status(), errorService.create(
+                request,
+                exception.status().value(),
+                exception.code(),
+                exception.getMessage()
+        ));
     }
 }

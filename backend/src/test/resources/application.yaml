@@ -23,6 +23,14 @@ app:
       enabled: false
       max-entries: 1000
       idle-ttl: 1h
+  ai:
+    enabled: false
+    suggestion-ttl: 7d
+    request-timeout: 30s
+    max-breakdown-items: 8
+    include-comments-limit: 20
+    include-activity-limit: 20
+    max-context-issues: 100
 
 management:
   endpoints:
