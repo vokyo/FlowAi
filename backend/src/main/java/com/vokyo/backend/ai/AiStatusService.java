@@ -30,7 +30,7 @@ public class AiStatusService {
 
         return new AiStatusResponse(
                 true,
-                false,
+                true,
                 false,
                 false,
                 false,

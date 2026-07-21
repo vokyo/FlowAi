@@ -72,4 +72,12 @@ public class AiFeatureException extends RuntimeException {
                 message
         );
     }
+
+    public static AiFeatureException requestInvalid(String message) {
+        return new AiFeatureException(
+                HttpStatus.BAD_REQUEST,
+                "AI_REQUEST_INVALID",
+                message
+        );
+    }
 }

@@ -4,6 +4,7 @@ import com.vokyo.backend.ai.springai.SpringAiModelGateway;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.web.client.RestClientCustomizer;
 
 import java.time.Duration;
 
@@ -42,7 +43,10 @@ class AiConfigurationTests {
     void doesNotCreateGatewayWhenAiIsDisabled() {
         contextRunner
                 .withBean(ChatModel.class, () -> prompt -> null)
-                .run(context -> assertThat(context).doesNotHaveBean(AiModelGateway.class));
+                .run(context -> {
+                    assertThat(context).doesNotHaveBean(AiModelGateway.class);
+                    assertThat(context).doesNotHaveBean(RestClientCustomizer.class);
+                });
     }
 
     @Test
@@ -61,6 +65,7 @@ class AiConfigurationTests {
                     assertThat(context).hasSingleBean(AiModelGateway.class);
                     assertThat(context.getBean(AiModelGateway.class))
                             .isInstanceOf(SpringAiModelGateway.class);
+                    assertThat(context).hasSingleBean(RestClientCustomizer.class);
                 });
     }
 }

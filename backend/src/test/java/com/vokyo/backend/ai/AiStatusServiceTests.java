@@ -12,7 +12,7 @@ class AiStatusServiceTests {
 
     private static final AiModelGateway AVAILABLE_GATEWAY = new AiModelGateway() {
         @Override
-        public <T> T generate(String systemPrompt, String userPrompt, Class<T> responseType) {
+        public <T> AiGeneration<T> generate(String systemPrompt, String userPrompt, Class<T> responseType) {
             return null;
         }
     };
@@ -38,12 +38,12 @@ class AiStatusServiceTests {
     }
 
     @Test
-    void reportsProviderReadyWithoutClaimingUnimplementedFeatures() {
+    void reportsBreakdownAvailableWhenProviderIsReady() {
         AiStatusResponse response = service(true, AVAILABLE_GATEWAY).getStatus();
 
         assertThat(response.enabled()).isTrue();
         assertThat(response.disabledReason()).isNull();
-        assertThat(response.breakdownAvailable()).isFalse();
+        assertThat(response.breakdownAvailable()).isTrue();
         assertThat(response.issueSummaryAvailable()).isFalse();
         assertThat(response.projectSummaryAvailable()).isFalse();
         assertThat(response.agentAvailable()).isFalse();
