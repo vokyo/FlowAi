@@ -6,6 +6,7 @@ import { ApiError } from '@/api/client'
 import { changePassword, getCurrentSession, revokeAllSessions, updateProfile } from '@/auth/auth-api'
 import { clearAccessToken } from '@/auth/access-token'
 import { Button } from '@/components/ui/button'
+import { PROJECT_METADATA_STALE_TIME_MS } from '@/lib/query-config'
 import {
   archiveProject,
   createProjectLabel,
@@ -42,6 +43,7 @@ export function SettingsPage({ onSessionChanged }: { onSessionChanged: () => voi
     queryKey: ['workspace-members', sessionQuery.data?.workspace.id],
     queryFn: listWorkspaceMembers,
     enabled: sessionQuery.isSuccess,
+    staleTime: PROJECT_METADATA_STALE_TIME_MS,
   })
   const [selectedProjectId, setSelectedProjectId] = useState('')
 
@@ -237,8 +239,16 @@ function ProjectSettings({ project, workspaceId, onProjectChanged, onProjectRemo
   const queryClient = useQueryClient()
   const [name, setName] = useState(project.name)
   const [description, setDescription] = useState(project.description ?? '')
-  const labelsQuery = useQuery({ queryKey: ['project-labels', project.id], queryFn: () => listProjectLabels(project.id) })
-  const statesQuery = useQuery({ queryKey: ['project-workflow-states', project.id], queryFn: () => listProjectWorkflowStates(project.id) })
+  const labelsQuery = useQuery({
+    queryKey: ['project-labels', project.id],
+    queryFn: () => listProjectLabels(project.id),
+    staleTime: PROJECT_METADATA_STALE_TIME_MS,
+  })
+  const statesQuery = useQuery({
+    queryKey: ['project-workflow-states', project.id],
+    queryFn: () => listProjectWorkflowStates(project.id),
+    staleTime: PROJECT_METADATA_STALE_TIME_MS,
+  })
   const updateMutation = useMutation({ mutationFn: () => updateProject(project.id, { name: name.trim(), description: description.trim() }), onSuccess: onProjectChanged })
   const archiveMutation = useMutation({ mutationFn: () => archiveProject(project.id), onSuccess: onProjectChanged })
   const restoreMutation = useMutation({ mutationFn: () => restoreProject(project.id), onSuccess: onProjectChanged })

@@ -26,6 +26,8 @@ import {
   type IssueViewMode,
 } from '@/features/project-shell/route-utils'
 import { InlineState } from '@/features/project-shell/feature-ui'
+import { ISSUE_SEARCH_DEBOUNCE_MS } from '@/lib/query-config'
+import { useDebouncedValue } from '@/lib/useDebouncedValue'
 import type { IssuePriority, Project, ProjectMember, ProjectWorkflowState } from '@/work/work-api'
 import {
   defaultWorkflowStateIdForStatus,
@@ -96,6 +98,10 @@ export function ProjectRouteContainer({
   const [isCreateIssueDialogOpen, setIsCreateIssueDialogOpen] = useState(false)
   const [isProjectMembersDialogOpen, setIsProjectMembersDialogOpen] = useState(false)
   const [isProjectWorkflowDialogOpen, setIsProjectWorkflowDialogOpen] = useState(false)
+  const debouncedIssueSearchQuery = useDebouncedValue(
+    issueSearchQuery,
+    ISSUE_SEARCH_DEBOUNCE_MS,
+  )
 
   const {
     projectMembersQuery,
@@ -136,21 +142,24 @@ export function ProjectRouteContainer({
   const {
     filters: issueFilters,
     filterKey: issueFilterKey,
-    hasFilters: hasIssueFilters,
+    hasFilters: hasAppliedIssueFilters,
   } = buildIssueListFilterState({
-    searchQuery: issueSearchQuery,
+    searchQuery: debouncedIssueSearchQuery,
     workflowFilter: issueWorkflowFilter,
     priorityFilter: issuePriorityFilter,
     labelFilter: issueLabelFilter,
     assigneeFilter: issueAssigneeFilter,
   })
+  const hasIssueFilters = hasAppliedIssueFilters || Boolean(issueSearchQuery.trim())
 
   const { issuesQuery, issues } = useIssueListQueries({
     workspaceId,
     projectId: selectedProjectId,
     filters: issueFilters,
     filterKey: issueFilterKey,
-    enabled: Boolean(canLoadCurrentWorkspace && selectedProjectId),
+    enabled: Boolean(
+      canLoadCurrentWorkspace && selectedProjectId && issueViewMode === 'LIST',
+    ),
   })
   const issueGroups = useMemo(
     () => groupIssuesByWorkflowState(issues, projectWorkflowStates, issueWorkflowFilter),

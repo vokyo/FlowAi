@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CursorPage } from '@/api/pagination'
+import { PROJECT_METADATA_STALE_TIME_MS } from '@/lib/query-config'
 import {
   getProjectBoard,
   listProjectWorkflowStates,
@@ -27,6 +28,7 @@ export function useBoardQueries({
     queryKey: ['project-workflow-states', projectId],
     queryFn: () => listProjectWorkflowStates(projectId ?? ''),
     enabled: metadataEnabled,
+    staleTime: PROJECT_METADATA_STALE_TIME_MS,
     retry: false,
   })
   const boardQuery = useQuery({

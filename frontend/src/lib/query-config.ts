@@ -1,0 +1,3 @@
+export const ISSUE_SEARCH_DEBOUNCE_MS = 300
+
+export const PROJECT_METADATA_STALE_TIME_MS = 5 * 60_000

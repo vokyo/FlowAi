@@ -215,6 +215,13 @@ test('registers and completes the core project and issue workflow', async ({ pag
   const updatedTitle = `${issueTitle} updated`
   const comment = uniqueValue('Ready for review')
   const email = `${uniqueValue('journey')}@example.com`
+  let issueListRequestCount = 0
+  page.on('request', (request) => {
+    const url = new URL(request.url())
+    if (request.method() === 'GET' && url.pathname === '/api/issues') {
+      issueListRequestCount += 1
+    }
+  })
 
   await page.goto('/register')
   await page.getByLabel('Name').fill('Journey User')
@@ -233,6 +240,7 @@ test('registers and completes the core project and issue workflow', async ({ pag
   await projectDialog.getByRole('button', { name: 'Create project' }).click()
 
   await expect(page.getByRole('heading', { name: projectName })).toBeVisible()
+  expect(issueListRequestCount).toBe(0)
   await page.getByRole('button', { name: 'Create issue', exact: true }).click()
   const issueDialog = page.getByRole('dialog', { name: 'New issue' })
   await issueDialog.getByPlaceholder('Issue title').fill(issueTitle)
@@ -241,6 +249,7 @@ test('registers and completes the core project and issue workflow', async ({ pag
 
   await page.getByText(issueTitle, { exact: true }).click()
   await expect(page.getByRole('heading', { name: issueTitle })).toBeVisible()
+  expect(issueListRequestCount).toBe(0)
   await page.getByRole('button', { name: 'Edit' }).click()
   await page.getByLabel('Issue title').fill(updatedTitle)
   await page.getByLabel('Issue description').fill('Updated through the issue detail view')

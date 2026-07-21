@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { PROJECT_METADATA_STALE_TIME_MS } from '@/lib/query-config'
 import {
   listProjectMembers,
   listWorkspaceMembers,
@@ -27,12 +28,14 @@ export function useProjectMemberQueries({
     queryKey: ['project-members', projectId],
     queryFn: () => listProjectMembers(projectId ?? ''),
     enabled,
+    staleTime: PROJECT_METADATA_STALE_TIME_MS,
     retry: false,
   })
   const workspaceMembersQuery = useQuery({
     queryKey: ['workspace-members', workspaceId],
     queryFn: listWorkspaceMembers,
     enabled: enabled && loadWorkspaceMembers,
+    staleTime: PROJECT_METADATA_STALE_TIME_MS,
     retry: false,
   })
   const projectMembers = projectMembersQuery.data ?? EMPTY_PROJECT_MEMBERS

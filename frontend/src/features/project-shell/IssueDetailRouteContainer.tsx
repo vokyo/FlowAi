@@ -4,7 +4,6 @@ import type { AuthUser, AuthWorkspace } from '@/auth/auth-api'
 import { useBoardQueries } from '@/features/board/useBoardQueries'
 import { useIssueDetailMutations } from '@/features/issue-detail/useIssueDetailMutations'
 import { useIssueDetailQueries } from '@/features/issue-detail/useIssueDetailQueries'
-import { useIssueListQueries } from '@/features/issue-list/useIssueListQueries'
 import { useProjectLabelsQuery } from '@/features/issue-list/useProjectLabelsQuery'
 import { useProjectMemberQueries } from '@/features/project-members/useProjectMemberQueries'
 import { InlineState } from '@/features/project-shell/feature-ui'
@@ -54,15 +53,6 @@ export function IssueDetailRouteContainer({
     metadataEnabled: enabled,
     boardEnabled: false,
   })
-  const { issues } = useIssueListQueries({
-    workspaceId,
-    projectId: selectedProjectId,
-    filters: {},
-    filterKey: ['ACTIVE', '', '', '', ''],
-    enabled,
-  })
-  const selectedIssueSummary = issues.find((issue) => issue.id === issueId) ?? null
-
   const {
     issueQuery,
     commentsQuery,
@@ -75,7 +65,7 @@ export function IssueDetailRouteContainer({
     enabled: Boolean(enabled && selectedProject),
   })
   const { createCommentMutation, updateIssueMutation } = useIssueDetailMutations(workspaceId)
-  const activeIssue = issueQuery.data ?? selectedIssueSummary
+  const activeIssue = issueQuery.data ?? null
 
   async function handleCreateComment(values: CommentFormValues) {
     const body = values.body.trim()
