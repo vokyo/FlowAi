@@ -68,6 +68,9 @@ type ProjectRouteContainerProps = {
   selectedProjectId: string | null
   canLoadCurrentWorkspace: boolean
   isLoadingProjects: boolean
+  hasProjects: boolean
+  canCreateProject: boolean
+  onOpenCreateProject: () => void
   issueViewMode: IssueViewMode
   boardIssueView: BoardIssueView
   isShellDialogOpen: boolean
@@ -81,6 +84,9 @@ export function ProjectRouteContainer({
   selectedProjectId,
   canLoadCurrentWorkspace,
   isLoadingProjects,
+  hasProjects,
+  canCreateProject,
+  onOpenCreateProject,
   issueViewMode,
   boardIssueView,
   isShellDialogOpen,
@@ -406,6 +412,8 @@ export function ProjectRouteContainer({
           canUseQuickCreateShortcut={!isShellDialogOpen && !isCreateIssueDialogOpen && !isProjectMembersDialogOpen && !isProjectWorkflowDialogOpen}
           isLoadingProjectMembers={projectMembersQuery.isLoading}
           isLoadingProjects={isLoadingProjects}
+          hasProjects={hasProjects}
+          canCreateProject={canCreateProject}
           issueSearchQuery={issueSearchQuery}
           issueWorkflowFilter={issueWorkflowFilter}
           issuePriorityFilter={issuePriorityFilter}
@@ -421,6 +429,7 @@ export function ProjectRouteContainer({
           onClearIssueFilters={clearIssueFilters}
           onOpenProjectMembers={openProjectMembersDialog}
           onOpenProjectWorkflow={openProjectWorkflowDialog}
+          onOpenCreateProject={onOpenCreateProject}
           onOpenCreateIssue={openCreateIssueDialog}
           onIssueSelect={(issueId) => {
             if (workspaceId && selectedProjectId) {

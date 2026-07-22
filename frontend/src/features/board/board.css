@@ -34,9 +34,10 @@
 .kanban-board {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(270px, 310px);
+  grid-auto-columns: minmax(270px, 1fr);
   align-items: start;
   gap: 12px;
+  width: 100%;
   min-width: max-content;
 }
 
@@ -338,5 +339,4 @@
     opacity: 0.9;
   }
 }
-
 

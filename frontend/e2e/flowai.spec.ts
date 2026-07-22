@@ -233,13 +233,23 @@ test('registers and completes the core project and issue workflow', async ({ pag
   await expect(page).toHaveURL(/\/app(?:\/|$)/)
   await expect(page.locator('.workspace-select-label strong')).toHaveText(workspaceName)
 
-  await page.getByRole('button', { name: 'Create project' }).click()
+  const projectEmptyState = page.locator('.project-empty-state')
+  await expect(projectEmptyState.getByRole('heading', { name: 'Create your first project' }))
+    .toBeVisible()
+  await projectEmptyState.getByRole('button', { name: 'Create project' }).click()
   const projectDialog = page.getByRole('dialog', { name: 'Create project' })
   await projectDialog.getByLabel('Name').fill(projectName)
   await projectDialog.getByLabel('Description').fill('A project created through the UI')
   await projectDialog.getByRole('button', { name: 'Create project' }).click()
 
   await expect(page.getByRole('heading', { name: projectName })).toBeVisible()
+  const boardScrollWidth = await page.locator('.kanban-board-scroll').evaluate(
+    (element) => element.getBoundingClientRect().width,
+  )
+  const boardWidth = await page.locator('.kanban-board').evaluate(
+    (element) => element.getBoundingClientRect().width,
+  )
+  expect(boardWidth).toBeGreaterThanOrEqual(boardScrollWidth - 1)
   expect(issueListRequestCount).toBe(0)
   await page.getByRole('button', { name: 'Create issue', exact: true }).click()
   const issueDialog = page.getByRole('dialog', { name: 'New issue' })

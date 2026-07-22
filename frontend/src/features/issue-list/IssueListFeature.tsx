@@ -48,6 +48,7 @@ import {
   PriorityBadge,
   StatusIcon,
 } from '@/features/project-shell/feature-ui'
+import { ProjectEmptyState } from './ProjectEmptyState'
 
 const BoardFeature = lazy(() =>
   import('@/features/board/BoardFeature').then((module) => ({ default: module.BoardFeature })),
@@ -81,6 +82,8 @@ export function IssueListFeature({
   canUseQuickCreateShortcut,
   isLoadingProjectMembers,
   isLoadingProjects,
+  hasProjects,
+  canCreateProject,
   issueSearchQuery,
   issueWorkflowFilter,
   issuePriorityFilter,
@@ -96,6 +99,7 @@ export function IssueListFeature({
   onClearIssueFilters,
   onOpenProjectMembers,
   onOpenProjectWorkflow,
+  onOpenCreateProject,
   onOpenCreateIssue,
   onIssueSelect,
   onReorderIssue,
@@ -132,6 +136,8 @@ export function IssueListFeature({
   canUseQuickCreateShortcut: boolean
   isLoadingProjectMembers: boolean
   isLoadingProjects: boolean
+  hasProjects: boolean
+  canCreateProject: boolean
   issueSearchQuery: string
   issueWorkflowFilter: IssueWorkflowFilter
   issuePriorityFilter: IssuePriority | ''
@@ -147,6 +153,7 @@ export function IssueListFeature({
   onClearIssueFilters: () => void
   onOpenProjectMembers: () => void
   onOpenProjectWorkflow: () => void
+  onOpenCreateProject: () => void
   onOpenCreateIssue: (
     workflowState?: ProjectWorkflowState | null,
     seed?: CreateIssueDialogSeed,
@@ -182,7 +189,7 @@ export function IssueListFeature({
           <BreadcrumbLine
             items={[currentWorkspace?.name ?? 'Workspace', selectedProject?.name ?? 'Issues']}
           />
-          <h1>{selectedProject?.name ?? 'Select a project'}</h1>
+          <h1>{selectedProject?.name ?? (hasProjects ? 'Choose a project' : 'Projects')}</h1>
           {selectedProject?.description ? <p>{selectedProject.description}</p> : null}
         </div>
         <div className="content-header-actions">
@@ -257,9 +264,10 @@ export function IssueListFeature({
 
       {isLoadingProjects ? <InlineState>Loading workspace projects.</InlineState> : null}
       {!selectedProject && !isLoadingProjects ? (
-        <EmptyState
-          title="No project selected"
-          body="Create or select a project from the sidebar to start tracking issues."
+        <ProjectEmptyState
+          hasProjects={hasProjects}
+          canCreateProject={canCreateProject}
+          onCreateProject={onOpenCreateProject}
         />
       ) : null}
       {issueViewMode === 'LIST' && isLoadingIssues ? (
@@ -565,5 +573,4 @@ function IssueRow({
     </button>
   )
 }
-
 

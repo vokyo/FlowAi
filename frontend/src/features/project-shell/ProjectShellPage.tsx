@@ -96,6 +96,7 @@ export function ProjectShellPage({ onSignOut, onSessionChanged }: ProjectShellPa
   } = useProjectShellQueries({ routeWorkspaceId, routeProjectId })
   const canManageWorkspaceInvitations =
     currentWorkspace?.role === 'OWNER' || currentWorkspace?.role === 'ADMIN'
+  const canCreateProject = canLoadCurrentWorkspace && currentWorkspace?.role !== 'GUEST'
 
   const {
     switchWorkspaceMutation,
@@ -118,6 +119,11 @@ export function ProjectShellPage({ onSignOut, onSessionChanged }: ProjectShellPa
         && isWorkspaceInvitationsDialogOpen
       ),
     })
+
+  function openCreateProjectDialog() {
+    createProjectMutation.reset()
+    setIsCreateProjectDialogOpen(true)
+  }
 
   const {
     createInvitationMutation,
@@ -269,11 +275,8 @@ export function ProjectShellPage({ onSignOut, onSessionChanged }: ProjectShellPa
         projectsError={projectsQuery.error}
         areProjectsOpen={areProjectsOpen}
         onToggleProjects={() => setAreProjectsOpen((isOpen) => !isOpen)}
-        onOpenCreateProject={() => {
-          createProjectMutation.reset()
-          setIsCreateProjectDialogOpen(true)
-        }}
-        canCreateProject={canLoadCurrentWorkspace && currentWorkspace?.role !== 'GUEST'}
+        onOpenCreateProject={openCreateProjectDialog}
+        canCreateProject={canCreateProject}
         canSelectViews={Boolean(selectedProjectId)}
         onViewSelect={handleSidebarViewSelect}
         onAnalyticsSelect={() => {
@@ -324,6 +327,9 @@ export function ProjectShellPage({ onSignOut, onSessionChanged }: ProjectShellPa
             selectedProjectId={selectedProjectId}
             canLoadCurrentWorkspace={canLoadCurrentWorkspace}
             isLoadingProjects={projectsQuery.isLoading}
+            hasProjects={projects.length > 0}
+            canCreateProject={canCreateProject}
+            onOpenCreateProject={openCreateProjectDialog}
             issueViewMode={issueViewMode}
             boardIssueView={boardIssueView}
             isShellDialogOpen={isShellDialogOpen}
@@ -337,7 +343,7 @@ export function ProjectShellPage({ onSignOut, onSessionChanged }: ProjectShellPa
         onClose={() => {
           if (!createProjectMutation.isPending) setIsCreateProjectDialogOpen(false)
         }}
-        canCreateProject={canLoadCurrentWorkspace && currentWorkspace?.role !== 'GUEST'}
+        canCreateProject={canCreateProject}
         isSubmitting={createProjectMutation.isPending}
         error={createProjectMutation.error}
       />

@@ -4,6 +4,63 @@
   min-width: 0;
 }
 
+.project-empty-state {
+  position: relative;
+  display: grid;
+  width: min(100%, 720px);
+  justify-items: center;
+  gap: 10px;
+  overflow: hidden;
+  margin: clamp(28px, 8vh, 88px) auto 0;
+  border: 1px solid color-mix(in oklch, var(--border), var(--primary) 12%);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 50% 0%, color-mix(in oklch, var(--primary), transparent 90%), transparent 54%),
+    color-mix(in oklch, var(--card), var(--background) 24%);
+  padding: clamp(34px, 6vw, 56px) clamp(24px, 7vw, 68px);
+  box-shadow: 0 18px 48px color-mix(in oklch, var(--foreground), transparent 95%);
+  text-align: center;
+}
+
+.project-empty-icon {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 1px solid color-mix(in oklch, var(--primary), transparent 72%);
+  border-radius: 14px;
+  background: color-mix(in oklch, var(--primary), transparent 91%);
+  color: var(--primary);
+}
+
+.project-empty-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.project-empty-eyebrow {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.project-empty-state h2 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: clamp(20px, 3vw, 26px);
+  letter-spacing: -0.025em;
+}
+
+.project-empty-state p {
+  max-width: 500px;
+  margin: 0 0 8px;
+  color: var(--muted-foreground);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
 .status-section-header {
   display: flex;
   align-items: center;
@@ -94,5 +151,4 @@
 .issue-comment-count {
   gap: 4px;
 }
-
 
