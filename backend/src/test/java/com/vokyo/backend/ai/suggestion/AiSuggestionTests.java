@@ -12,6 +12,7 @@ import com.vokyo.backend.workspace.Workspace;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -116,12 +117,18 @@ class AiSuggestionTests {
 
         AiSuggestion applied = issueSuggestion(JsonNodeFactory.instance.objectNode());
         UUID key = UUID.randomUUID();
-        applied.apply(key, now);
-        applied.apply(key, now.plusSeconds(1));
+        UUID createdIssueId = UUID.randomUUID();
+        applied.apply(key, List.of(createdIssueId), now);
+        applied.apply(key, List.of(createdIssueId), now.plusSeconds(1));
         assertThat(applied.getStatus()).isEqualTo(AiSuggestionStatus.APPLIED);
         assertThat(applied.getApplyIdempotencyKey()).isEqualTo(key);
         assertThat(applied.wasAppliedWith(key)).isTrue();
-        assertThatThrownBy(() -> applied.apply(UUID.randomUUID(), now.plusSeconds(2)))
+        assertThat(applied.getCreatedIssueIds()).containsExactly(createdIssueId);
+        assertThatThrownBy(() -> applied.apply(
+                UUID.randomUUID(),
+                List.of(UUID.randomUUID()),
+                now.plusSeconds(2)
+        ))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("Suggestion must be in DRAFT status");
     }

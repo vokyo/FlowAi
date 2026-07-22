@@ -31,8 +31,8 @@ public class AiStatusService {
         return new AiStatusResponse(
                 true,
                 true,
-                false,
-                false,
+                true,
+                true,
                 false,
                 null
         );

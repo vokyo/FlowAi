@@ -7,12 +7,14 @@ import {
   ArrowLeft,
   Check,
   Clock3,
+  FileText,
   FolderKanban,
   Loader2,
   MessageSquare,
   PanelRight,
   Pencil,
   Send,
+  Sparkles,
   UserCircle,
 } from 'lucide-react'
 import type { AuthUser, AuthWorkspace } from '@/auth/auth-api'
@@ -78,6 +80,11 @@ export function IssueDetailFeature({
   isUpdatingIssue,
   updateIssueError,
   onResetUpdateIssueError,
+  aiBreakdownAvailable = false,
+  aiIssueSummaryAvailable = false,
+  isLoadingAiStatus = false,
+  onOpenAiBreakdown,
+  onOpenAiSummary,
 }: {
   issue: IssueSummary | IssueDetail | null
   selectedProject: Project | null
@@ -109,6 +116,11 @@ export function IssueDetailFeature({
   isUpdatingIssue: boolean
   updateIssueError: Error | null
   onResetUpdateIssueError: () => void
+  aiBreakdownAvailable?: boolean
+  aiIssueSummaryAvailable?: boolean
+  isLoadingAiStatus?: boolean
+  onOpenAiBreakdown?: () => void
+  onOpenAiSummary?: () => void
 }) {
   const [editingIssueId, setEditingIssueId] = useState<string | null>(null)
   const {
@@ -223,10 +235,46 @@ export function IssueDetailFeature({
             Back to issues
           </Button>
         </div>
-        <span className="app-pill">
-          <PanelRight aria-hidden="true" />
-          Properties
-        </span>
+        <div className="issue-ai-actions">
+          {onOpenAiSummary ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!aiIssueSummaryAvailable || isLoadingAiStatus}
+              title={aiIssueSummaryAvailable ? undefined : 'AI Copilot is unavailable'}
+              onClick={onOpenAiSummary}
+            >
+              {isLoadingAiStatus ? (
+                <Loader2 className="auth-spin" aria-hidden="true" />
+              ) : (
+                <FileText aria-hidden="true" />
+              )}
+              Summarize
+            </Button>
+          ) : null}
+          {onOpenAiBreakdown ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!aiBreakdownAvailable || isLoadingAiStatus}
+              title={aiBreakdownAvailable ? undefined : 'AI Copilot is unavailable'}
+              onClick={onOpenAiBreakdown}
+            >
+              {isLoadingAiStatus ? (
+                <Loader2 className="auth-spin" aria-hidden="true" />
+              ) : (
+                <Sparkles aria-hidden="true" />
+              )}
+              Break down with AI
+            </Button>
+          ) : null}
+          <span className="app-pill">
+            <PanelRight aria-hidden="true" />
+            Properties
+          </span>
+        </div>
       </header>
 
       <div className="issue-detail-layout">
@@ -654,4 +702,3 @@ function IssuePropertiesPanel({
     </aside>
   )
 }
-

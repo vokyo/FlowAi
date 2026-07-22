@@ -8,6 +8,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.stereotype.Service;
 
 import java.util.Comparator;
+import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -34,6 +35,20 @@ public class RateLimitService {
     }
 
     public RateLimitDecision consume(RateLimitPolicy policy, String identity) {
+        return consume(
+                policy.metricName(),
+                policy.capacity(),
+                policy.window(),
+                identity
+        );
+    }
+
+    public RateLimitDecision consume(
+            String policyName,
+            long capacity,
+            Duration window,
+            String identity
+    ) {
         if (!properties.enabled()) {
             return RateLimitDecision.permit();
         }
@@ -41,8 +56,8 @@ public class RateLimitService {
         long now = timeMeter.currentTimeNanos();
         cleanupIfNeeded(now);
         BucketEntry entry = buckets.computeIfAbsent(
-                new BucketKey(policy, identity),
-                ignored -> new BucketEntry(newBucket(policy), new AtomicLong(now))
+                new BucketKey(policyName, capacity, window, identity),
+                ignored -> new BucketEntry(newBucket(capacity, window), new AtomicLong(now))
         );
         entry.lastAccessNanos().set(now);
         ConsumptionProbe probe = entry.bucket().tryConsumeAndReturnRemaining(1);
@@ -50,16 +65,16 @@ public class RateLimitService {
             return RateLimitDecision.permit();
         }
 
-        meterRegistry.counter("flowai.rate_limit.rejected", "policy", policy.metricName()).increment();
+        meterRegistry.counter("flowai.rate_limit.rejected", "policy", policyName).increment();
         return RateLimitDecision.rejected(probe.getNanosToWaitForRefill());
     }
 
     public void clear(RateLimitPolicy policy, String identity) {
-        buckets.remove(new BucketKey(policy, identity));
+        buckets.remove(key(policy, identity));
     }
 
     public void refund(RateLimitPolicy policy, String identity) {
-        BucketEntry entry = buckets.get(new BucketKey(policy, identity));
+        BucketEntry entry = buckets.get(key(policy, identity));
         if (entry != null) {
             entry.bucket().addTokens(1);
         }
@@ -69,10 +84,19 @@ public class RateLimitService {
         buckets.clear();
     }
 
-    private Bucket newBucket(RateLimitPolicy policy) {
+    private BucketKey key(RateLimitPolicy policy, String identity) {
+        return new BucketKey(
+                policy.metricName(),
+                policy.capacity(),
+                policy.window(),
+                identity
+        );
+    }
+
+    private Bucket newBucket(long capacity, Duration window) {
         return Bucket.builder()
                 .withCustomTimePrecision(timeMeter)
-                .addLimit(Bandwidth.simple(policy.capacity(), policy.window()))
+                .addLimit(Bandwidth.simple(capacity, window))
                 .build();
     }
 
@@ -92,7 +116,12 @@ public class RateLimitService {
         }
     }
 
-    private record BucketKey(RateLimitPolicy policy, String identity) {
+    private record BucketKey(
+            String policyName,
+            long capacity,
+            Duration window,
+            String identity
+    ) {
     }
 
     private record BucketEntry(Bucket bucket, AtomicLong lastAccessNanos) {

@@ -20,6 +20,7 @@ import com.vokyo.backend.user.User;
 import com.vokyo.backend.workspace.CurrentWorkspaceContext;
 import com.vokyo.backend.workspace.Workspace;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import com.vokyo.backend.ai.AiMetrics;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
@@ -40,7 +41,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class IssueBreakdownServiceTests {
 
     @Test
-    void returnsProviderUnavailableBeforeLoadingBusinessContext() {
+    void checksBusinessAccessBeforeReturningProviderUnavailable() {
         Fixture fixture = new Fixture(null);
 
         assertThatThrownBy(() -> fixture.service.generate(
@@ -51,7 +52,7 @@ class IssueBreakdownServiceTests {
                 .satisfies(exception -> assertThat(((AiFeatureException) exception).code())
                         .isEqualTo("AI_PROVIDER_UNAVAILABLE"));
 
-        assertThat(fixture.contextBuilder.calls).isZero();
+        assertThat(fixture.contextBuilder.calls).isEqualTo(1);
         assertThat(fixture.registry.get("flowai.ai.requests")
                 .tag("feature", "issue_breakdown")
                 .tag("result", "provider_unavailable")
@@ -274,7 +275,8 @@ class IssueBreakdownServiceTests {
                     new IssueBreakdownValidator(),
                     suggestionService,
                     objectMapper,
-                    new IssueBreakdownMetrics(registry)
+                    new AiMetrics(registry),
+                    null
             );
         }
 

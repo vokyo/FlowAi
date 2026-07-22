@@ -47,6 +47,7 @@ public class IssueCommandService {
     private final WorkspaceAccessService workspaceAccessService;
     private final ActivityService activityService;
     private final IssueMapper issueMapper;
+    private final IssueCreationService issueCreationService;
 
     public IssueCommandService(
             IssueRepository issueRepository,
@@ -56,7 +57,8 @@ public class IssueCommandService {
             ProjectAccessService projectAccessService,
             WorkspaceAccessService workspaceAccessService,
             ActivityService activityService,
-            IssueMapper issueMapper
+            IssueMapper issueMapper,
+            IssueCreationService issueCreationService
     ) {
         this.issueRepository = issueRepository;
         this.issueCommentRepository = issueCommentRepository;
@@ -66,38 +68,27 @@ public class IssueCommandService {
         this.workspaceAccessService = workspaceAccessService;
         this.activityService = activityService;
         this.issueMapper = issueMapper;
+        this.issueCreationService = issueCreationService;
     }
 
     @Transactional
     public IssueSummaryResponse createIssue(Jwt jwt, CreateIssueRequest request) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Project project = projectAccessService.requireAccessibleProjectForUpdate(request.projectId(), context);
-        if (request.status() == IssueStatus.ARCHIVED) {
-            throw badRequest("Issue cannot be created as archived");
-        }
-        User assignee = resolveAssignee(project, request.assigneeUserId());
-        List<ProjectLabel> labels = resolveProjectLabels(project, request.labelIds());
-        ProjectWorkflowState workflowState = resolveWorkflowStateForCreate(
+        Issue issue = issueCreationService.create(
+                context,
                 project,
-                request.workflowStateId(),
-                request.status()
+                new IssueCreationCommand(
+                        request.title(),
+                        request.description(),
+                        request.labelIds(),
+                        request.assigneeUserId(),
+                        request.workflowStateId(),
+                        request.status(),
+                        request.priority(),
+                        request.dueDate()
+                )
         );
-
-        Issue issue = issueRepository.save(new Issue(
-                context.workspace(),
-                project,
-                context.user(),
-                request.title().trim(),
-                normalizeOptionalText(request.description()),
-                assignee,
-                workflowState,
-                request.priority(),
-                request.dueDate(),
-                nextBoardPosition(project, workflowState)
-        ));
-        issue.replaceLabels(labels);
-
-        activityService.recordIssueCreated(issue, context.user());
         return issueMapper.toSummaryResponse(issue, 0L);
     }
 

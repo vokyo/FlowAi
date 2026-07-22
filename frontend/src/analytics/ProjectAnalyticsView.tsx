@@ -28,6 +28,7 @@ type ProjectAnalyticsViewProps = {
   isLoading: boolean
   error: Error | null
   onRangeChange: (rangeDays: AnalyticsRangeDays) => void
+  aiSummary?: React.ReactNode
 }
 
 export function ProjectAnalyticsView({
@@ -37,6 +38,7 @@ export function ProjectAnalyticsView({
   isLoading,
   error,
   onRangeChange,
+  aiSummary,
 }: ProjectAnalyticsViewProps) {
   return (
     <div className="content-page analytics-page">
@@ -65,6 +67,8 @@ export function ProjectAnalyticsView({
           ))}
         </div>
       </header>
+
+      {aiSummary}
 
       {isLoading && !overview ? <AnalyticsLoadingState /> : null}
       {error ? <AnalyticsErrorState error={error} /> : null}

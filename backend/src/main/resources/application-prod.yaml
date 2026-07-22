@@ -46,6 +46,18 @@ app:
       secret: ${JWT_SECRET}
       access-token-ttl: ${JWT_ACCESS_TOKEN_TTL:15m}
       refresh-token-ttl: ${JWT_REFRESH_TOKEN_TTL:7d}
+  ai:
+    enabled: ${AI_ENABLED:false}
+    suggestion-ttl: ${AI_SUGGESTION_TTL:7d}
+    request-timeout: ${AI_REQUEST_TIMEOUT:30s}
+    max-breakdown-items: ${AI_MAX_BREAKDOWN_ITEMS:8}
+    include-comments-limit: ${AI_INCLUDE_COMMENTS_LIMIT:20}
+    include-activity-limit: ${AI_INCLUDE_ACTIVITY_LIMIT:20}
+    max-context-issues: ${AI_MAX_CONTEXT_ISSUES:100}
+    rate-limit:
+      enabled: ${AI_RATE_LIMIT_ENABLED:true}
+      capacity: ${AI_RATE_LIMIT_CAPACITY:10}
+      window: ${AI_RATE_LIMIT_WINDOW:1m}
 
 management:
   endpoint:

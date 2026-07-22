@@ -17,6 +17,21 @@ public interface IssueRepository extends JpaRepository<Issue, UUID>, JpaSpecific
     Optional<Issue> findByIdAndWorkspace_Id(UUID id, UUID workspaceId);
 
     @Query("""
+            select distinct issue
+            from Issue issue
+            left join fetch issue.assigneeUser
+            left join fetch issue.workflowState
+            left join fetch issue.labels
+            where issue.workspace.id = :workspaceId
+              and issue.project.id = :projectId
+              and issue.archivedAt is null
+            """)
+    List<Issue> findAllActiveForAiSummary(
+            @Param("workspaceId") UUID workspaceId,
+            @Param("projectId") UUID projectId
+    );
+
+    @Query("""
             select issue.project.id
             from Issue issue
             where issue.id = :issueId

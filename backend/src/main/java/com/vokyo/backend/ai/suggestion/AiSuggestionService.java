@@ -68,7 +68,8 @@ public class AiSuggestionService {
                 inputHash,
                 command.inputTokens(),
                 command.outputTokens(),
-                expiresAt
+                expiresAt,
+                command.contextTruncated()
         );
 
         return suggestionRepository.save(suggestion);
@@ -173,7 +174,8 @@ public class AiSuggestionService {
     @Transactional
     public AiSuggestion markApplied(
             AiSuggestion suggestion,
-            UUID idempotencyKey
+            UUID idempotencyKey,
+            java.util.List<UUID> createdIssueIds
     ) {
         Objects.requireNonNull(
                 suggestion,
@@ -199,7 +201,7 @@ public class AiSuggestionService {
             return suggestion;
         }
 
-        suggestion.apply(idempotencyKey, now);
+        suggestion.apply(idempotencyKey, createdIssueIds, now);
 
         return suggestion;
     }
@@ -319,8 +321,38 @@ public class AiSuggestionService {
             String model,
             String canonicalInput,
             Integer inputTokens,
-            Integer outputTokens
+            Integer outputTokens,
+            boolean contextTruncated
     ) {
+        public CreateDraftCommand(
+                CurrentWorkspaceContext context,
+                Project project,
+                Issue sourceIssue,
+                AiSuggestionType type,
+                JsonNode content,
+                String promptVersion,
+                String provider,
+                String model,
+                String canonicalInput,
+                Integer inputTokens,
+                Integer outputTokens
+        ) {
+            this(
+                    context,
+                    project,
+                    sourceIssue,
+                    type,
+                    content,
+                    promptVersion,
+                    provider,
+                    model,
+                    canonicalInput,
+                    inputTokens,
+                    outputTokens,
+                    false
+            );
+        }
+
         public CreateDraftCommand {
             Objects.requireNonNull(
                     context,

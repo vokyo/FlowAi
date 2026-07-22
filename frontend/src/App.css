@@ -6,3 +6,4 @@
 @import './styles/responsive.css';
 @import './pages/settings.css';
 @import './analytics/analytics.css';
+@import './features/ai-copilot/ai-copilot.css';

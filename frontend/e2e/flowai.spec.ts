@@ -464,3 +464,124 @@ test('opens project analytics and persists the selected range in the URL', async
     'true',
   )
 })
+
+test('keeps edited AI breakdown fields after Apply fails and retries safely', async ({
+  page,
+  request,
+}) => {
+  const registered = await registerUser(request, uniqueValue('AI workspace'))
+  const project = await createProject(request, registered.accessToken, 'AI project')
+  const workflowStates = await listWorkflowStates(request, registered.accessToken, project.id)
+  const todo = workflowStates.find((state) => state.category === 'TODO')
+  expect(todo).toBeTruthy()
+  const issue = await createIssue(
+    request,
+    registered.accessToken,
+    project.id,
+    todo!.id,
+    'Source issue for Copilot',
+  )
+  const createdAt = '2026-07-21T01:00:00Z'
+  const suggestion = {
+    id: 'suggestion-e2e',
+    type: 'ISSUE_BREAKDOWN',
+    status: 'DRAFT',
+    projectId: project.id,
+    sourceIssueId: issue.id,
+    content: {
+      overview: 'Two implementation tasks',
+      warnings: [],
+      items: [
+        {
+          clientItemId: 'task-1',
+          title: 'Backend task',
+          description: 'Implement the endpoint',
+          priority: 'HIGH',
+          acceptanceCriteria: ['The endpoint is tested'],
+          suggestedLabelIds: [],
+          suggestedAssigneeUserId: null,
+          dueDate: null,
+          dependsOnClientItemIds: [],
+        },
+        {
+          clientItemId: 'task-2',
+          title: 'Frontend task',
+          description: 'Implement the UI',
+          priority: 'MEDIUM',
+          acceptanceCriteria: [],
+          suggestedLabelIds: [],
+          suggestedAssigneeUserId: null,
+          dueDate: null,
+          dependsOnClientItemIds: ['task-1'],
+        },
+      ],
+    },
+    metadata: {
+      promptVersion: 'issue-breakdown-v1',
+      generatedAt: createdAt,
+      contextTruncated: false,
+    },
+    createdIssueIds: [],
+    createdAt,
+    expiresAt: '2027-07-21T01:00:00Z',
+  }
+  let applyAttempts = 0
+
+  await page.route('**/api/ai/status', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      enabled: true,
+      breakdownAvailable: true,
+      issueSummaryAvailable: true,
+      projectSummaryAvailable: true,
+      agentAvailable: false,
+    }),
+  }))
+  await page.route(`**/api/ai/issues/${issue.id}/breakdown`, (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(suggestion),
+  }))
+  await page.route('**/api/ai/suggestions/suggestion-e2e', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(suggestion),
+  }))
+  await page.route('**/api/ai/suggestions/suggestion-e2e/apply', (route) => {
+    applyAttempts += 1
+    if (applyAttempts === 1) {
+      return route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 'AI_PROVIDER_UNAVAILABLE', message: 'Temporary failure' }),
+      })
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        suggestionId: suggestion.id,
+        status: 'APPLIED',
+        createdIssueIds: ['created-1', 'created-2'],
+        appliedAt: '2026-07-21T02:00:00Z',
+      }),
+    })
+  })
+
+  await login(page, registered.user.email)
+  await page.goto(`/app/workspaces/${registered.workspace.id}/projects/${project.id}/issues/${issue.id}`)
+  await page.getByRole('button', { name: 'Break down with AI' }).click()
+  await page.getByRole('button', { name: 'Generate breakdown' }).click()
+
+  const title = page.getByLabel('Title').first()
+  await expect(title).toHaveValue('Backend task')
+  await title.fill('Edited backend task')
+  await page.getByRole('button', { name: 'Create 2 issues' }).click()
+  await expect(page.getByText('AI is currently unavailable.')).toBeVisible()
+  await expect(title).toHaveValue('Edited backend task')
+
+  await page.getByRole('button', { name: 'Create 2 issues' }).click()
+  await expect(page.getByText('2 issues created')).toBeVisible()
+  expect(applyAttempts).toBe(2)
+})

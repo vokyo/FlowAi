@@ -177,7 +177,7 @@ class IssueBreakdownControllerTests {
         private IssueBreakdownSuggestionResponse response;
 
         private TestBreakdownService() {
-            super(null, null, null, null, null, null, null);
+            super(null, null, null, null, null, null, null, null);
         }
 
         @Override

@@ -31,6 +31,10 @@ app:
     include-comments-limit: 20
     include-activity-limit: 20
     max-context-issues: 100
+    rate-limit:
+      enabled: false
+      capacity: 10
+      window: 1m
 
 management:
   endpoints:

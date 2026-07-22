@@ -42,10 +42,10 @@ app:
     include-comments-limit: 20
     include-activity-limit: 20
     max-context-issues: 100
-
-
-
-
+    rate-limit:
+      enabled: ${AI_RATE_LIMIT_ENABLED:true}
+      capacity: ${AI_RATE_LIMIT_CAPACITY:10}
+      window: ${AI_RATE_LIMIT_WINDOW:1m}
 
 
 management:

@@ -8,7 +8,7 @@ FlowAI 是一个 workspace-first 的 AI 辅助任务管理 MVP，产品体验参
 
 ## 当前状态
 
-FlowAI 已完成 **Phase 0–3** 的主体实现；**Phase 4** 的 Analytics、AI availability、AI suggestion 草稿持久化和 Issue Breakdown 后端闭环已完成，其他 Copilot 与 LangGraph Agent 能力继续开发。
+FlowAI 已完成 **Phase 0–3** 的主体实现；**Phase 4** 的 Analytics 与 Spring AI Copilot 已完成，LangGraph Agent 仍作为后续独立阶段开发。
 
 当前已经完成：
 
@@ -17,15 +17,16 @@ FlowAI 已完成 **Phase 0–3** 的主体实现；**Phase 4** 的 Analytics、A
 - 完成 Issue 列表、过滤、游标分页、详情、评论、activity、优先级、负责人和截止日期。
 - 完成 Linear 风格看板、跨状态拖拽、顺序持久化和 optimistic rollback。
 - 完成 Analytics overview、状态/负责人分布和完成趋势页面。
-- 完成 Spring AI Issue Breakdown：受限上下文、结构化输出、确定性校验、一次修复和 DRAFT suggestion 持久化。
-- 完成多租户数据库约束、API trace/metrics、rate limit、Docker Compose 全栈和 CI/Testcontainers 测试。
+- 完成 Spring AI Issue Breakdown：受限上下文、结构化输出、一次修复、可编辑抽屉、幂等事务 Apply 和 DRAFT suggestion 生命周期。
+- 完成 Issue Summary 与 Project Summary：服务端来源统计、截断提示、草稿恢复、复制和刷新 UI。
+- 完成 AI 用户/workspace 共享限流、低基数 metrics、安全日志和默认跳过的真实 OpenAI smoke test。
+- 完成多租户数据库约束、API trace/metrics、rate limit、Docker Compose 全栈和 CI/Testcontainers/Playwright 测试。
 - 已引入 Spring AI OpenAI starter，但 chat model 默认关闭，普通业务不依赖 provider key。
 
 后续计划：
 
-- 实现 Issue Breakdown Apply/前端确认流程，以及 Issue Summary 和 Project Summary。
 - 使用 Python、FastAPI 和 LangGraph 实现可暂停、可恢复、需要人工审批的 Project Planning Agent。
-- 增加 AI suggestion、Agent tools、checkpoint、评估、可观测性和可选 MCP 集成。
+- 增加 Agent tools、checkpoint、评估和可选 MCP 集成。
 - 完善部署、面试演示和求职材料。
 
 ## 技术栈
@@ -48,17 +49,17 @@ FlowAI 已完成 **Phase 0–3** 的主体实现；**Phase 4** 的 Analytics、A
 | 表单 | React Hook Form, Zod |
 | 看板交互 | dnd-kit |
 | 样式 | Tailwind CSS, shadcn/ui |
-| AI 基础 | Spring AI OpenAI starter，默认关闭 |
+| AI Copilot | Spring AI、结构化任务拆解、Issue/Project 摘要、草稿生命周期与人工确认 |
+| AI 工程质量 | prompt versioning、一次修复、token/latency metrics、限流、Provider smoke test |
 | 容器化 | PostgreSQL、Spring Boot、Nginx/React 全栈 Docker Compose |
 
 ### 后续计划接入
 
 | 范围 | 技术或能力 |
 | --- | --- |
-| AI Copilot | Spring AI 任务拆解、Issue/Project 摘要、结构化输出 |
 | Agent | Python、FastAPI、LangGraph、checkpoint、Human-in-the-loop |
 | Agent 互操作 | FlowAI tools 与可选 MCP |
-| AI 工程质量 | 离线评估、token/cost metrics、prompt versioning |
+| Agent 工程质量 | 离线评估、checkpoint 与工具调用观测 |
 
 ## 架构
 
@@ -68,7 +69,7 @@ flowchart LR
     Frontend --> Backend["Spring Boot 后端"]
     Backend --> Database["Docker 中的 PostgreSQL"]
     Backend --> Flyway["Flyway 数据库迁移"]
-    Backend -. Phase 4 .-> Copilot["Spring AI Copilot"]
+    Backend --> Copilot["Spring AI Copilot"]
     Backend -. Phase 4 .-> Agent["LangGraph Agent Service"]
 ```
 
@@ -92,7 +93,7 @@ cp .env.example .env
 
 然后按需填写本地值。不要提交 `.env`。
 
-当前 chat model 默认配置为 `none`，普通本地启动和测试不需要 `OPENAI_API_KEY`。后续启用真实 AI provider 时，再同时配置 chat model 和对应 key。
+当前 chat model 默认配置为 `none`，普通本地启动和测试不需要 `OPENAI_API_KEY`。启用真实 OpenAI provider 时设置 `AI_ENABLED=true`、`SPRING_AI_MODEL_CHAT=openai` 和 `OPENAI_API_KEY`。
 
 ### 2. 启动 PostgreSQL
 
@@ -143,7 +144,7 @@ Vite 本地访问地址通常是：
 http://localhost:5173/
 ```
 
-## Phase 1 API
+## 主要 API（节选）
 
 | Method | Endpoint | 作用 |
 | --- | --- | --- |
@@ -168,6 +169,7 @@ Authorization: Bearer <access-token>
 cd backend
 set -a; source ../.env; set +a
 ./mvnw test
+./mvnw -Pintegration verify
 ```
 
 前端：
@@ -176,9 +178,11 @@ set -a; source ../.env; set +a
 cd frontend
 npm run build
 npm run lint
+npm test
+npm run test:e2e
 ```
 
-Phase 1 验收点：
+核心验收点：
 
 - 新用户可以注册。
 - 注册时自动创建默认 workspace 和 `OWNER` membership。
@@ -201,7 +205,7 @@ Phase 1 验收点：
 | Phase 1 | 认证、workspace membership、JWT、受保护 app shell | 本地完成 |
 | Phase 2 | Project、项目成员或邀请、Issue、Comment、Activity | 主体完成 |
 | Phase 3 | Linear 风格应用体验和看板 | 主体完成 |
-| Phase 4 | Analytics、Spring AI Copilot、LangGraph Agent | 进行中：Analytics 与 Issue Breakdown 后端已完成 |
+| Phase 4 | Analytics、Spring AI Copilot、LangGraph Agent | 进行中：Analytics 与 Spring AI Copilot 已完成，Agent 待开发 |
 | Phase 5 | 测试、完整 Docker Compose、部署、面试材料 | 计划中 |
 
 ## 项目说明

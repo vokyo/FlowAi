@@ -21,7 +21,10 @@ class AiConfigurationTests {
                     "app.ai.max-breakdown-items=8",
                     "app.ai.include-comments-limit=20",
                     "app.ai.include-activity-limit=20",
-                    "app.ai.max-context-issues=100"
+                    "app.ai.max-context-issues=100",
+                    "app.ai.rate-limit.enabled=true",
+                    "app.ai.rate-limit.capacity=10",
+                    "app.ai.rate-limit.window=1m"
             );
 
     @Test
@@ -36,6 +39,8 @@ class AiConfigurationTests {
             assertThat(properties.includeCommentsLimit()).isEqualTo(20);
             assertThat(properties.includeActivityLimit()).isEqualTo(20);
             assertThat(properties.maxContextIssues()).isEqualTo(100);
+            assertThat(properties.rateLimit().capacity()).isEqualTo(10);
+            assertThat(properties.rateLimit().window()).isEqualTo(Duration.ofMinutes(1));
         });
     }
 

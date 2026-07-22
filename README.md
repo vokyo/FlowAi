@@ -8,26 +8,23 @@ The goal is not to clone Linear completely. The goal is to build a focused, prod
 
 ## Current Status
 
-FlowAI has completed **Phase 0: engineering setup** and the main implementation work for **Phase 1: authentication and workspace access**.
+FlowAI has completed the main work for **Phases 0–3**. In **Phase 4**, Analytics and the Spring AI Copilot are complete; the LangGraph Agent remains a separate follow-up.
 
 Implemented now:
 
-- Monorepo structure with `backend/`, `frontend/`, and `docs/`.
-- Spring Boot backend with PostgreSQL, Flyway, Spring Security, JWT resource server, Actuator, JPA, Validation, and Testcontainers.
-- PostgreSQL development database through Docker Compose.
-- Flyway migrations for users, workspaces, workspace memberships, and refresh tokens.
-- Registration, login, token refresh, and `/api/me` session context.
-- Workspace-first model: a user can belong to workspaces through memberships; Phase 1 creates a default workspace during registration.
-- Protected frontend routes for `/app`.
-- Frontend login, registration, token storage, automatic access-token refresh, and current session loading.
-- Vite React TypeScript frontend with Tailwind CSS, shadcn/ui, React Router, and TanStack Query.
+- Multi-workspace authentication, memberships, invitations, projects, workflow states, labels, issues, comments, activity, archive/restore, and tenant constraints.
+- Linear-style board and list views with filtering, cursor pagination, drag-and-drop ordering, and optimistic rollback.
+- Analytics overview with completion trends and status/assignee distributions.
+- Spring AI Issue Breakdown with bounded context, structured validation, one repair, editable review UI, and transactional idempotent Apply.
+- Issue and Project Summaries with server-owned source statistics, truncation indicators, persisted drafts, URL restoration, copy, and refresh.
+- Creator-scoped AI Suggestion Get/Dismiss/Expire lifecycle, shared user/workspace AI rate limiting, low-cardinality metrics, safe logs, and an opt-in real-provider smoke test.
+- JUnit, Testcontainers PostgreSQL, Vitest, and Playwright coverage.
 
 Planned next:
 
-- Project, project membership or invitation, issue, comment, and activity models.
-- Linear-style issue list and kanban board.
-- AI-assisted issue breakdown and summary features.
-- Analytics and deployment hardening.
+- Python/FastAPI/LangGraph project-planning Agent with checkpointing and human approval.
+- Optional MCP exposure after the Agent tool contracts stabilize.
+- Deployment and portfolio/demo hardening.
 
 ## Tech Stack
 
@@ -46,18 +43,18 @@ Planned next:
 | Local infrastructure | Docker Compose, PostgreSQL 17 Alpine |
 | Frontend | React, TypeScript, Vite |
 | Frontend state and routing | React Router, TanStack Query |
+| Forms | React Hook Form, Zod |
+| Board interaction | dnd-kit |
 | Styling | Tailwind CSS, shadcn/ui |
+| AI Copilot | Spring AI structured breakdown, Issue/Project summaries, draft lifecycle, and human confirmation |
+| AI engineering | Prompt versioning, one repair, token/latency metrics, rate limiting, provider smoke test |
 
 ### Planned Next
 
 | Area | Technology or Capability |
 | --- | --- |
-| Forms | React Hook Form, Zod |
-| Project management | Projects, project members, invitations, issues, comments, activity events |
-| Board interaction | dnd-kit |
-| AI features | Spring AI powered issue breakdown and summaries |
-| Analytics | Recharts |
-| Deployment | Full Docker Compose application stack |
+| Agent | Python, FastAPI, LangGraph, checkpointing, human-in-the-loop |
+| Interoperability | Optional MCP after stable tool contracts |
 
 ## Architecture
 
@@ -67,9 +64,10 @@ flowchart LR
     Frontend --> Backend["Spring Boot backend"]
     Backend --> Database["PostgreSQL in Docker"]
     Backend --> Flyway["Flyway migrations"]
+    Backend --> Copilot["Spring AI Copilot"]
 ```
 
-During the current development phase, Docker Compose starts PostgreSQL only. The backend and frontend run locally for faster iteration.
+Docker Compose supports the PostgreSQL, Spring Boot, and Nginx/React stack. For faster iteration, developers can also run only PostgreSQL in Docker and start the backend/frontend locally.
 
 ## Getting Started
 
@@ -89,7 +87,7 @@ cp .env.example .env
 
 Then fill in local values as needed. Do not commit `.env`.
 
-Current backend startup may require `OPENAI_API_KEY` because the OpenAI Spring AI starter is already present, even though AI product features are planned for a later phase.
+The chat model defaults to `none`, so normal startup and tests do not need a provider key. To enable OpenAI, set `AI_ENABLED=true`, `SPRING_AI_MODEL_CHAT=openai`, and `OPENAI_API_KEY`.
 
 ### 2. Start PostgreSQL
 
@@ -140,7 +138,7 @@ The Vite development URL is usually:
 http://localhost:5173/
 ```
 
-## Phase 1 APIs
+## Selected APIs
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
@@ -165,6 +163,7 @@ Backend:
 cd backend
 set -a; source ../.env; set +a
 ./mvnw test
+./mvnw -Pintegration verify
 ```
 
 Frontend:
@@ -173,9 +172,11 @@ Frontend:
 cd frontend
 npm run build
 npm run lint
+npm test
+npm run test:e2e
 ```
 
-Phase 1 acceptance checks:
+Core acceptance checks:
 
 - A new user can register.
 - Registration creates a default workspace and `OWNER` membership.
@@ -196,9 +197,9 @@ Use the registration page to create a local account. A seeded demo account can b
 | --- | --- | --- |
 | Phase 0 | Project positioning and engineering setup | Completed |
 | Phase 1 | Authentication, workspace membership, JWT, protected app shell | Completed locally |
-| Phase 2 | Projects, project members or invitations, issues, comments, activities | Planned |
-| Phase 3 | Linear-style application experience and kanban board | Planned |
-| Phase 4 | AI issue breakdown, summaries, and analytics | Planned |
+| Phase 2 | Projects, project members, issues, comments, and activity | Main scope completed |
+| Phase 3 | Linear-style application experience and kanban board | Main scope completed |
+| Phase 4 | Analytics, Spring AI Copilot, and LangGraph Agent | In progress: Analytics and Spring AI Copilot completed; Agent pending |
 | Phase 5 | Tests, full Docker Compose, deployment, interview materials | Planned |
 
 ## Project Notes

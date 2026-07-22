@@ -1,6 +1,7 @@
 package com.vokyo.backend.web;
 
 import com.vokyo.backend.ai.AiFeatureException;
+import com.vokyo.backend.ai.AiRateLimitExceededException;
 import com.vokyo.backend.security.ratelimit.RateLimitExceededException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
@@ -227,6 +228,23 @@ public class ApiExceptionHandler {
                 HttpStatus.TOO_MANY_REQUESTS.value(),
                 "RATE_LIMITED",
                 "Too many requests"
+        );
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(exception.retryAfterSeconds()))
+                .header(TraceIds.HEADER, body.traceId())
+                .body(body);
+    }
+
+    @ExceptionHandler(AiRateLimitExceededException.class)
+    ResponseEntity<ApiErrorResponse> handleAiRateLimitExceeded(
+            AiRateLimitExceededException exception,
+            HttpServletRequest request
+    ) {
+        ApiErrorResponse body = errorService.create(
+                request,
+                HttpStatus.TOO_MANY_REQUESTS.value(),
+                "AI_RATE_LIMITED",
+                "AI generation rate limit exceeded"
         );
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                 .header(HttpHeaders.RETRY_AFTER, Long.toString(exception.retryAfterSeconds()))

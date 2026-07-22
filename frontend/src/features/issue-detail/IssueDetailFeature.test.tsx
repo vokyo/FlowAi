@@ -82,4 +82,52 @@ describe('IssueDetailFeature pagination controls', () => {
     expect(onLoadMoreComments).toHaveBeenCalledOnce()
     expect(onLoadMoreActivities).toHaveBeenCalledOnce()
   })
+
+  it('shows the Breakdown and Summary actions when AI is available', async () => {
+    const onOpenAiBreakdown = vi.fn()
+    const onOpenAiSummary = vi.fn()
+    render(
+      <IssueDetailFeature
+        issue={issue}
+        selectedProject={project}
+        projectMembers={[]}
+        projectLabels={[]}
+        projectWorkflowStates={[workflowState]}
+        currentWorkspace={{ id: 'workspace-1', name: 'Workspace', slug: 'workspace', role: 'OWNER' }}
+        currentUser={user}
+        comments={[]}
+        activities={[]}
+        isLoadingIssue={false}
+        issueError={null}
+        isLoadingComments={false}
+        commentsError={null}
+        hasMoreComments={false}
+        isLoadingMoreComments={false}
+        onLoadMoreComments={vi.fn()}
+        isLoadingActivities={false}
+        activitiesError={null}
+        hasMoreActivities={false}
+        isLoadingMoreActivities={false}
+        onLoadMoreActivities={vi.fn()}
+        onSubmitComment={vi.fn(async () => undefined)}
+        isSubmittingComment={false}
+        commentError={null}
+        onBackToProject={vi.fn()}
+        onUpdateIssue={vi.fn(async () => undefined)}
+        onArchiveIssue={vi.fn(async () => undefined)}
+        isUpdatingIssue={false}
+        updateIssueError={null}
+        onResetUpdateIssueError={vi.fn()}
+        aiBreakdownAvailable
+        aiIssueSummaryAvailable
+        onOpenAiBreakdown={onOpenAiBreakdown}
+        onOpenAiSummary={onOpenAiSummary}
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: 'Break down with AI' }))
+    expect(onOpenAiBreakdown).toHaveBeenCalledOnce()
+    await userEvent.click(screen.getByRole('button', { name: 'Summarize' }))
+    expect(onOpenAiSummary).toHaveBeenCalledOnce()
+  })
 })

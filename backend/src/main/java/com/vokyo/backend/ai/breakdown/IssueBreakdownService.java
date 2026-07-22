@@ -3,8 +3,11 @@ package com.vokyo.backend.ai.breakdown;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vokyo.backend.ai.AiFeatureException;
 import com.vokyo.backend.ai.AiGeneration;
+import com.vokyo.backend.ai.AiGenerationRateLimiter;
+import com.vokyo.backend.ai.AiMetrics;
 import com.vokyo.backend.ai.AiModelGateway;
 import com.vokyo.backend.ai.AiModelOutputException;
+import com.vokyo.backend.ai.AiRateLimitExceededException;
 import com.vokyo.backend.ai.breakdown.dto.IssueBreakdownRequest;
 import com.vokyo.backend.ai.breakdown.dto.IssueBreakdownSuggestionResponse;
 import com.vokyo.backend.ai.suggestion.AiSuggestion;
@@ -27,7 +30,8 @@ public class IssueBreakdownService {
     private final IssueBreakdownValidator validator;
     private final AiSuggestionService suggestionService;
     private final ObjectMapper objectMapper;
-    private final IssueBreakdownMetrics metrics;
+    private final AiMetrics metrics;
+    private final AiGenerationRateLimiter rateLimiter;
 
     public IssueBreakdownService(
             IssueBreakdownContextBuilder contextBuilder,
@@ -36,7 +40,8 @@ public class IssueBreakdownService {
             IssueBreakdownValidator validator,
             AiSuggestionService suggestionService,
             ObjectMapper objectMapper,
-            IssueBreakdownMetrics metrics
+            AiMetrics metrics,
+            AiGenerationRateLimiter rateLimiter
     ) {
         this.contextBuilder = contextBuilder;
         this.promptFactory = promptFactory;
@@ -45,6 +50,7 @@ public class IssueBreakdownService {
         this.suggestionService = suggestionService;
         this.objectMapper = objectMapper;
         this.metrics = metrics;
+        this.rateLimiter = rateLimiter;
     }
 
     public IssueBreakdownSuggestionResponse generate(
@@ -56,14 +62,18 @@ public class IssueBreakdownService {
         AttemptTotals totals = new AttemptTotals();
         String metricResult = "internal_error";
         try {
-            AiModelGateway gateway = gatewayProvider.getIfAvailable();
-            if (gateway == null) {
-                throw AiFeatureException.providerUnavailable();
-            }
-
             BuiltIssueBreakdownContext built = contextBuilder.build(jwt, issueId, request);
+            if (rateLimiter != null) {
+                rateLimiter.requirePermit(built.currentContext());
+            }
+            AiModelGateway gateway = gatewayProvider.getIfAvailable();
+            if (gateway == null) throw AiFeatureException.providerUnavailable();
             IssueBreakdownPromptFactory.IssueBreakdownPrompt prompt = promptFactory.create(built.modelContext());
             IssueBreakdownResult validated = generateValidated(gateway, prompt, built.modelContext(), totals);
+            metrics.recordGenerationMetadata(
+                    "issue_breakdown", prompt.version(), totals.provider, totals.model,
+                    totals.inputTokens, totals.outputTokens
+            );
 
             AiSuggestion suggestion = suggestionService.createDraft(
                     new AiSuggestionService.CreateDraftCommand(
@@ -77,12 +87,16 @@ public class IssueBreakdownService {
                             totals.model,
                             prompt.canonicalInput(),
                             totals.inputTokens,
-                            totals.outputTokens
+                            totals.outputTokens,
+                            built.modelContext().sourceStats().contextTruncated()
                     )
             );
-            metrics.recordDraft();
+            metrics.recordSuggestion(AiSuggestionType.ISSUE_BREAKDOWN, suggestion.getStatus());
             metricResult = "success";
             return toResponse(suggestion, built, validated);
+        } catch (AiRateLimitExceededException exception) {
+            metricResult = "rate_limited";
+            throw exception;
         } catch (AiFeatureException exception) {
             metricResult = metricResult(exception);
             throw exception;
@@ -93,7 +107,7 @@ public class IssueBreakdownService {
             metricResult = "request_rejected";
             throw exception;
         } finally {
-            metrics.complete(timer, metricResult, totals.provider, totals.model);
+            metrics.complete(timer, "issue_breakdown", metricResult, totals.provider, totals.model);
         }
     }
 
@@ -212,7 +226,12 @@ public class IssueBreakdownService {
             model = attemptModel;
             inputTokens = sum(inputTokens, attemptInputTokens);
             outputTokens = sum(outputTokens, attemptOutputTokens);
-            metrics.recordTokens(attemptModel, attemptInputTokens, attemptOutputTokens);
+            metrics.recordTokens(
+                    "issue_breakdown",
+                    attemptModel,
+                    attemptInputTokens,
+                    attemptOutputTokens
+            );
         }
 
         private Integer sum(Integer total, Integer value) {

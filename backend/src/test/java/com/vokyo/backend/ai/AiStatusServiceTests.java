@@ -38,14 +38,14 @@ class AiStatusServiceTests {
     }
 
     @Test
-    void reportsBreakdownAvailableWhenProviderIsReady() {
+    void reportsImplementedCopilotFeaturesWhenProviderIsReady() {
         AiStatusResponse response = service(true, AVAILABLE_GATEWAY).getStatus();
 
         assertThat(response.enabled()).isTrue();
         assertThat(response.disabledReason()).isNull();
         assertThat(response.breakdownAvailable()).isTrue();
-        assertThat(response.issueSummaryAvailable()).isFalse();
-        assertThat(response.projectSummaryAvailable()).isFalse();
+        assertThat(response.issueSummaryAvailable()).isTrue();
+        assertThat(response.projectSummaryAvailable()).isTrue();
         assertThat(response.agentAvailable()).isFalse();
     }
 

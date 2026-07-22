@@ -21,6 +21,8 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -81,6 +83,13 @@ public class AiSuggestion {
     @Column(name = "apply_idempotency_key")
     private UUID applyIdempotencyKey;
 
+    @Column(name = "context_truncated", nullable = false)
+    private boolean contextTruncated;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "created_issue_ids", nullable = false, columnDefinition = "jsonb")
+    private List<UUID> createdIssueIds = new ArrayList<>();
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -117,6 +126,40 @@ public class AiSuggestion {
             Integer inputTokens,
             Integer outputTokens,
             Instant expiresAt
+    ) {
+        this(
+                workspace,
+                project,
+                sourceIssue,
+                createdByUser,
+                type,
+                content,
+                promptVersion,
+                provider,
+                model,
+                inputHash,
+                inputTokens,
+                outputTokens,
+                expiresAt,
+                false
+        );
+    }
+
+    public AiSuggestion(
+            Workspace workspace,
+            Project project,
+            Issue sourceIssue,
+            User createdByUser,
+            AiSuggestionType type,
+            JsonNode content,
+            String promptVersion,
+            String provider,
+            String model,
+            String inputHash,
+            Integer inputTokens,
+            Integer outputTokens,
+            Instant expiresAt,
+            boolean contextTruncated
     ) {
         this.workspace = Objects.requireNonNull(
                 workspace,
@@ -155,6 +198,8 @@ public class AiSuggestion {
                 expiresAt,
                 "expiresAt is required"
         );
+        this.contextTruncated = contextTruncated;
+        this.createdIssueIds = new ArrayList<>();
 
         validateSourceIssue(type, sourceIssue);
 
@@ -205,12 +250,20 @@ public class AiSuggestion {
         this.updatedAt = now;
     }
 
-    public void apply(UUID idempotencyKey, Instant now) {
+    public void apply(
+            UUID idempotencyKey,
+            List<UUID> createdIssueIds,
+            Instant now
+    ) {
         Objects.requireNonNull(
                 idempotencyKey,
                 "idempotencyKey is required"
         );
         Objects.requireNonNull(now, "now is required");
+        Objects.requireNonNull(
+                createdIssueIds,
+                "createdIssueIds is required"
+        );
 
         /*
          * 相同 idempotency key 的重复请求视为同一次 Apply。
@@ -228,8 +281,23 @@ public class AiSuggestion {
             );
         }
 
+        List<UUID> normalizedIssueIds = createdIssueIds.stream()
+                .map(issueId -> Objects.requireNonNull(
+                        issueId,
+                        "createdIssueIds cannot contain null"
+                ))
+                .distinct()
+                .toList();
+        if (normalizedIssueIds.isEmpty()
+                || normalizedIssueIds.size() != createdIssueIds.size()) {
+            throw new IllegalArgumentException(
+                    "createdIssueIds must contain unique issue IDs"
+            );
+        }
+
         this.status = AiSuggestionStatus.APPLIED;
         this.applyIdempotencyKey = idempotencyKey;
+        this.createdIssueIds = new ArrayList<>(normalizedIssueIds);
         this.appliedAt = now;
         this.updatedAt = now;
     }
@@ -388,6 +456,14 @@ public class AiSuggestion {
 
     public UUID getApplyIdempotencyKey() {
         return applyIdempotencyKey;
+    }
+
+    public boolean isContextTruncated() {
+        return contextTruncated;
+    }
+
+    public List<UUID> getCreatedIssueIds() {
+        return List.copyOf(createdIssueIds);
     }
 
     public Instant getCreatedAt() {

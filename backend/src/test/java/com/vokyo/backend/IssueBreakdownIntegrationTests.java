@@ -2,6 +2,7 @@ package com.vokyo.backend;
 
 import com.vokyo.backend.ai.AiGeneration;
 import com.vokyo.backend.ai.AiModelGateway;
+import com.vokyo.backend.activity.ActivityEventRepository;
 import com.vokyo.backend.ai.breakdown.IssueBreakdownResult;
 import com.vokyo.backend.ai.suggestion.AiSuggestionRepository;
 import com.vokyo.backend.ai.suggestion.AiSuggestionStatus;
@@ -33,12 +34,18 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -73,6 +80,9 @@ class IssueBreakdownIntegrationTests extends AbstractMockMvcIntegrationTest {
 
     @Autowired
     private IssueRepository issueRepository;
+
+    @Autowired
+    private ActivityEventRepository activityEventRepository;
 
     @Autowired
     private AiSuggestionRepository suggestionRepository;
@@ -169,6 +179,235 @@ class IssueBreakdownIntegrationTests extends AbstractMockMvcIntegrationTest {
 
         assertThat(fakeGateway.calls).hasValue(0);
         assertThat(suggestionRepository.count()).isZero();
+    }
+
+    @Test
+    void suggestionCanOnlyBeReadAndDismissedByItsCreator() throws Exception {
+        TenantGraph owner = createTenantGraph("suggestion-owner");
+        TenantGraph other = createTenantGraph("suggestion-other");
+
+        postJson(
+                "/api/ai/issues/%s/breakdown".formatted(owner.issue().getId()),
+                "{}",
+                owner.accessToken()
+        ).andExpect(status().isOk());
+
+        var suggestion = suggestionRepository.findAll().getFirst();
+
+        mockMvc.perform(get(
+                        "/api/ai/suggestions/{suggestionId}",
+                        suggestion.getId()
+                ).header("Authorization", bearer(other.accessToken())))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("AI_SUGGESTION_NOT_FOUND"));
+
+        mockMvc.perform(get(
+                        "/api/ai/suggestions/{suggestionId}",
+                        suggestion.getId()
+                ).header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andExpect(jsonPath("$.metadata.contextTruncated").value(false))
+                .andExpect(jsonPath("$.createdIssueIds.length()").value(0));
+
+        mockMvc.perform(post(
+                        "/api/ai/suggestions/{suggestionId}/dismiss",
+                        suggestion.getId()
+                ).header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DISMISSED"))
+                .andExpect(jsonPath("$.dismissedAt").isNotEmpty());
+
+        mockMvc.perform(post(
+                        "/api/ai/suggestions/{suggestionId}/dismiss",
+                        suggestion.getId()
+                ).header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("AI_SUGGESTION_NOT_DRAFT"));
+
+        assertThat(suggestionRepository.findById(suggestion.getId()))
+                .get()
+                .extracting(com.vokyo.backend.ai.suggestion.AiSuggestion::getStatus)
+                .isEqualTo(AiSuggestionStatus.DISMISSED);
+    }
+
+    @Test
+    void appliesSelectedItemsAtomicallyAndReplaysTheSameIdempotencyKey() throws Exception {
+        TenantGraph graph = createTenantGraph("apply-success");
+        postJson(
+                "/api/ai/issues/%s/breakdown".formatted(graph.issue().getId()),
+                "{}",
+                graph.accessToken()
+        ).andExpect(status().isOk());
+
+        var suggestion = suggestionRepository.findAll().getFirst();
+        UUID idempotencyKey = UUID.randomUUID();
+        String applyBody = applyBody(idempotencyKey, null, false);
+
+        postJson(
+                "/api/ai/suggestions/%s/apply".formatted(suggestion.getId()),
+                applyBody,
+                graph.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("APPLIED"))
+                .andExpect(jsonPath("$.createdIssueIds.length()").value(1))
+                .andExpect(jsonPath("$.appliedAt").isNotEmpty());
+
+        List<Issue> issuesAfterFirstApply = issueRepository.findAll();
+        assertThat(issuesAfterFirstApply).hasSize(2);
+        Issue created = issuesAfterFirstApply.stream()
+                .filter(issue -> !issue.getId().equals(graph.issue().getId()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(created.getTitle()).isEqualTo("Edited backend task");
+        assertThat(created.getDescription())
+                .contains("Edited description")
+                .contains("Acceptance criteria:")
+                .contains("It works");
+
+        postJson(
+                "/api/ai/suggestions/%s/apply".formatted(suggestion.getId()),
+                applyBody,
+                graph.accessToken()
+        ).andExpect(status().isOk())
+                .andExpect(jsonPath("$.createdIssueIds[0]")
+                        .value(created.getId().toString()));
+
+        assertThat(issueRepository.count()).isEqualTo(2);
+        assertThat(activityEventRepository.count()).isEqualTo(1);
+        assertThat(suggestionRepository.findById(suggestion.getId()))
+                .get()
+                .satisfies(applied -> {
+                    assertThat(applied.getStatus())
+                            .isEqualTo(AiSuggestionStatus.APPLIED);
+                    assertThat(applied.getApplyIdempotencyKey())
+                            .isEqualTo(idempotencyKey);
+                    assertThat(applied.getCreatedIssueIds())
+                            .containsExactly(created.getId());
+                });
+
+        postJson(
+                "/api/ai/suggestions/%s/apply".formatted(suggestion.getId()),
+                applyBody(UUID.randomUUID(), null, false),
+                graph.accessToken()
+        ).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("AI_SUGGESTION_NOT_DRAFT"));
+    }
+
+    @Test
+    void rollsBackEveryCreatedIssueWhenAnySelectedItemIsInvalid() throws Exception {
+        TenantGraph graph = createTenantGraph("apply-rollback");
+        postJson(
+                "/api/ai/issues/%s/breakdown".formatted(graph.issue().getId()),
+                "{}",
+                graph.accessToken()
+        ).andExpect(status().isOk());
+
+        var suggestion = suggestionRepository.findAll().getFirst();
+        postJson(
+                "/api/ai/suggestions/%s/apply".formatted(suggestion.getId()),
+                applyBody(UUID.randomUUID(), UUID.randomUUID(), true),
+                graph.accessToken()
+        ).andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("AI_SUGGESTION_INVALID"));
+
+        assertThat(issueRepository.findAll())
+                .extracting(Issue::getId)
+                .containsExactly(graph.issue().getId());
+        assertThat(suggestionRepository.findById(suggestion.getId()))
+                .get()
+                .extracting(com.vokyo.backend.ai.suggestion.AiSuggestion::getStatus)
+                .isEqualTo(AiSuggestionStatus.DRAFT);
+    }
+
+    @Test
+    void concurrentApplyWithTheSameKeyCreatesIssuesOnlyOnce() throws Exception {
+        TenantGraph graph = createTenantGraph("apply-concurrent");
+        postJson(
+                "/api/ai/issues/%s/breakdown".formatted(graph.issue().getId()),
+                "{}",
+                graph.accessToken()
+        ).andExpect(status().isOk());
+
+        var suggestion = suggestionRepository.findAll().getFirst();
+        String body = applyBody(UUID.randomUUID(), null, false);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var requests = List.of(1, 2).stream()
+                    .map(ignored -> executor.submit(() -> {
+                        ready.countDown();
+                        if (!start.await(5, TimeUnit.SECONDS)) {
+                            throw new IllegalStateException("Concurrent apply did not start");
+                        }
+                        return mockMvc.perform(post(
+                                        "/api/ai/suggestions/{suggestionId}/apply",
+                                        suggestion.getId()
+                                )
+                                        .header(
+                                                "Authorization",
+                                                bearer(graph.accessToken())
+                                        )
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content(body))
+                                .andReturn()
+                                .getResponse()
+                                .getStatus();
+                    }))
+                    .toList();
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            for (var request : requests) {
+                assertThat(request.get(15, TimeUnit.SECONDS)).isEqualTo(200);
+            }
+        }
+
+        assertThat(issueRepository.count()).isEqualTo(2);
+        assertThat(activityEventRepository.count()).isEqualTo(1);
+        assertThat(suggestionRepository.findById(suggestion.getId()))
+                .get()
+                .extracting(com.vokyo.backend.ai.suggestion.AiSuggestion::getStatus)
+                .isEqualTo(AiSuggestionStatus.APPLIED);
+    }
+
+    private String applyBody(
+            UUID idempotencyKey,
+            UUID secondWorkflowStateId,
+            boolean selectSecond
+    ) {
+        String workflowState = secondWorkflowStateId == null
+                ? "null"
+                : "\"" + secondWorkflowStateId + "\"";
+        return """
+                {
+                  "idempotencyKey": "%s",
+                  "items": [
+                    {
+                      "clientItemId": "item-1",
+                      "selected": true,
+                      "title": "Edited backend task",
+                      "description": "Edited description",
+                      "priority": "HIGH",
+                      "labelIds": [],
+                      "assigneeUserId": null,
+                      "workflowStateId": null,
+                      "dueDate": null
+                    },
+                    {
+                      "clientItemId": "item-2",
+                      "selected": %s,
+                      "title": "Edited test task",
+                      "description": "Test description",
+                      "priority": "MEDIUM",
+                      "labelIds": [],
+                      "assigneeUserId": null,
+                      "workflowStateId": %s,
+                      "dueDate": null
+                    }
+                  ]
+                }
+                """.formatted(idempotencyKey, selectSecond, workflowState);
     }
 
     private TenantGraph createTenantGraph(String suffix) {

@@ -98,7 +98,7 @@ Acceptance criteria:
 
 ### Phase 2: Projects and Issues
 
-Status: Planned.
+Status: Main scope completed.
 
 Deliverables:
 
@@ -130,7 +130,7 @@ Acceptance criteria:
 
 ### Phase 3: Linear-Inspired Product Experience
 
-Status: Planned.
+Status: Main scope completed.
 
 Deliverables:
 
@@ -156,21 +156,28 @@ Acceptance criteria:
 
 ### Phase 4: AI and Analytics
 
-Status: Planned.
+Status: In progress. Analytics and the Spring AI Copilot are complete; the LangGraph Agent remains pending.
 
 Deliverables:
 
 - Integrate Spring AI with a configurable provider.
-- Implement AI issue breakdown.
-- Implement AI issue or project summary.
+- Implement structured AI issue breakdown with persisted review drafts and transactional, idempotent Apply.
+- Implement Issue Summary and Project Summary with bounded context and server-owned source statistics.
 - Implement analytics overview: total issues, completion rate, status distribution, assignee distribution, and completion trend.
-- Use Recharts for analytics.
-- Keep AI suggestions as drafts until the user confirms them.
+- Render the analytics overview, distributions, and completion trend in the project UI.
+- Keep AI suggestions as creator-scoped drafts with Get, Dismiss, lazy expiry, and URL restoration.
+- Share a user/workspace generation limit across Copilot features and expose low-cardinality request, duration, token, suggestion, and Apply metrics.
+- Keep a real OpenAI smoke integration test opt-in and outside normal PR execution.
 
 Core APIs:
 
-- `POST /api/ai/issues/breakdown`
-- `POST /api/ai/issues/summarize`
+- `GET /api/ai/status`
+- `POST /api/ai/issues/{issueId}/breakdown`
+- `POST /api/ai/issues/{issueId}/summary`
+- `POST /api/ai/projects/{projectId}/summary`
+- `GET /api/ai/suggestions/{suggestionId}`
+- `POST /api/ai/suggestions/{suggestionId}/dismiss`
+- `POST /api/ai/suggestions/{suggestionId}/apply`
 - `GET /api/analytics/overview`
 
 Acceptance criteria:
