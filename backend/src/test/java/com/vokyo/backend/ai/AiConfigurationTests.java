@@ -3,6 +3,8 @@ package com.vokyo.backend.ai;
 import com.vokyo.backend.ai.springai.SpringAiModelGateway;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration;
+import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.web.client.RestClientCustomizer;
 
@@ -55,7 +57,7 @@ class AiConfigurationTests {
     }
 
     @Test
-    void doesNotCreateGatewayWhenChatModelIsMissing() {
+    void doesNotCreateGatewayWhenChatModelProviderIsNotSelected() {
         contextRunner
                 .withPropertyValues("app.ai.enabled=true")
                 .run(context -> assertThat(context).doesNotHaveBean(AiModelGateway.class));
@@ -64,13 +66,33 @@ class AiConfigurationTests {
     @Test
     void createsGatewayWhenAiAndChatModelAreAvailable() {
         contextRunner
-                .withPropertyValues("app.ai.enabled=true")
+                .withPropertyValues(
+                        "app.ai.enabled=true",
+                        "spring.ai.model.chat=openai"
+                )
                 .withBean(ChatModel.class, () -> prompt -> null)
                 .run(context -> {
                     assertThat(context).hasSingleBean(AiModelGateway.class);
                     assertThat(context.getBean(AiModelGateway.class))
                             .isInstanceOf(SpringAiModelGateway.class);
                     assertThat(context).hasSingleBean(RestClientCustomizer.class);
+                });
+    }
+
+    @Test
+    void createsGatewayAfterOpenAiChatModelAutoConfiguration() {
+        contextRunner
+                .withConfiguration(AutoConfigurations.of(OpenAiChatAutoConfiguration.class))
+                .withPropertyValues(
+                        "app.ai.enabled=true",
+                        "spring.ai.model.chat=openai",
+                        "spring.ai.openai.api-key=dummy"
+                )
+                .run(context -> {
+                    assertThat(context).hasSingleBean(ChatModel.class);
+                    assertThat(context).hasSingleBean(AiModelGateway.class);
+                    assertThat(context.getBean(AiModelGateway.class))
+                            .isInstanceOf(SpringAiModelGateway.class);
                 });
     }
 }

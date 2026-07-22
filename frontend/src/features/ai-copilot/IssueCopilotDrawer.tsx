@@ -70,12 +70,17 @@ export function IssueCopilotDrawer({
 
   useEffect(() => {
     const suggestion = suggestionQuery.data
-    if (!suggestion || loadedSuggestionId.current === suggestion.id) return
+    if (
+      !open
+      || !suggestion
+      || suggestion.type !== 'ISSUE_BREAKDOWN'
+      || loadedSuggestionId.current === suggestion.id
+    ) return
     loadedSuggestionId.current = suggestion.id
     setDraftItems(toEditableItems(suggestion.content))
     setAppliedIssueIds(suggestion.createdIssueIds ?? [])
     idempotencyKey.current = null
-  }, [suggestionQuery.data])
+  }, [open, suggestionQuery.data])
 
   const generateMutation = useMutation({
     mutationFn: () => generateIssueBreakdown(issueId, {

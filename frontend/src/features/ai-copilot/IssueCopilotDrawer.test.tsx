@@ -114,6 +114,54 @@ describe('IssueCopilotDrawer', () => {
     expect(request.items[1].selected).toBe(false)
     expect(await screen.findByText('1 issue created')).toBeInTheDocument()
   })
+
+  it('ignores a cached summary suggestion while the breakdown drawer is closed', () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    queryClient.setQueryData(
+      ['ai-suggestion', 'workspace-1', 'summary-1'],
+      {
+        ...suggestion,
+        id: 'summary-1',
+        type: 'ISSUE_SUMMARY',
+        content: {
+          summary: 'A valid issue summary.',
+          decisions: [],
+          openQuestions: [],
+          blockers: [],
+          nextActions: [],
+          sourceStats: {
+            commentsUsed: 0,
+            activityEventsUsed: 0,
+            commentsTruncated: false,
+            activityTruncated: false,
+            contextTruncated: false,
+          },
+        },
+      },
+    )
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <IssueCopilotDrawer
+          open={false}
+          workspaceId="workspace-1"
+          issueId="issue-1"
+          suggestionId="summary-1"
+          projectMembers={[]}
+          projectLabels={[]}
+          workflowStates={[]}
+          onSuggestionChange={vi.fn()}
+          onClose={vi.fn()}
+          onApplied={vi.fn(async () => undefined)}
+        />
+      </QueryClientProvider>,
+    )
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(getAiSuggestion).not.toHaveBeenCalled()
+  })
 })
 
 function renderDrawer() {

@@ -3,7 +3,6 @@ package com.vokyo.backend.ai;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vokyo.backend.ai.springai.SpringAiModelGateway;
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
@@ -25,7 +24,11 @@ class AiConfiguration {
             name = "enabled",
             havingValue = "true"
     )
-    @ConditionalOnBean(ChatModel.class)
+    @ConditionalOnProperty(
+            prefix = "spring.ai.model",
+            name = "chat",
+            havingValue = "openai"
+    )
     AiModelGateway aiModelGateway(
             ChatModel chatModel,
             ObjectProvider<ObjectMapper> objectMappers

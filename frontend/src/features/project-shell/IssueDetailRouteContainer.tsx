@@ -218,7 +218,7 @@ export function IssueDetailRouteContainer({
             open={copilotMode === 'breakdown'}
             workspaceId={workspaceId}
             issueId={issueId}
-            suggestionId={suggestionId}
+            suggestionId={suggestionType === 'breakdown' ? suggestionId : null}
             projectMembers={activeProjectMembers}
             projectLabels={projectLabels}
             workflowStates={projectWorkflowStates}
