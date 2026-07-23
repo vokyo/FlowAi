@@ -5,10 +5,10 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { ApiError } from '@/api/client'
 import { getCurrentSession, logout } from '@/auth/auth-api'
 import {
-  clearAccessToken,
   hasAccessToken,
   setAccessToken,
 } from '@/auth/access-token'
+import { clearClientSession } from '@/auth/client-session'
 import { Button } from '@/components/ui/button'
 import {
   acceptWorkspaceInvitation,
@@ -57,8 +57,7 @@ export function InvitationPage({ onSessionChanged }: InvitationPageProps) {
     } catch {
       // Switching accounts must still clear the in-memory session if logout fails.
     } finally {
-      clearAccessToken()
-      queryClient.clear()
+      clearClientSession(queryClient)
       onSessionChanged()
       navigate(`/login?returnTo=${encodeURIComponent(returnTo)}`, { replace: true })
     }

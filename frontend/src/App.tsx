@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Navigate, Route, Routes, useNavigate } from 'react-router'
 import {
   clearAccessTokenProvider,
@@ -8,11 +9,11 @@ import {
   setUnauthorizedHandler,
 } from '@/api/client'
 import {
-  clearAccessToken,
   getAccessToken,
   hasAccessToken,
 } from '@/auth/access-token'
 import { logout } from '@/auth/auth-api'
+import { clearClientSession } from '@/auth/client-session'
 import { LoginPage } from '@/pages/LoginPage'
 import { RegisterPage } from '@/pages/RegisterPage'
 import './App.css'
@@ -27,6 +28,7 @@ function App() {
 
 function AppRoutes() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const navigateRef = useRef(navigate)
   const [sessionVersion, setSessionVersion] = useState(0)
   const [isRestoringSession, setIsRestoringSession] = useState(true)
@@ -45,7 +47,7 @@ function AppRoutes() {
     } catch {
       // Local sign-out must still complete when the server is unavailable.
     }
-    clearAccessToken()
+    clearClientSession(queryClient)
     refreshSession()
     navigate('/login', { replace: true })
   }
@@ -55,7 +57,7 @@ function AppRoutes() {
 
     setAccessTokenProvider(getAccessToken)
     setUnauthorizedHandler(() => {
-      clearAccessToken()
+      clearClientSession(queryClient)
       refreshSession()
       const currentPath = window.location.pathname
       const loginPath = currentPath.startsWith('/invite/')
@@ -76,7 +78,7 @@ function AppRoutes() {
       clearAccessTokenProvider()
       clearUnauthorizedHandler()
     }
-  }, [])
+  }, [queryClient])
 
   if (isRestoringSession) {
     return <RouteLoading />

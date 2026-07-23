@@ -4,7 +4,7 @@ import { ArrowLeft, KeyRound, Save, Shield, Tag, Trash2, UserRound, Workflow } f
 import { useNavigate } from 'react-router'
 import { ApiError } from '@/api/client'
 import { changePassword, getCurrentSession, revokeAllSessions, updateProfile } from '@/auth/auth-api'
-import { clearAccessToken } from '@/auth/access-token'
+import { clearClientSession } from '@/auth/client-session'
 import { Button } from '@/components/ui/button'
 import { PROJECT_METADATA_STALE_TIME_MS } from '@/lib/query-config'
 import {
@@ -48,8 +48,7 @@ export function SettingsPage({ onSessionChanged }: { onSessionChanged: () => voi
   const [selectedProjectId, setSelectedProjectId] = useState('')
 
   function finishSensitiveAction() {
-    clearAccessToken()
-    queryClient.clear()
+    clearClientSession(queryClient)
     onSessionChanged()
     navigate('/login', { replace: true })
   }
