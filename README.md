@@ -1,212 +1,340 @@
 # FlowAI
 
-[中文 README](./README.zh-CN.md)
+[![CI](https://github.com/vokyo/FlowAi/actions/workflows/ci.yml/badge.svg)](https://github.com/vokyo/FlowAi/actions/workflows/ci.yml)
 
-FlowAI is a workspace-first, AI-assisted task management MVP inspired by Linear and project issue trackers. It is built as a portfolio project for software engineering, full-stack, and backend internship applications in Auckland.
+**Live demo:** [hospitable-friendship-production-52e2.up.railway.app](https://hospitable-friendship-production-52e2.up.railway.app)
 
-The goal is not to clone Linear completely. The goal is to build a focused, production-shaped MVP that demonstrates backend engineering, database design, frontend integration, Docker-based local development, automated testing, and clear technical communication.
+FlowAI is a multi-tenant, AI-assisted project and issue management application. It combines Linear-inspired workflows with reviewable AI suggestions, while keeping authorization, tenant isolation, validation, and transactional writes on the server.
+
+The repository is a production-shaped portfolio MVP: it is designed to be runnable, testable, and easy to evaluate without claiming the operational maturity of a hosted production service. This README is the single source of documentation for the project.
+
+## Live Demo
+
+The deployment above runs the same containers as `docker compose up`: an Nginx image that serves the React build and proxies `/api` to the Spring Boot backend, plus managed PostgreSQL.
+
+- There is no seeded demo account. Register any email and password; registration creates a fresh workspace that is isolated from other visitors.
+- The instance runs on a small hosting plan, so the first request after an idle period can be slow while the container starts.
+- Treat it as a demo: do not store real data, and expect the database to be reset from time to time.
+- AI Copilot actions require a provider key on the server. `GET /api/ai/status` reports per-feature availability, and the UI disables the Copilot buttons instead of failing on submit when AI is off.
+
+## Highlights
+
+### Workspace and project management
+
+- Registration, login, logout, short-lived access tokens, and refresh-token rotation.
+- Multiple workspaces with switching, role-aware invitations, membership administration, and account settings.
+- Invitation links that support both signing in and registering a new account into an existing workspace.
+- Project membership, configurable workflow states, labels, archiving, and restoration.
+- Workspace and project authorization enforced by backend services rather than frontend visibility alone.
+
+### Issue execution
+
+- Board and list views with filters, cursor pagination, and URL-restored state.
+- Drag-and-drop workflow transitions, persisted ordering, optimistic updates, and rollback on failure.
+- Issue details, priorities, assignees, due dates, comments, and activity history.
+- Project analytics for total issues, completion rate, completion trend, and status/assignee distribution.
+
+### AI Copilot
+
+- Issue breakdown into editable child-task suggestions.
+- Issue and project summaries generated from server-owned context.
+- Versioned prompt templates, structured output validation, one bounded repair attempt, and context limits.
+- Persisted, creator-scoped suggestions with expiry, dismissal, refresh, and copy flows.
+- Human-confirmed, transactional, idempotent Apply instead of autonomous writes.
+- User/workspace rate limiting plus low-cardinality `flowai.ai.*` request, duration, token, suggestion, and apply metrics.
+
+### Engineering foundation
+
+- Flyway-managed PostgreSQL schema and database-level tenant referential constraints.
+- Consistent API errors and end-to-end `X-Trace-Id` propagation.
+- Stateless Spring Security, BCrypt password hashing, role-aware access checks, and Bucket4j rate limiting.
+- Docker Compose stack with a non-root backend image and same-origin Nginx reverse proxy.
+- Unit, integration, migration, component, and Playwright end-to-end tests in GitHub Actions.
 
 ## Current Status
 
-FlowAI has completed the main work for **Phases 0–3**. In **Phase 4**, Analytics and the Spring AI Copilot are complete; the LangGraph Agent remains a separate follow-up.
+| Phase | Scope | Status |
+| --- | --- | --- |
+| 0 | Repository, tooling, and local Docker setup | Complete |
+| 1 | Authentication, workspaces, memberships, invitations | Complete |
+| 2 | Projects, issues, comments, activity, tenant constraints | Complete |
+| 3 | Board/list experience, filters, pagination, drag-and-drop | Complete |
+| 4 | Analytics and Spring AI Copilot | Complete |
+| 5 | Testing, deployment, and application materials | In progress (live deployment and CI done) |
+| Next | Python/FastAPI/LangGraph planning agent with checkpointing and human approval | Not started |
 
-Implemented now:
+Not currently included:
 
-- Multi-workspace authentication, memberships, invitations, projects, workflow states, labels, issues, comments, activity, archive/restore, and tenant constraints.
-- Linear-style board and list views with filtering, cursor pagination, drag-and-drop ordering, and optimistic rollback.
-- Analytics overview with completion trends and status/assignee distributions.
-- Spring AI Issue Breakdown with bounded context, structured validation, one repair, editable review UI, and transactional idempotent Apply.
-- Issue and Project Summaries with server-owned source statistics, truncation indicators, persisted drafts, URL restoration, copy, and refresh.
-- Creator-scoped AI Suggestion Get/Dismiss/Expire lifecycle, shared user/workspace AI rate limiting, low-cardinality metrics, safe logs, and an opt-in real-provider smoke test.
-- JUnit, Testcontainers PostgreSQL, Vitest, and Playwright coverage.
-
-Planned next:
-
-- Python/FastAPI/LangGraph project-planning Agent with checkpointing and human approval.
-- Optional MCP exposure after the Agent tool contracts stabilize.
-- Deployment and portfolio/demo hardening.
-
-## Tech Stack
-
-### Implemented Now
-
-| Area | Technology |
-| --- | --- |
-| Backend | Java 21, Spring Boot 3.5.x |
-| API | Spring Web, Spring Validation |
-| Persistence | Spring Data JPA, Hibernate, PostgreSQL |
-| Migration | Flyway |
-| Security | Spring Security, JWT resource server, BCrypt |
-| Tokens | Access tokens plus refresh-token rotation |
-| Health checks | Spring Boot Actuator |
-| Testing foundation | JUnit 5, Testcontainers |
-| Local infrastructure | Docker Compose, PostgreSQL 17 Alpine |
-| Frontend | React, TypeScript, Vite |
-| Frontend state and routing | React Router, TanStack Query |
-| Forms | React Hook Form, Zod |
-| Board interaction | dnd-kit |
-| Styling | Tailwind CSS, shadcn/ui |
-| AI Copilot | Spring AI structured breakdown, Issue/Project summaries, draft lifecycle, and human confirmation |
-| AI engineering | Prompt versioning, one repair, token/latency metrics, rate limiting, provider smoke test |
-
-### Planned Next
-
-| Area | Technology or Capability |
-| --- | --- |
-| Agent | Python, FastAPI, LangGraph, checkpointing, human-in-the-loop |
-| Interoperability | Optional MCP after stable tool contracts |
+- A seeded demo account or sample dataset on the live instance.
+- The LangGraph agent service or MCP exposure.
+- A production operations or SLA commitment.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    User["User / Interviewer"] --> Frontend["React + TypeScript frontend"]
-    Frontend --> Backend["Spring Boot backend"]
-    Backend --> Database["PostgreSQL in Docker"]
-    Backend --> Flyway["Flyway migrations"]
-    Backend --> Copilot["Spring AI Copilot"]
+    Browser["Browser"] -->|"HTTP :8080"| Nginx["Nginx + React SPA"]
+    Nginx -->|"/api/*"| API["Spring Boot REST API"]
+    API --> Security["JWT + tenant authorization"]
+    API --> Database[("PostgreSQL 17")]
+    API -. "when AI is enabled" .-> Provider["OpenAI via Spring AI"]
+    Flyway["Flyway migrations"] --> Database
 ```
 
-Docker Compose supports the PostgreSQL, Spring Boot, and Nginx/React stack. For faster iteration, developers can also run only PostgreSQL in Docker and start the backend/frontend locally.
+In the containerized stack, Nginx serves the frontend and proxies API requests to the backend under the same origin, so the browser never makes a cross-origin call and the refresh cookie stays `SameSite=Strict`. During local development, Vite provides the equivalent `/api` proxy. PostgreSQL remains the system of record; AI output is treated as an untrusted draft until it passes validation and a user confirms Apply.
 
-## Getting Started
+## Technology
 
-### Prerequisites
+| Area | Stack |
+| --- | --- |
+| Backend | Java 21, Spring Boot 3.5, Spring Web, Spring Validation |
+| Security | Spring Security, JWT Resource Server, BCrypt, rotating refresh tokens, Bucket4j |
+| Data | PostgreSQL 17, Spring Data JPA, Hibernate, Flyway (16 migrations) |
+| Frontend | React 19, TypeScript, Vite, React Router, TanStack Query |
+| UI | Tailwind CSS 4, shadcn/ui, Radix UI, dnd-kit, React Hook Form, Zod |
+| AI | Spring AI 1.0, structured generation, validation/repair, persisted suggestion lifecycle |
+| Observability | Spring Boot Actuator, Micrometer metrics, structured logs, trace IDs |
+| Testing | JUnit 5, Testcontainers, Vitest, Testing Library, Playwright |
+| Delivery | Docker Compose, multi-stage images, Nginx, GitHub Actions |
 
-- Java 21
-- Node.js and npm
-- Docker Desktop
+## Quick Start
 
-### 1. Configure Environment Variables
+### Option A: run the full stack with Docker
 
-Create a local `.env` from the example file:
+Requirements: Docker Desktop or another Docker installation with Compose v2.
+
+1. Create the local environment file:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Add `POSTGRES_PASSWORD` to `.env`, replace the JWT secret, and allow the refresh cookie over local HTTP:
+
+   ```dotenv
+   POSTGRES_PASSWORD=flowai_dev_password
+   JWT_SECRET=replace-with-at-least-32-random-bytes
+   REFRESH_COOKIE_SECURE=false
+   ```
+
+   `POSTGRES_PASSWORD` must match the local datasource password. Never use these development values in a deployed environment.
+
+3. Build and start the stack:
+
+   ```bash
+   docker compose up --build -d
+   docker compose ps
+   ```
+
+4. Verify it:
+
+   ```bash
+   curl http://localhost:8080/health
+   ```
+
+Open [http://localhost:8080](http://localhost:8080) and register a local account.
+
+### Option B: run services locally for development
+
+Requirements: Java 21, Node.js 22, npm, and Docker.
+
+Start PostgreSQL with the development port override:
 
 ```bash
-cp .env.example .env
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
 ```
 
-Then fill in local values as needed. Do not commit `.env`.
-
-The chat model defaults to `none`, so normal startup and tests do not need a provider key. To enable OpenAI, set `AI_ENABLED=true`, `SPRING_AI_MODEL_CHAT=openai`, and `OPENAI_API_KEY`.
-
-### 2. Start PostgreSQL
-
-From the repository root:
-
-```bash
-docker compose up -d postgres
-```
-
-PostgreSQL will be available at:
-
-- Host: `localhost`
-- Port: `5432`
-- Database: `flowai`
-- User: `flowai`
-- Password: `flowai_dev_password`
-
-### 3. Start the Backend
+Start the backend:
 
 ```bash
 cd backend
-set -a; source ../.env; set +a
+set -a
+source ../.env
+set +a
 ./mvnw spring-boot:run
 ```
 
-Health check:
+Check backend health:
 
 ```bash
 curl http://localhost:8080/actuator/health
 ```
 
-Expected response:
-
-```json
-{"status":"UP"}
-```
-
-### 4. Start the Frontend
+In another terminal, start the frontend:
 
 ```bash
 cd frontend
+npm ci
 npm run dev
 ```
 
-The Vite development URL is usually:
+Open [http://localhost:5173](http://localhost:5173).
 
-```text
-http://localhost:5173/
+## Container Operations
+
+Follow the logs of the whole stack or a single service:
+
+```bash
+docker compose logs -f
 ```
 
-## Selected APIs
+Check the backend from inside the network:
 
-| Method | Endpoint | Purpose |
+```bash
+docker compose exec backend curl http://localhost:8080/actuator/health
+```
+
+Stop the stack and keep the database:
+
+```bash
+docker compose down
+```
+
+PostgreSQL data lives in the `flowai_postgres_data` named volume, so `docker compose down` preserves it. To delete local database data permanently:
+
+```bash
+docker compose down -v
+```
+
+Common issues: port `8080` already in use (set `APP_PORT`), backend datasource authentication failure (`POSTGRES_PASSWORD` and the datasource password disagree), Nginx returning 502 (backend not healthy yet, check `docker compose logs -f backend`).
+
+## AI Configuration
+
+AI is opt-in. Normal startup and automated tests do not require a provider key and do not call an external model.
+
+To enable the Copilot while running the backend locally, set:
+
+```dotenv
+AI_ENABLED=true
+SPRING_AI_MODEL_CHAT=openai
+OPENAI_API_KEY=your-key
+AI_MODEL=gpt-4o-mini
+```
+
+`docker-compose.yml` forwards `SPRING_AI_MODEL_CHAT` and `OPENAI_API_KEY` but not `AI_ENABLED` or `AI_MODEL`, so the containerized stack starts with the Copilot disabled. To try AI in Compose, add those two variables to the `backend` service environment.
+
+Do not commit `.env` or expose provider keys to frontend code. Model name, timeout, context limits, suggestion TTL, and rate limits are all overridable through [`application.yaml`](./backend/src/main/resources/application.yaml).
+
+## Configuration Reference
+
+Forwarded by `docker-compose.yml`:
+
+| Variable | Default | Purpose |
 | --- | --- | --- |
-| `POST` | `/api/auth/register` | Create user, default workspace, owner membership, and tokens |
-| `POST` | `/api/auth/login` | Authenticate with email and password |
-| `POST` | `/api/auth/refresh` | Rotate refresh token and issue a new access token |
-| `GET` | `/api/me` | Return current session: user plus workspace |
-| `GET` | `/api/workspaces/current` | Return current workspace from JWT context |
-| `GET` | `/api/workspaces/current/members` | Return members of the current workspace |
+| `POSTGRES_DB` | `flowai` | Compose database name |
+| `POSTGRES_USER` | `flowai` | Compose database user |
+| `POSTGRES_PASSWORD` | Required | Database password |
+| `JWT_SECRET` | Required | HS256 signing secret; use at least 32 random bytes |
+| `JWT_ACCESS_TOKEN_TTL` | `15m` | Access-token lifetime |
+| `JWT_REFRESH_TOKEN_TTL` | `7d` | Refresh-token lifetime |
+| `REFRESH_COOKIE_SECURE` | `true` in the prod profile | Keep `true` behind HTTPS; use `false` only for local HTTP |
+| `WORKSPACE_INVITATION_TTL` | `7d` | Invitation link lifetime |
+| `APP_PORT` | `8080` | Host port for the containerized application |
+| `BACKEND_UPSTREAM` | `backend:8080` | Upstream that Nginx proxies `/api` to; resolved at runtime |
+| `SPRING_AI_MODEL_CHAT` | `none` | Selects the Spring AI chat provider |
+| `OPENAI_API_KEY` | Empty | Provider credential when OpenAI is enabled |
 
-Authenticated requests use:
+Backend properties (set them on the backend process or add them to the Compose service):
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SPRING_DATASOURCE_URL` / `_USERNAME` / `_PASSWORD` | Local PostgreSQL | Datasource for a non-Compose run |
+| `RATE_LIMIT_ENABLED` | `true` | Master switch for the shared Bucket4j limiter used by auth and AI |
+| `AI_ENABLED` | `false` | Enables AI application workflows |
+| `AI_MODEL` | `gpt-4o-mini` | Chat model name |
+| `AI_REQUEST_TIMEOUT` | `30s` | Per-request AI timeout |
+| `AI_SUGGESTION_TTL` | `7d` | Suggestion expiry |
+| `AI_MAX_BREAKDOWN_ITEMS` | `8` | Cap on generated child tasks |
+| `AI_RATE_LIMIT_CAPACITY` / `AI_RATE_LIMIT_WINDOW` | `10` / `1m` | AI generation limit per user and workspace |
+
+For the complete set of options, see [`application.yaml`](./backend/src/main/resources/application.yaml) and [`application-prod.yaml`](./backend/src/main/resources/application-prod.yaml). The prod profile additionally parameterizes the AI context limits (`AI_INCLUDE_COMMENTS_LIMIT`, `AI_INCLUDE_ACTIVITY_LIMIT`, `AI_MAX_CONTEXT_ISSUES`).
+
+## API Overview
+
+| Domain | Representative endpoints |
+| --- | --- |
+| Authentication | `POST /api/auth/register`, `/login`, `/refresh`, `/logout`, `/register-with-invitation` |
+| Current session | `GET /api/me`, `PATCH /api/me/profile`, `PUT /api/me/password`, `DELETE /api/me/sessions` |
+| Workspaces | `/api/workspaces`, `POST /api/workspaces/{id}/switch`, `/api/workspaces/current/members` |
+| Invitations | `/api/workspaces/current/invitations` (create, reissue, revoke), `/api/workspace-invitations/{token}` (view, accept) |
+| Projects | `/api/projects`, project members, labels, workflow states, archive/restore |
+| Issues | `/api/issues`, `/api/issues/board`, `PATCH /api/issues/reorder`, state changes, comments, activities |
+| Analytics | `GET /api/analytics/overview` |
+| AI Copilot | `GET /api/ai/status`, `POST /api/ai/issues/{id}/breakdown`, `POST /api/ai/issues/{id}/summary`, `POST /api/ai/projects/{id}/summary`, `GET`/`POST .../dismiss`/`POST .../apply` under `/api/ai/suggestions/{id}` |
+
+Protected requests use:
 
 ```http
 Authorization: Bearer <access-token>
 ```
 
+The refresh token is rotated server-side and delivered as an `HttpOnly`, `SameSite=Strict` cookie scoped to `/api`. Errors share one JSON shape (`code`, `message`, `fieldErrors`, `traceId`), and `management.endpoints.web.exposure` limits Actuator to `health`, `info`, and `metrics`.
+
 ## Verification
 
-Backend:
+Backend unit tests:
 
 ```bash
 cd backend
-set -a; source ../.env; set +a
 ./mvnw test
+```
+
+Backend integration and migration tests (Docker required):
+
+```bash
+cd backend
 ./mvnw -Pintegration verify
 ```
 
-Frontend:
+Frontend checks:
 
 ```bash
 cd frontend
-npm run build
+npm ci
 npm run lint
 npm test
+npm run build
+```
+
+Browser end-to-end tests (Docker and Chromium required):
+
+```bash
+cd frontend
+npx playwright install chromium
 npm run test:e2e
 ```
 
-Core acceptance checks:
+Playwright starts an isolated Spring Boot test application on port `18080` against a temporary Testcontainers PostgreSQL database, plus Vite on port `4173`. It does not reuse the development database or the normal `5173`/`8080` services.
 
-- A new user can register.
-- Registration creates a default workspace and `OWNER` membership.
-- Login returns access and refresh tokens.
-- `/api/me` returns `user` and `workspace`.
-- `/app` is protected from unauthenticated access.
-- The frontend stores tokens, attaches `Authorization`, refreshes expired access tokens, and signs out when refresh fails.
+CI runs frontend lint/test/build, backend unit tests, Testcontainers integration tests, a fresh-database Flyway check, Playwright workflows, and a Docker Compose stack check that verifies `/health` plus same-origin registration over both plain HTTP and a TLS-terminated `X-Forwarded-Proto: https` request.
 
-## Demo Account
+## Deployment Notes
 
-There is no committed seeded demo account yet.
+The live instance runs the two images built from this repository on a container PaaS, with managed PostgreSQL. What the platform environment needs beyond the Compose defaults:
 
-Use the registration page to create a local account. A seeded demo account can be added later when Phase 2 or deployment setup needs repeatable demos.
+- `SPRING_PROFILES_ACTIVE=prod` for the graceful-shutdown, forwarded-headers, and structured-logging configuration.
+- `BACKEND_UPSTREAM` pointing at the platform's private backend hostname. Nginx re-resolves it every 10 seconds so a backend redeploy does not leave the proxy holding a stale IP.
+- `REFRESH_COOKIE_SECURE=true`, since the platform terminates TLS. Nginx forwards the original scheme through `X-Forwarded-Proto`, and the backend reads it with `forward-headers-strategy: framework`, so redirect and cookie decisions see `https`.
+- `JWT_SECRET`, datasource credentials, and — only if the Copilot should be live — `AI_ENABLED`, `SPRING_AI_MODEL_CHAT`, and `OPENAI_API_KEY`.
 
-## Roadmap
+Flyway runs on backend startup, so a deploy migrates the database before serving traffic.
 
-| Phase | Focus | Status |
-| --- | --- | --- |
-| Phase 0 | Project positioning and engineering setup | Completed |
-| Phase 1 | Authentication, workspace membership, JWT, protected app shell | Completed locally |
-| Phase 2 | Projects, project members, issues, comments, and activity | Main scope completed |
-| Phase 3 | Linear-style application experience and kanban board | Main scope completed |
-| Phase 4 | Analytics, Spring AI Copilot, and LangGraph Agent | In progress: Analytics and Spring AI Copilot completed; Agent pending |
-| Phase 5 | Tests, full Docker Compose, deployment, interview materials | Planned |
+## Repository Layout
 
-## Project Notes
+```text
+FlowAI/
+├── backend/                  Spring Boot API, domain logic, migrations, prompts, tests
+├── frontend/                 React application, component tests, Playwright tests
+├── docker-compose.yml        Full application stack
+├── docker-compose.dev.yml    Local PostgreSQL port override
+├── .env.example              Local environment template
+└── .github/workflows/        Continuous integration
+```
 
-FlowAI is intentionally being built in small, interview-friendly phases. Each phase should leave the project runnable and explainable, so the repository can show both engineering progress and decision-making process.
+## Design Boundaries
 
-More detail:
-
-- [MVP Roadmap](./docs/mvp-roadmap.en.md)
-- [Phase 1 Design Notes](./docs/phase-1-auth-workspace.en.md)
+- Every authenticated request resolves its current workspace from a server-validated membership claim.
+- Project resources require an active project membership; inaccessible resources are not exposed across tenants.
+- Cross-tenant relationships are constrained in PostgreSQL as well as in service-layer checks.
+- AI prompts use bounded server-owned context, and generated content cannot write to domain tables until validation and explicit user confirmation succeed.
+- Apply operations are transactional and idempotent so a safe retry does not duplicate created issues.

@@ -5,3 +5,8 @@
 /frontend/coverage/
 /frontend/playwright-report/
 /frontend/test-results/
+
+# Local-only notes; README.md is the published documentation
+/docs/
+/README.zh-CN.md
+/frontend/e2e/README.md
