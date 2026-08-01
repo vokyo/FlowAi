@@ -22,12 +22,12 @@ import org.springframework.http.HttpStatus;
 public class MeController {
 
     private final MeService meService;
-    private final AccountService accountService;
+    private final MeAccountService accountService;
     private final RefreshTokenCookieService refreshTokenCookieService;
 
     public MeController(
             MeService meService,
-            AccountService accountService,
+            MeAccountService accountService,
             RefreshTokenCookieService refreshTokenCookieService
     ) {
         this.meService = meService;

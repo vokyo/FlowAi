@@ -16,13 +16,13 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.UUID;
 
 @Service
-public class AccountService {
+public class MeAccountService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final RefreshTokenService refreshTokenService;
 
-    public AccountService(
+    public MeAccountService(
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
             RefreshTokenService refreshTokenService
