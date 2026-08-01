@@ -4,7 +4,7 @@ import com.vokyo.backend.activity.ActivityService;
 import com.vokyo.backend.activity.dto.ActivityEventResponse;
 import com.vokyo.backend.issue.dto.IssueCommentResponse;
 import com.vokyo.backend.issue.dto.IssueDetailResponse;
-import com.vokyo.backend.issue.dto.IssueSummaryResponse;
+import com.vokyo.backend.issue.dto.IssueListItemResponse;
 import com.vokyo.backend.pagination.CursorCodec;
 import com.vokyo.backend.pagination.CursorPage;
 import com.vokyo.backend.pagination.CursorPagination;
@@ -64,7 +64,7 @@ public class IssueQueryService {
     }
 
     @Transactional(readOnly = true)
-    public CursorPage<IssueSummaryResponse> listIssues(
+    public CursorPage<IssueListItemResponse> listIssues(
             Jwt jwt,
             UUID projectId,
             IssueStatus status,

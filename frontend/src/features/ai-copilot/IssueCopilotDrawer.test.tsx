@@ -10,10 +10,10 @@ import {
   getAiSuggestion,
   type AiSuggestion,
   type IssueBreakdownContent,
-} from '@/ai/ai-api'
+} from '@/api/ai-api'
 import { IssueCopilotDrawer } from './IssueCopilotDrawer'
 
-vi.mock('@/ai/ai-api', () => ({
+vi.mock('@/api/ai-api', () => ({
   applyIssueBreakdown: vi.fn(),
   dismissAiSuggestion: vi.fn(),
   generateIssueBreakdown: vi.fn(),

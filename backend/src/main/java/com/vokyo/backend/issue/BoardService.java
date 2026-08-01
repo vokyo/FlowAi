@@ -2,7 +2,7 @@ package com.vokyo.backend.issue;
 
 import com.vokyo.backend.activity.ActivityService;
 import com.vokyo.backend.issue.dto.BoardColumnResponse;
-import com.vokyo.backend.issue.dto.IssueSummaryResponse;
+import com.vokyo.backend.issue.dto.IssueListItemResponse;
 import com.vokyo.backend.issue.dto.MoveIssueStateRequest;
 import com.vokyo.backend.issue.dto.ProjectBoardResponse;
 import com.vokyo.backend.issue.dto.ReorderIssuesRequest;
@@ -87,7 +87,7 @@ public class BoardService {
     }
 
     @Transactional(readOnly = true)
-    public CursorPage<IssueSummaryResponse> getBoardStatePage(
+    public CursorPage<IssueListItemResponse> getBoardStatePage(
             Jwt jwt,
             UUID projectId,
             UUID workflowStateId,
@@ -101,7 +101,7 @@ public class BoardService {
     }
 
     @Transactional
-    public IssueSummaryResponse moveIssueState(Jwt jwt, UUID issueId, MoveIssueStateRequest request) {
+    public IssueListItemResponse moveIssueState(Jwt jwt, UUID issueId, MoveIssueStateRequest request) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Project project = requireIssueProjectForUpdate(issueId, context);
         Issue issue = requireIssue(issueId, context.workspace().getId());
@@ -194,7 +194,7 @@ public class BoardService {
         );
     }
 
-    private CursorPage<IssueSummaryResponse> loadBoardStatePage(
+    private CursorPage<IssueListItemResponse> loadBoardStatePage(
             Project project,
             ProjectWorkflowState workflowState,
             String cursor,
@@ -236,7 +236,7 @@ public class BoardService {
 
     private BoardColumnResponse toBoardColumn(
             ProjectWorkflowState workflowState,
-            CursorPage<IssueSummaryResponse> page
+            CursorPage<IssueListItemResponse> page
     ) {
         return new BoardColumnResponse(
                 issueMapper.toWorkflowStateResponse(workflowState),

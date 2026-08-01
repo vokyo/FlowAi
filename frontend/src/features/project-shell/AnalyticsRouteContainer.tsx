@@ -1,17 +1,17 @@
 import { lazy, Suspense } from 'react'
 import { useSearchParams } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
-import { getAiStatus } from '@/ai/ai-api'
-import { useProjectAnalyticsQuery } from '@/analytics/useProjectAnalyticsQuery'
-import { InlineState } from '@/features/project-shell/feature-ui'
+import { getAiStatus } from '@/api/ai-api'
+import { useProjectAnalyticsQuery } from '@/features/analytics/useProjectAnalyticsQuery'
+import { InlineState } from '@/ui/feature-ui'
 import {
   analyticsRangeFromSearchParams,
   analyticsSearchParams,
-} from '@/features/project-shell/route-utils'
-import type { Project } from '@/work/work-api'
+} from '@/routing/route-utils'
+import type { Project } from '@/api/work-api'
 
 const ProjectAnalyticsView = lazy(() =>
-  import('@/analytics/ProjectAnalyticsView').then((module) => ({
+  import('@/features/analytics/ProjectAnalyticsView').then((module) => ({
     default: module.ProjectAnalyticsView,
   })),
 )

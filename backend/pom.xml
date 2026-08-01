@@ -12,20 +12,7 @@
     <artifactId>backend</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>backend</name>
-    <description>backend</description>
-    <url/>
-    <licenses>
-        <license/>
-    </licenses>
-    <developers>
-        <developer/>
-    </developers>
-    <scm>
-        <connection/>
-        <developerConnection/>
-        <tag/>
-        <url/>
-    </scm>
+    <description>FlowAI backend: project, issue, workspace, and AI copilot API</description>
     <properties>
         <java.version>21</java.version>
         <skipUnitTests>false</skipUnitTests>
@@ -120,6 +107,12 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>1.4.1</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>postgresql</artifactId>
             <scope>test</scope>
@@ -182,9 +175,15 @@
                 <configuration>
                     <skip>${skipUnitTests}</skip>
                     <failIfNoTests>true</failIfNoTests>
+                    <!-- Pinned explicitly: the Surefire defaults also match **/Test*.java
+                         and **/*Test.java, which would sweep up test fixtures such as
+                         TestBackendApplication and TestcontainersConfiguration. -->
+                    <includes>
+                        <include>**/*Tests.java</include>
+                    </includes>
                     <excludes>
-                        <exclude>**/*IntegrationTests.java</exclude>
-                        <exclude>**/BackendApplicationTests.java</exclude>
+                        <exclude>**/Abstract*.java</exclude>
+                        <exclude>**/integration/**</exclude>
                     </excludes>
                 </configuration>
             </plugin>
@@ -210,9 +209,11 @@
                         <configuration>
                             <failIfNoTests>true</failIfNoTests>
                             <includes>
-                                <include>**/*IntegrationTests.java</include>
-                                <include>**/BackendApplicationTests.java</include>
+                                <include>**/integration/*Tests.java</include>
                             </includes>
+                            <excludes>
+                                <exclude>**/Abstract*.java</exclude>
+                            </excludes>
                         </configuration>
                     </plugin>
                 </plugins>

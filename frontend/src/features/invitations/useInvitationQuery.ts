@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { mergeCursorPageItems } from '@/api/pagination'
-import { listWorkspaceInvitations } from '@/workspace/workspace-api'
+import { listWorkspaceInvitations } from '@/api/workspace-api'
 
 export function useInvitationQuery({
   workspaceId,

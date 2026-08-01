@@ -6,7 +6,7 @@ import java.util.List;
 
 public record BoardColumnResponse(
         ProjectWorkflowStateResponse workflowState,
-        List<IssueSummaryResponse> issues,
+        List<IssueListItemResponse> issues,
         String nextCursor
 ) {
 }

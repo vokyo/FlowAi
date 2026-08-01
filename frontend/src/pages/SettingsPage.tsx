@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, KeyRound, Save, Shield, Tag, Trash2, UserRound, Workflow } from 'lucide-react'
 import { useNavigate } from 'react-router'
 import { ApiError } from '@/api/client'
-import { changePassword, getCurrentSession, revokeAllSessions, updateProfile } from '@/auth/auth-api'
+import { changePassword, getCurrentSession, revokeAllSessions, updateProfile } from '@/api/auth-api'
 import { clearClientSession } from '@/auth/client-session'
 import { Button } from '@/components/ui/button'
 import { PROJECT_METADATA_STALE_TIME_MS } from '@/lib/query-config'
@@ -25,8 +25,8 @@ import {
   type ProjectLabel,
   type ProjectWorkflowState,
   type WorkflowStateCategory,
-} from '@/work/work-api'
-import { removeWorkspaceMember, updateWorkspaceMember, type WorkspaceRole } from '@/workspace/workspace-api'
+} from '@/api/work-api'
+import { removeWorkspaceMember, updateWorkspaceMember, type WorkspaceRole } from '@/api/workspace-api'
 
 const categories: WorkflowStateCategory[] = ['TODO', 'IN_PROGRESS', 'DONE']
 
@@ -187,7 +187,7 @@ function AccountSettings({
 function WorkspaceMemberSettings({ currentUserId, currentRole, members, isLoading, error, onChanged }: {
   currentUserId: string
   currentRole: WorkspaceRole
-  members: import('@/work/work-api').WorkspaceMember[]
+  members: import('@/api/work-api').WorkspaceMember[]
   isLoading: boolean
   error: Error | null
   onChanged: () => Promise<unknown>
@@ -230,7 +230,7 @@ function WorkspaceMemberSettings({ currentUserId, currentRole, members, isLoadin
 }
 
 function ProjectSettings({ project, workspaceId, onProjectChanged, onProjectRemoved }: {
-  project: import('@/work/work-api').Project
+  project: import('@/api/work-api').Project
   workspaceId: string
   onProjectChanged: () => Promise<void>
   onProjectRemoved: () => Promise<void>

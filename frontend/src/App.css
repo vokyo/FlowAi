@@ -1,9 +1,0 @@
-@import './styles/auth-and-shell.css';
-@import './features/board/board.css';
-@import './features/issue-list/issue-list.css';
-@import './features/issue-detail/issue-detail.css';
-@import './features/project-shell/dialogs.css';
-@import './styles/responsive.css';
-@import './pages/settings.css';
-@import './analytics/analytics.css';
-@import './features/ai-copilot/ai-copilot.css';

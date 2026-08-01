@@ -3,22 +3,22 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm, useWatch } from 'react-hook-form'
 import { ArrowDown, ArrowUp, Check, Loader2, Pencil, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import type { Project, ProjectWorkflowState } from '@/work/work-api'
+import type { Project, ProjectWorkflowState } from '@/api/work-api'
 import {
   WORKFLOW_STATE_CATEGORIES,
   createProjectWorkflowStateFormSchema,
   updateProjectWorkflowStateFormSchema,
   type CreateProjectWorkflowStateFormValues,
   type UpdateProjectWorkflowStateFormValues,
-} from '@/features/project-shell/project-model'
-import { formatStatus, toWorkflowStateCategoryInput } from '@/features/project-shell/display-utils'
+} from '@/domain/project-model'
+import { formatStatus, toWorkflowStateCategoryInput } from '@/ui/display-utils'
 import {
   ErrorState,
   InlineNotice,
   InlineState,
   ModalShell,
   StatusIcon,
-} from '@/features/project-shell/feature-ui'
+} from '@/ui/feature-ui'
 
 export function ProjectWorkflowDialog({
   isOpen,

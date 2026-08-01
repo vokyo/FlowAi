@@ -12,7 +12,7 @@ import {
   CreateWorkspaceDialog,
   WorkspaceMismatchState,
 } from '@/features/project-shell/ProjectShellStates'
-import type { CreateProjectFormValues } from '@/features/project-shell/project-model'
+import type { CreateProjectFormValues } from '@/domain/project-model'
 import {
   analyticsRangeFromSearchParams,
   analyticsSearchParams,
@@ -25,11 +25,11 @@ import {
   projectAnalyticsPath,
   projectPath,
   workViewSearchParams,
-} from '@/features/project-shell/route-utils'
+} from '@/routing/route-utils'
 import { useProjectShellMutations } from '@/features/project-shell/useProjectShellMutations'
 import { useProjectShellQueries } from '@/features/project-shell/useProjectShellQueries'
-import type { BoardIssueView } from '@/work/board-utils'
-import { WorkspaceSidebar } from '@/workspace/WorkspaceSidebar'
+import type { BoardIssueView } from '@/domain/board-utils'
+import { WorkspaceSidebar } from '@/features/workspace/WorkspaceSidebar'
 
 const WorkspaceInvitationsDialog = lazy(() =>
   import('@/features/invitations/WorkspaceInvitationsDialog').then((module) => ({

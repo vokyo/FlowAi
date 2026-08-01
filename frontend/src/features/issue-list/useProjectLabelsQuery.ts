@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { PROJECT_METADATA_STALE_TIME_MS } from '@/lib/query-config'
-import { listProjectLabels, type ProjectLabel } from '@/work/work-api'
+import { listProjectLabels, type ProjectLabel } from '@/api/work-api'
 
 const EMPTY_LABELS: ProjectLabel[] = []
 

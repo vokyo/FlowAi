@@ -9,10 +9,10 @@ import {
   getAiSuggestion,
   type AiSuggestion,
   type ProjectSummaryContent,
-} from '@/ai/ai-api'
+} from '@/api/ai-api'
 import { ProjectSummaryPanel } from './ProjectSummaryPanel'
 
-vi.mock('@/ai/ai-api', () => ({
+vi.mock('@/api/ai-api', () => ({
   dismissAiSuggestion: vi.fn(),
   generateProjectSummary: vi.fn(),
   getAiSuggestion: vi.fn(),

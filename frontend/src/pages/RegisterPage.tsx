@@ -6,11 +6,11 @@ import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
 import { z } from 'zod'
 import { ArrowRight, Loader2 } from 'lucide-react'
 import { ApiError } from '@/api/client'
-import { register, registerWithInvitation } from '@/auth/auth-api'
+import { register, registerWithInvitation } from '@/api/auth-api'
 import { safeAuthReturnTo } from '@/auth/auth-navigation'
 import { setAccessToken } from '@/auth/access-token'
 import { Button } from '@/components/ui/button'
-import { getWorkspaceInvitationPreview } from '@/workspace/workspace-api'
+import { getWorkspaceInvitationPreview } from '@/api/workspace-api'
 
 type RegisterPageProps = {
   isAuthenticated: boolean

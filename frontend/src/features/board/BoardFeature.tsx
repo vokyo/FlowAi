@@ -37,7 +37,7 @@ import {
   type IssueSummary,
   type ProjectBoard,
   type ProjectWorkflowState,
-} from '@/work/work-api'
+} from '@/api/work-api'
 import {
   boardEmptyColumnLabel,
   boardIssueNeighbors,
@@ -45,22 +45,22 @@ import {
   findBoardIssue,
   kanbanColumnId,
   type BoardIssueView,
-} from '@/work/board-utils'
+} from '@/domain/board-utils'
 import {
   quickCreateIssueFormSchema,
   type CreateIssueDialogSeed,
   type KanbanReorder,
   type QuickCreateIssueFormValues,
   type QuickCreateIssueMutationVariables,
-} from '@/features/project-shell/project-model'
-import { formatDateOnly, getErrorMessage } from '@/features/project-shell/display-utils'
+} from '@/domain/project-model'
+import { formatDateOnly, getErrorMessage } from '@/ui/display-utils'
 import {
   ErrorState,
   InlineNotice,
   LabelBadge,
   PriorityBadge,
   StatusIcon,
-} from '@/features/project-shell/feature-ui'
+} from '@/ui/feature-ui'
 import { useBoardColumnPagination } from './useBoardColumnPagination'
 
 type KanbanDragData = {
@@ -375,7 +375,11 @@ function KanbanColumn({
   })
 
   return (
-    <section className="kanban-column" aria-label={`${column.workflowState.name} issues`}>
+    <section
+      className="kanban-column"
+      data-category={column.workflowState.category}
+      aria-label={`${column.workflowState.name} issues`}
+    >
       <header className="kanban-column-header">
         <span className="kanban-column-title">
           <StatusIcon status={column.workflowState.category} />

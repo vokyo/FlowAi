@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { compareCreatedAtAscending, mergeCursorPageItems } from '@/api/pagination'
-import { getIssue, listIssueActivities, listIssueComments } from '@/work/work-api'
+import { getIssue, listIssueActivities, listIssueComments } from '@/api/work-api'
 
 export function useIssueDetailQueries({
   workspaceId,

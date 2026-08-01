@@ -9,10 +9,10 @@ import {
   getAiSuggestion,
   type AiSuggestion,
   type IssueSummaryContent,
-} from '@/ai/ai-api'
+} from '@/api/ai-api'
 import { IssueSummaryDrawer } from './IssueSummaryDrawer'
 
-vi.mock('@/ai/ai-api', () => ({
+vi.mock('@/api/ai-api', () => ({
   dismissAiSuggestion: vi.fn(),
   generateIssueSummary: vi.fn(),
   getAiSuggestion: vi.fn(),

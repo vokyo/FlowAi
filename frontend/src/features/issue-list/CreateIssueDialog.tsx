@@ -12,7 +12,7 @@ import {
   UserCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import type { Project, ProjectLabel, ProjectMember, ProjectWorkflowState } from '@/work/work-api'
+import type { Project, ProjectLabel, ProjectMember, ProjectWorkflowState } from '@/api/work-api'
 import {
   DEFAULT_LABEL_COLOR,
   ISSUE_PRIORITIES,
@@ -21,7 +21,7 @@ import {
   createProjectLabelFormSchema,
   type CreateIssueFormValues,
   type CreateProjectLabelFormValues,
-} from '@/features/project-shell/project-model'
+} from '@/domain/project-model'
 import {
   ErrorState,
   InlineNotice,
@@ -29,7 +29,7 @@ import {
   LabelBadge,
   ModalShell,
   StatusIcon,
-} from '@/features/project-shell/feature-ui'
+} from '@/ui/feature-ui'
 
 export function CreateIssueDialog({
   isOpen,

@@ -3,9 +3,9 @@ import {
   createWorkspaceInvitation,
   reissueWorkspaceInvitation,
   revokeWorkspaceInvitation,
-} from '@/workspace/workspace-api'
-import type { CreateWorkspaceInvitationFormValues } from '@/features/project-shell/project-model'
-import { invitationUrl } from '@/features/project-shell/display-utils'
+} from '@/api/workspace-api'
+import type { CreateWorkspaceInvitationFormValues } from '@/domain/project-model'
+import { invitationUrl } from '@/ui/display-utils'
 
 export function useInvitationMutations({
   workspaceId,

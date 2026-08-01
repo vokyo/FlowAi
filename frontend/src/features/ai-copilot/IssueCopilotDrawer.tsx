@@ -10,16 +10,17 @@ import {
   type EditableBreakdownItem,
   type IssueBreakdownContent,
   type IssueBreakdownRequest,
-} from '@/ai/ai-api'
+} from '@/api/ai-api'
 import { Button } from '@/components/ui/button'
-import { InlineNotice, InlineState } from '@/features/project-shell/feature-ui'
-import { ISSUE_PRIORITIES, PRIORITY_LABELS } from '@/features/project-shell/project-model'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { InlineNotice, InlineState } from '@/ui/feature-ui'
+import { ISSUE_PRIORITIES, PRIORITY_LABELS } from '@/domain/project-model'
 import type {
   IssuePriority,
   ProjectLabel,
   ProjectMember,
   ProjectWorkflowState,
-} from '@/work/work-api'
+} from '@/api/work-api'
 import { AiErrorNotice } from './AiErrorNotice'
 
 type IssueCopilotDrawerProps = {
@@ -165,26 +166,13 @@ export function IssueCopilotDrawer({
     )))
   }
 
-  if (!open) return null
-
   return (
-    <div className="ai-drawer-layer" role="presentation">
-      <button
-        className="ai-drawer-backdrop"
-        type="button"
-        aria-label="Close AI Copilot"
-        onClick={onClose}
-      />
-      <aside
-        className="ai-drawer"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="ai-drawer-title"
-      >
+    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
+      <DialogContent className="ai-drawer" showCloseButton={false} aria-describedby={undefined}>
         <header className="ai-drawer-header">
           <div>
             <span className="ai-drawer-eyebrow"><Sparkles aria-hidden="true" /> AI Copilot</span>
-            <h2 id="ai-drawer-title">Break down issue</h2>
+            <DialogTitle asChild><h2>Break down issue</h2></DialogTitle>
           </div>
           <Button type="button" variant="ghost" size="icon" aria-label="Close" onClick={onClose}>
             <X aria-hidden="true" />
@@ -272,8 +260,8 @@ export function IssueCopilotDrawer({
             </>
           ) : null}
         </div>
-      </aside>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 

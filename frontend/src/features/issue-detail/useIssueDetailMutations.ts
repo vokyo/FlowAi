@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { createIssueComment, updateIssue, type UpdateIssueRequest } from '@/work/work-api'
+import { createIssueComment, updateIssue, type UpdateIssueRequest } from '@/api/work-api'
 
 export function useIssueDetailMutations(workspaceId: string | null) {
   const queryClient = useQueryClient()

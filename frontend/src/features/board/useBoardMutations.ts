@@ -7,16 +7,16 @@ import {
   updateProjectWorkflowState,
   type ProjectBoard,
   type WorkflowStateCategory,
-} from '@/work/work-api'
+} from '@/api/work-api'
 import {
   applyBoardReorderResult,
   appendIssueToBoard,
-} from '@/work/board-utils'
+} from '@/domain/board-utils'
 import type {
   QuickCreateIssueMutationVariables,
   ReorderIssueMutationVariables,
   UpdateProjectWorkflowStateFormValues,
-} from '@/features/project-shell/project-model'
+} from '@/domain/project-model'
 
 export function useBoardMutations(workspaceId: string | null) {
   const queryClient = useQueryClient()

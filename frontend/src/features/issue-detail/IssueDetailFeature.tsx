@@ -17,7 +17,7 @@ import {
   Sparkles,
   UserCircle,
 } from 'lucide-react'
-import type { AuthUser, AuthWorkspace } from '@/auth/auth-api'
+import type { AuthUser, AuthWorkspace } from '@/api/auth-api'
 import { Button } from '@/components/ui/button'
 import type {
   ActivityEvent,
@@ -30,7 +30,7 @@ import type {
   ProjectMember,
   ProjectWorkflowState,
   UpdateIssueRequest,
-} from '@/work/work-api'
+} from '@/api/work-api'
 import {
   ISSUE_PRIORITIES,
   PRIORITY_LABELS,
@@ -38,8 +38,8 @@ import {
   issueContentFormSchema,
   type CommentFormValues,
   type IssueContentFormValues,
-} from '@/features/project-shell/project-model'
-import { formatActivity, formatDate, getErrorMessage } from '@/features/project-shell/display-utils'
+} from '@/domain/project-model'
+import { formatActivity, formatDate, getErrorMessage } from '@/ui/display-utils'
 import {
   BreadcrumbLine,
   EmptyState,
@@ -47,7 +47,7 @@ import {
   InlineNotice,
   InlineState,
   LabelBadge,
-} from '@/features/project-shell/feature-ui'
+} from '@/ui/feature-ui'
 
 export function IssueDetailFeature({
   issue,

@@ -3,7 +3,7 @@ package com.vokyo.backend.issue;
 import com.vokyo.backend.auth.dto.UserResponse;
 import com.vokyo.backend.issue.dto.IssueCommentResponse;
 import com.vokyo.backend.issue.dto.IssueDetailResponse;
-import com.vokyo.backend.issue.dto.IssueSummaryResponse;
+import com.vokyo.backend.issue.dto.IssueListItemResponse;
 import com.vokyo.backend.project.ProjectLabel;
 import com.vokyo.backend.project.ProjectWorkflowState;
 import com.vokyo.backend.project.dto.ProjectLabelResponse;
@@ -17,8 +17,8 @@ import java.util.List;
 @Component
 public class IssueMapper {
 
-    public IssueSummaryResponse toSummaryResponse(Issue issue, long commentCount) {
-        return new IssueSummaryResponse(
+    public IssueListItemResponse toSummaryResponse(Issue issue, long commentCount) {
+        return new IssueListItemResponse(
                 issue.getId(),
                 issue.getProject().getId(),
                 issue.getTitle(),

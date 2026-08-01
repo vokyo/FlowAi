@@ -12,13 +12,15 @@ import {
   getAccessToken,
   hasAccessToken,
 } from '@/auth/access-token'
-import { logout } from '@/auth/auth-api'
+import { logout } from '@/api/auth-api'
 import { clearClientSession } from '@/auth/client-session'
 import { LoginPage } from '@/pages/LoginPage'
 import { RegisterPage } from '@/pages/RegisterPage'
-import './App.css'
+import './styles/app-imports.css'
 
-const AppPage = lazy(() => import('@/pages/AppPage').then((module) => ({ default: module.AppPage })))
+const ProjectShellPage = lazy(() =>
+  import('@/features/project-shell/ProjectShellPage').then((module) => ({ default: module.ProjectShellPage })),
+)
 const InvitationPage = lazy(() => import('@/pages/InvitationPage').then((module) => ({ default: module.InvitationPage })))
 const SettingsPage = lazy(() => import('@/pages/SettingsPage').then((module) => ({ default: module.SettingsPage })))
 
@@ -84,11 +86,11 @@ function AppRoutes() {
     return <RouteLoading />
   }
 
-  function renderAppPage() {
+  function renderProjectShell() {
     return (
       <RequireAuth sessionVersion={sessionVersion}>
         <Suspense fallback={<RouteLoading />}>
-          <AppPage key={sessionVersion} onSignOut={() => void signOut()} onSessionChanged={refreshSession} />
+          <ProjectShellPage key={sessionVersion} onSignOut={() => void signOut()} onSessionChanged={refreshSession} />
         </Suspense>
       </RequireAuth>
     )
@@ -124,19 +126,19 @@ function AppRoutes() {
       />
       <Route
         path="/app"
-        element={renderAppPage()}
+        element={renderProjectShell()}
       />
       <Route
         path="/app/workspaces/:workspaceId/projects/:projectId"
-        element={renderAppPage()}
+        element={renderProjectShell()}
       />
       <Route
         path="/app/workspaces/:workspaceId/projects/:projectId/analytics"
-        element={renderAppPage()}
+        element={renderProjectShell()}
       />
       <Route
         path="/app/workspaces/:workspaceId/projects/:projectId/issues/:issueId"
-        element={renderAppPage()}
+        element={renderProjectShell()}
       />
       <Route
         path="/app/settings"

@@ -1,5 +1,5 @@
 import { ApiError } from '@/api/client'
-import { ErrorState, InlineNotice } from '@/features/project-shell/feature-ui'
+import { ErrorState, InlineNotice } from '@/ui/feature-ui'
 
 export function AiErrorNotice({ error }: { error: Error }) {
   if (error instanceof ApiError) {

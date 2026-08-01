@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowRight, Building2, CheckCircle2, Loader2, LogOut, ShieldCheck } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { ApiError } from '@/api/client'
-import { getCurrentSession, logout } from '@/auth/auth-api'
+import { getCurrentSession, logout } from '@/api/auth-api'
 import {
   hasAccessToken,
   setAccessToken,
@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button'
 import {
   acceptWorkspaceInvitation,
   getWorkspaceInvitationPreview,
-} from '@/workspace/workspace-api'
+} from '@/api/workspace-api'
 
 type InvitationPageProps = {
   onSessionChanged: () => void

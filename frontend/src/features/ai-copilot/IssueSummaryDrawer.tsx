@@ -7,9 +7,10 @@ import {
   getAiSuggestion,
   type AiSuggestion,
   type IssueSummaryContent,
-} from '@/ai/ai-api'
+} from '@/api/ai-api'
 import { Button } from '@/components/ui/button'
-import { InlineNotice, InlineState } from '@/features/project-shell/feature-ui'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { InlineNotice, InlineState } from '@/ui/feature-ui'
 import { AiErrorNotice } from './AiErrorNotice'
 
 type IssueSummaryDrawerProps = {
@@ -74,26 +75,13 @@ export function IssueSummaryDrawer({
     setCopied(true)
   }
 
-  if (!open) return null
-
   return (
-    <div className="ai-drawer-layer" role="presentation">
-      <button
-        className="ai-drawer-backdrop"
-        type="button"
-        aria-label="Close AI Copilot"
-        onClick={onClose}
-      />
-      <aside
-        className="ai-drawer"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="ai-summary-title"
-      >
+    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
+      <DialogContent className="ai-drawer" showCloseButton={false} aria-describedby={undefined}>
         <header className="ai-drawer-header">
           <div>
             <span className="ai-drawer-eyebrow"><FileText aria-hidden="true" /> AI Copilot</span>
-            <h2 id="ai-summary-title">Issue summary</h2>
+            <DialogTitle asChild><h2>Issue summary</h2></DialogTitle>
           </div>
           <Button type="button" variant="ghost" size="icon" aria-label="Close" onClick={onClose}>
             <X aria-hidden="true" />
@@ -185,8 +173,8 @@ export function IssueSummaryDrawer({
             </>
           ) : null}
         </div>
-      </aside>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 

@@ -1,17 +1,17 @@
 import { lazy, Suspense } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router'
-import { getAiStatus } from '@/ai/ai-api'
-import type { AuthUser, AuthWorkspace } from '@/auth/auth-api'
+import { getAiStatus } from '@/api/ai-api'
+import type { AuthUser, AuthWorkspace } from '@/api/auth-api'
 import { useBoardQueries } from '@/features/board/useBoardQueries'
 import { useIssueDetailMutations } from '@/features/issue-detail/useIssueDetailMutations'
 import { useIssueDetailQueries } from '@/features/issue-detail/useIssueDetailQueries'
 import { useProjectLabelsQuery } from '@/features/issue-list/useProjectLabelsQuery'
 import { useProjectMemberQueries } from '@/features/project-members/useProjectMemberQueries'
-import { InlineState } from '@/features/project-shell/feature-ui'
-import type { CommentFormValues } from '@/features/project-shell/project-model'
-import { pathWithSearchParams, projectPath } from '@/features/project-shell/route-utils'
-import type { Project, UpdateIssueRequest } from '@/work/work-api'
+import { InlineState } from '@/ui/feature-ui'
+import type { CommentFormValues } from '@/domain/project-model'
+import { pathWithSearchParams, projectPath } from '@/routing/route-utils'
+import type { Project, UpdateIssueRequest } from '@/api/work-api'
 
 const IssueDetailFeature = lazy(() =>
   import('@/features/issue-detail/IssueDetailFeature').then((module) => ({

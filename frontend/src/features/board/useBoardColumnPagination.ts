@@ -4,7 +4,7 @@ import {
   getBoardColumnPage,
   type BoardColumn,
   type IssueSummary,
-} from '@/work/work-api'
+} from '@/api/work-api'
 
 export function useBoardColumnPagination({
   column,

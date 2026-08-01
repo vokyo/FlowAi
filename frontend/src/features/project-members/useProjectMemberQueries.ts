@@ -6,7 +6,7 @@ import {
   listWorkspaceMembers,
   type ProjectMember,
   type WorkspaceMember,
-} from '@/work/work-api'
+} from '@/api/work-api'
 
 const EMPTY_PROJECT_MEMBERS: ProjectMember[] = []
 const EMPTY_WORKSPACE_MEMBERS: WorkspaceMember[] = []

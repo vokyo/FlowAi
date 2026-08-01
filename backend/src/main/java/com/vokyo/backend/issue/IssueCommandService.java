@@ -6,7 +6,7 @@ import com.vokyo.backend.issue.dto.CreateCommentRequest;
 import com.vokyo.backend.issue.dto.CreateIssueRequest;
 import com.vokyo.backend.issue.dto.IssueCommentResponse;
 import com.vokyo.backend.issue.dto.IssueDetailResponse;
-import com.vokyo.backend.issue.dto.IssueSummaryResponse;
+import com.vokyo.backend.issue.dto.IssueListItemResponse;
 import com.vokyo.backend.project.Project;
 import com.vokyo.backend.project.ProjectAccessService;
 import com.vokyo.backend.project.ProjectLabel;
@@ -72,7 +72,7 @@ public class IssueCommandService {
     }
 
     @Transactional
-    public IssueSummaryResponse createIssue(Jwt jwt, CreateIssueRequest request) {
+    public IssueListItemResponse createIssue(Jwt jwt, CreateIssueRequest request) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Project project = projectAccessService.requireAccessibleProjectForUpdate(request.projectId(), context);
         Issue issue = issueCreationService.create(

@@ -1,10 +1,10 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router'
 import { setAccessToken } from '@/auth/access-token'
-import { createProject } from '@/work/work-api'
-import { createWorkspace, switchWorkspace } from '@/workspace/workspace-api'
-import type { CreateProjectFormValues, CreateWorkspaceFormValues } from './project-model'
-import { pathWithSearchParams, projectPath } from './route-utils'
+import { createProject } from '@/api/work-api'
+import { createWorkspace, switchWorkspace } from '@/api/workspace-api'
+import type { CreateProjectFormValues, CreateWorkspaceFormValues } from '@/domain/project-model'
+import { pathWithSearchParams, projectPath } from '@/routing/route-utils'
 
 export function useProjectShellMutations({
   workspaceId,

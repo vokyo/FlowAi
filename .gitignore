@@ -6,6 +6,11 @@
 /frontend/playwright-report/
 /frontend/test-results/
 
+# Scratch output: screenshots, generated comparisons, agent config
+/tmp/
+/artifacts/
+/.claude/
+
 # Local-only notes; README.md is the published documentation
 /docs/
 /README.zh-CN.md

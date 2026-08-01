@@ -7,8 +7,8 @@ import {
   type ProjectWorkflowState,
   type IssueSummary,
   type ProjectBoard,
-} from '@/work/work-api'
-import { appendBoardColumnPage } from '@/work/board-utils'
+} from '@/api/work-api'
+import { appendBoardColumnPage } from '@/domain/board-utils'
 
 const EMPTY_WORKFLOW_STATES: ProjectWorkflowState[] = []
 

@@ -3,7 +3,7 @@ import {
   createIssue,
   createProjectLabel,
   type IssueSummary,
-} from '@/work/work-api'
+} from '@/api/work-api'
 
 export function useIssueMutations({
   workspaceId,

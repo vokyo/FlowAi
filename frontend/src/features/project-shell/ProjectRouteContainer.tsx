@@ -1,6 +1,6 @@
 import { lazy, Suspense, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
-import type { AuthUser, AuthWorkspace } from '@/auth/auth-api'
+import type { AuthUser, AuthWorkspace } from '@/api/auth-api'
 import { useBoardMutations } from '@/features/board/useBoardMutations'
 import { useBoardQueries } from '@/features/board/useBoardQueries'
 import { useIssueMutations } from '@/features/issue-list/useIssueMutations'
@@ -18,23 +18,23 @@ import type {
   KanbanReorder,
   QuickCreateIssueMutationVariables,
   UpdateProjectWorkflowStateFormValues,
-} from '@/features/project-shell/project-model'
+} from '@/domain/project-model'
 import {
   issuePath,
   pathWithSearchParams,
   workViewSearchParams,
   type IssueViewMode,
-} from '@/features/project-shell/route-utils'
-import { InlineState } from '@/features/project-shell/feature-ui'
+} from '@/routing/route-utils'
+import { InlineState } from '@/ui/feature-ui'
 import { ISSUE_SEARCH_DEBOUNCE_MS } from '@/lib/query-config'
 import { useDebouncedValue } from '@/lib/useDebouncedValue'
-import type { IssuePriority, Project, ProjectMember, ProjectWorkflowState } from '@/work/work-api'
+import type { IssuePriority, Project, ProjectMember, ProjectWorkflowState } from '@/api/work-api'
 import {
   defaultWorkflowStateIdForStatus,
   groupIssuesByWorkflowState,
   type BoardIssueView,
   type IssueWorkflowFilter,
-} from '@/work/board-utils'
+} from '@/domain/board-utils'
 
 const IssueListFeature = lazy(() =>
   import('@/features/issue-list/IssueListFeature').then((module) => ({

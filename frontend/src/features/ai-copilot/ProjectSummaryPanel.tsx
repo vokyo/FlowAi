@@ -7,10 +7,10 @@ import {
   getAiSuggestion,
   type AiSuggestion,
   type ProjectSummaryContent,
-} from '@/ai/ai-api'
-import type { AnalyticsRangeDays } from '@/analytics/analytics-api'
+} from '@/api/ai-api'
+import type { AnalyticsRangeDays } from '@/api/analytics-api'
 import { Button } from '@/components/ui/button'
-import { InlineNotice, InlineState } from '@/features/project-shell/feature-ui'
+import { InlineNotice, InlineState } from '@/ui/feature-ui'
 import { AiErrorNotice } from './AiErrorNotice'
 
 type ProjectSummaryPanelProps = {

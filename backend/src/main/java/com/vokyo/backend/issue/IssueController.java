@@ -6,7 +6,7 @@ import com.vokyo.backend.issue.dto.CreateCommentRequest;
 import com.vokyo.backend.issue.dto.CreateIssueRequest;
 import com.vokyo.backend.issue.dto.IssueCommentResponse;
 import com.vokyo.backend.issue.dto.IssueDetailResponse;
-import com.vokyo.backend.issue.dto.IssueSummaryResponse;
+import com.vokyo.backend.issue.dto.IssueListItemResponse;
 import com.vokyo.backend.issue.dto.MoveIssueStateRequest;
 import com.vokyo.backend.issue.dto.ProjectBoardResponse;
 import com.vokyo.backend.issue.dto.ReorderIssuesRequest;
@@ -39,7 +39,7 @@ public class IssueController {
     }
 
     @GetMapping
-    public CursorPage<IssueSummaryResponse> listIssues(
+    public CursorPage<IssueListItemResponse> listIssues(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam UUID projectId,
             @RequestParam(required = false) IssueStatus status,
@@ -74,7 +74,7 @@ public class IssueController {
     }
 
     @GetMapping("/board/states/{workflowStateId}")
-    public CursorPage<IssueSummaryResponse> getBoardStatePage(
+    public CursorPage<IssueListItemResponse> getBoardStatePage(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID workflowStateId,
             @RequestParam UUID projectId,
@@ -85,7 +85,7 @@ public class IssueController {
     }
 
     @PostMapping
-    public IssueSummaryResponse createIssue(
+    public IssueListItemResponse createIssue(
             @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody CreateIssueRequest request
     ) {
@@ -101,7 +101,7 @@ public class IssueController {
     }
 
     @PatchMapping("/{issueId}/state")
-    public IssueSummaryResponse moveIssueState(
+    public IssueListItemResponse moveIssueState(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID issueId,
             @Valid @RequestBody MoveIssueStateRequest request

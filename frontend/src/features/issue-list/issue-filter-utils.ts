@@ -1,5 +1,5 @@
-import type { IssuePriority, ListIssuesFilters } from '@/work/work-api'
-import type { IssueWorkflowFilter } from '@/work/board-utils'
+import type { IssuePriority, ListIssuesFilters } from '@/api/work-api'
+import type { IssueWorkflowFilter } from '@/domain/board-utils'
 
 export function buildIssueListFilterState({
   searchQuery,

@@ -12,7 +12,7 @@ import {
   UserCircle,
   Users,
 } from 'lucide-react'
-import type { AuthUser, AuthWorkspace } from '@/auth/auth-api'
+import type { AuthUser, AuthWorkspace } from '@/api/auth-api'
 import type { CursorPage } from '@/api/pagination'
 import { Button } from '@/components/ui/button'
 import type {
@@ -23,22 +23,22 @@ import type {
   ProjectLabel,
   ProjectMember,
   ProjectWorkflowState,
-} from '@/work/work-api'
+} from '@/api/work-api'
 import {
   filterProjectBoard,
   type BoardIssueView,
   type IssueGroup,
   type IssueWorkflowFilter,
-} from '@/work/board-utils'
+} from '@/domain/board-utils'
 import {
   ISSUE_PRIORITIES,
   PRIORITY_LABELS,
   type CreateIssueDialogSeed,
   type KanbanReorder,
   type QuickCreateIssueMutationVariables,
-} from '@/features/project-shell/project-model'
-import type { IssueViewMode } from '@/features/project-shell/route-utils'
-import { formatDate, formatDateOnly, statusForIcon } from '@/features/project-shell/display-utils'
+} from '@/domain/project-model'
+import type { IssueViewMode } from '@/routing/route-utils'
+import { formatDate, formatDateOnly, statusForIcon } from '@/ui/display-utils'
 import {
   BreadcrumbLine,
   EmptyState,
@@ -47,7 +47,7 @@ import {
   LabelBadge,
   PriorityBadge,
   StatusIcon,
-} from '@/features/project-shell/feature-ui'
+} from '@/ui/feature-ui'
 import { ProjectEmptyState } from './ProjectEmptyState'
 
 const BoardFeature = lazy(() =>

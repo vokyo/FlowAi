@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { IssueDetailFeature } from './IssueDetailFeature'
-import type { IssueSummary, Project, ProjectWorkflowState } from '@/work/work-api'
+import type { IssueSummary, Project, ProjectWorkflowState } from '@/api/work-api'
 
 const user = { id: 'user-1', email: 'owner@example.com', displayName: 'Owner' }
 const workflowState: ProjectWorkflowState = {

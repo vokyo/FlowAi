@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
-import { getCurrentSession, type AuthWorkspace } from '@/auth/auth-api'
-import { getProject, listProjects, type Project } from '@/work/work-api'
-import { listWorkspaces } from '@/workspace/workspace-api'
+import { getCurrentSession, type AuthWorkspace } from '@/api/auth-api'
+import { getProject, listProjects, type Project } from '@/api/work-api'
+import { listWorkspaces } from '@/api/workspace-api'
 
 const EMPTY_PROJECTS: Project[] = []
 const EMPTY_WORKSPACES: AuthWorkspace[] = []

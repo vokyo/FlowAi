@@ -1,15 +1,15 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm, useWatch } from 'react-hook-form'
 import { Loader2, Plus } from 'lucide-react'
-import type { AuthWorkspace } from '@/auth/auth-api'
+import type { AuthWorkspace } from '@/api/auth-api'
 import { Button } from '@/components/ui/button'
 import {
   createProjectFormSchema,
   createWorkspaceFormSchema,
   type CreateProjectFormValues,
   type CreateWorkspaceFormValues,
-} from './project-model'
-import { EmptyState, ErrorState, InlineNotice, ModalShell } from './feature-ui'
+} from '@/domain/project-model'
+import { EmptyState, ErrorState, InlineNotice, ModalShell } from '@/ui/feature-ui'
 
 export function WorkspaceMismatchState({
   currentWorkspace,

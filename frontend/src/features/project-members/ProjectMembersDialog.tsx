@@ -2,24 +2,24 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm, useWatch } from 'react-hook-form'
 import { Loader2, UserMinus, UserPlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import type { Project, ProjectMember, WorkspaceMember } from '@/work/work-api'
+import type { Project, ProjectMember, WorkspaceMember } from '@/api/work-api'
 import {
   addProjectMemberFormSchema,
   type AddProjectMemberFormValues,
-} from '@/features/project-shell/project-model'
+} from '@/domain/project-model'
 import {
   formatDate,
   formatProjectRole,
   formatStatus,
   getInitials,
-} from '@/features/project-shell/display-utils'
+} from '@/ui/display-utils'
 import {
   ErrorState,
   InlineNotice,
   InlineState,
   ModalShell,
   ProjectMemberMutationErrorState,
-} from '@/features/project-shell/feature-ui'
+} from '@/ui/feature-ui'
 
 export function ProjectMembersDialog({
   isOpen,

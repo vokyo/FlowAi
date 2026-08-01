@@ -2,20 +2,20 @@ import { useEffect, useState } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
 import { Check, Copy, Loader2, RefreshCw, Send, Trash2 } from 'lucide-react'
-import type { AuthWorkspace } from '@/auth/auth-api'
+import type { AuthWorkspace } from '@/api/auth-api'
 import { Button } from '@/components/ui/button'
-import type { WorkspaceInvitation } from '@/workspace/workspace-api'
+import type { WorkspaceInvitation } from '@/api/workspace-api'
 import {
   createWorkspaceInvitationFormSchema,
   type CreateWorkspaceInvitationFormValues,
-} from '@/features/project-shell/project-model'
+} from '@/domain/project-model'
 import {
   canManageInvitationRole,
   formatDate,
   invitationRolesFor,
   titleCaseWorkspaceRole,
-} from '@/features/project-shell/display-utils'
-import { ErrorState, InlineNotice, InlineState, ModalShell } from '@/features/project-shell/feature-ui'
+} from '@/ui/display-utils'
+import { ErrorState, InlineNotice, InlineState, ModalShell } from '@/ui/feature-ui'
 
 export function WorkspaceInvitationsDialog({
   isOpen,

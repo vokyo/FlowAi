@@ -3,7 +3,7 @@ import {
   addProjectMember,
   removeProjectMember,
   updateProjectMember,
-} from '@/work/work-api'
+} from '@/api/work-api'
 
 export function useProjectMemberMutations({
   workspaceId,
