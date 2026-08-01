@@ -5,29 +5,58 @@
   gap: 8px;
 }
 
-.ai-drawer-layer {
+/* The copilot is the app's one "special" surface, so it claims the tertiary
+   role — the MD3 accent held back from ordinary chrome precisely so it still
+   means something here.
+
+   Rendered by DialogContent, which centres its panel. A right-edge drawer has
+   to undo that positioning wholesale: the offset, both max-* bounds, the corner
+   radius, and the horizontal padding all come from the component.
+   Note `translate: none` — Tailwind v4 centres with the standalone `translate`
+   property, not `transform`, so resetting `transform` alone leaves the -50%
+   shift in place. */
+.ai-drawer {
   position: fixed;
   z-index: 80;
-  inset: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 560px);
-}
-
-.ai-drawer-backdrop {
-  width: 100%;
-  border: 0;
-  background: color-mix(in oklch, var(--foreground), transparent 78%);
-  cursor: default;
-}
-
-.ai-drawer {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: auto;
+  translate: none;
+  transform: none;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  min-width: 0;
+  gap: 0;
+  width: min(100vw, 560px);
+  min-width: 360px;
+  max-width: none;
   height: 100svh;
-  border-left: 1px solid var(--border);
-  background: var(--background);
-  box-shadow: -18px 0 48px color-mix(in oklch, var(--foreground), transparent 86%);
+  max-height: none;
+  overflow: hidden;
+  border-left: 0;
+  /* MD3 side sheet: shaped on the leading edge only, square where it meets
+     the viewport edge. */
+  border-radius: var(--md-shape-xl) 0 0 var(--md-shape-xl);
+  background: var(--md-surface-container-low);
+  box-shadow: var(--elevation-4);
+  padding: 0;
+  isolation: isolate;
+}
+
+/* Ambient tertiary glow behind the header — the drawer's only decorative
+   flourish, and the cue that this panel is a different kind of surface. */
+.ai-drawer::before {
+  position: absolute;
+  z-index: -1;
+  top: -140px;
+  right: -80px;
+  width: 380px;
+  height: 380px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--md-tertiary), transparent 82%);
+  content: '';
+  filter: blur(72px);
+  pointer-events: none;
 }
 
 .ai-drawer-header {
@@ -35,23 +64,25 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  border-bottom: 1px solid var(--border);
-  padding: 18px 20px;
+  border-bottom: 1px solid var(--md-outline-variant);
+  padding: 22px 24px;
 }
 
 .ai-drawer-header h2 {
-  margin: 4px 0 0;
-  font-size: 20px;
+  margin: 5px 0 0;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: 0;
 }
 
 .ai-drawer-eyebrow {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--muted-foreground);
+  color: var(--md-tertiary);
   font-size: 11px;
-  font-weight: 750;
-  letter-spacing: 0.08em;
+  font-weight: 700;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
@@ -66,14 +97,14 @@
   gap: 16px;
   min-height: 0;
   overflow-y: auto;
-  padding: 18px 20px 28px;
+  padding: 20px 24px 28px;
 }
 
 .ai-request-form,
 .ai-draft-list,
 .ai-terminal-state {
   display: grid;
-  gap: 12px;
+  gap: 14px;
 }
 
 .ai-request-form > p,
@@ -81,52 +112,69 @@
 .ai-applied-result p,
 .ai-dependencies {
   margin: 0;
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.55;
 }
 
 .ai-check-row {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  color: var(--foreground);
+  gap: 10px;
+  border-radius: var(--md-shape-full);
+  color: var(--md-on-surface);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
+  padding: 6px 14px 6px 6px;
+  transition: background-color var(--md-duration-short) var(--md-easing);
+}
+
+.ai-check-row:hover {
+  background: color-mix(in oklab, var(--md-tertiary), transparent 92%);
 }
 
 .ai-check-row input {
-  accent-color: var(--primary);
+  width: 16px;
+  height: 16px;
+  accent-color: var(--md-tertiary);
 }
 
 .ai-suggestion-summary {
   display: grid;
-  gap: 9px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: color-mix(in oklch, var(--muted), transparent 60%);
-  padding: 13px;
+  gap: 10px;
+  border: 0;
+  border-radius: var(--md-shape-md);
+  background: var(--md-surface-container-high);
+  padding: 16px;
 }
 
 .ai-suggestion-summary > span {
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 11px;
-  font-weight: 750;
-  letter-spacing: 0.03em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .ai-draft-item {
   display: grid;
   gap: 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--card);
-  padding: 14px;
+  border: 0;
+  border-radius: var(--md-shape-md);
+  background: var(--md-surface-container-lowest);
+  padding: 16px;
+  box-shadow: var(--elevation-1);
+  transition: opacity var(--md-duration-medium) var(--md-easing),
+    box-shadow var(--md-duration-medium) var(--md-easing);
+}
+
+.ai-draft-item:hover {
+  box-shadow: var(--elevation-2);
 }
 
 .ai-draft-item[data-selected='false'] {
-  opacity: 0.68;
+  box-shadow: none;
+  opacity: 0.6;
 }
 
 .ai-draft-item > header {
@@ -137,13 +185,13 @@
 }
 
 .ai-draft-item > header small {
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 .ai-draft-item > fieldset {
   display: grid;
-  gap: 11px;
+  gap: 12px;
   min-width: 0;
   margin: 0;
   border: 0;
@@ -153,7 +201,7 @@
 .ai-draft-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 12px;
 }
 
 .ai-label-picker {
@@ -161,22 +209,23 @@
   flex-wrap: wrap;
   gap: 8px 12px;
   margin: 0;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px;
+  border: 0;
+  border-radius: var(--md-shape-sm);
+  background: var(--md-surface-container);
+  padding: 12px;
 }
 
 .ai-label-picker legend {
   padding-inline: 4px;
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .ai-readonly-list {
-  border-top: 1px solid var(--border);
-  padding-top: 10px;
-  color: var(--muted-foreground);
+  border-top: 1px solid var(--md-outline-variant);
+  padding-top: 12px;
+  color: var(--md-on-surface-variant);
   font-size: 12px;
 }
 
@@ -186,9 +235,9 @@
 }
 
 .ai-dependencies {
-  border-radius: 6px;
-  background: var(--muted);
-  padding: 7px 9px;
+  border-radius: var(--md-shape-xs);
+  background: var(--md-surface-container-high);
+  padding: 9px 12px;
 }
 
 .ai-drawer-actions {
@@ -197,26 +246,33 @@
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  border-top: 1px solid var(--border);
-  background: color-mix(in oklch, var(--background), transparent 3%);
-  padding: 14px 0 2px;
+  border-top: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container-low);
+  padding: 16px 0 4px;
 }
 
+/* Tertiary container, matching the drawer's accent — the "it worked" surface. */
 .ai-applied-result {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 12px;
+  gap: 14px;
   align-items: start;
-  border: 1px solid color-mix(in oklch, var(--primary), var(--border) 55%);
-  border-radius: 10px;
-  background: color-mix(in oklch, var(--primary), transparent 94%);
-  padding: 14px;
+  border: 0;
+  border-radius: var(--md-shape-md);
+  background: var(--md-tertiary-container);
+  color: var(--md-on-tertiary-container);
+  padding: 18px;
+}
+
+.ai-applied-result p {
+  color: inherit;
+  opacity: 0.84;
 }
 
 .ai-applied-result > svg {
-  width: 22px;
-  height: 22px;
-  color: var(--primary);
+  width: 24px;
+  height: 24px;
+  color: var(--md-on-tertiary-container);
 }
 
 .ai-applied-result strong {
@@ -225,59 +281,64 @@
 }
 
 .ai-applied-result .group\/button {
-  margin-top: 10px;
+  margin-top: 12px;
 }
 
 .ai-summary-content {
   display: grid;
-  gap: 14px;
+  gap: 16px;
 }
 
 .ai-summary-lead {
   display: grid;
-  gap: 6px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: color-mix(in oklch, var(--muted), transparent 58%);
-  padding: 14px;
+  gap: 7px;
+  border: 0;
+  border-radius: var(--md-shape-md);
+  background: var(--md-surface-container-high);
+  padding: 16px;
 }
 
 .ai-summary-lead span,
 .ai-source-stats {
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
 .ai-summary-lead p {
   margin: 0;
-  color: var(--foreground);
+  color: var(--md-on-surface);
   font-size: 14px;
-  line-height: 1.55;
+  line-height: 1.6;
 }
 
 .ai-summary-section {
   display: grid;
-  gap: 7px;
+  gap: 8px;
 }
 
 .ai-summary-section h3 {
   margin: 0;
+  color: var(--md-on-surface);
   font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 .ai-summary-section ul {
   display: grid;
-  gap: 5px;
+  gap: 6px;
   margin: 0;
   padding-left: 20px;
-  color: var(--foreground);
+  color: var(--md-on-surface);
   font-size: 13px;
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
 .ai-summary-section p {
   margin: 0;
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 12px;
 }
 
@@ -289,7 +350,10 @@
 .ai-project-summary-panel {
   display: grid;
   gap: 16px;
-  margin-bottom: 18px;
+  border-radius: var(--md-shape-lg);
+  background: var(--md-surface-container);
+  margin-bottom: 20px;
+  padding: 20px;
 }
 
 .ai-project-summary-header {
@@ -301,12 +365,13 @@
 
 .ai-project-summary-header h2 {
   margin: 5px 0 3px;
-  font-size: 18px;
+  font-size: 20px;
+  font-weight: 500;
 }
 
 .ai-project-summary-header p {
   margin: 0;
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 13px;
 }
 
@@ -319,30 +384,42 @@
 
 .ai-project-summary-form label {
   display: grid;
-  gap: 6px;
-  color: var(--foreground);
+  gap: 0;
+  color: var(--md-on-surface-variant);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.ai-project-summary-form label > span {
+  padding: 0 0 6px 4px;
 }
 
 .ai-project-summary-form textarea {
   width: 100%;
   resize: vertical;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--background);
-  padding: 9px 10px;
-  color: var(--foreground);
+  border: 0;
+  border-bottom: 2px solid var(--md-outline);
+  border-radius: var(--md-shape-sm) var(--md-shape-sm) 0 0;
+  background: var(--md-surface-container-highest);
+  padding: 12px 14px;
+  color: var(--md-on-surface);
   font: inherit;
   font-weight: 400;
+  outline: none;
+  transition: border-color var(--md-duration-short) var(--md-easing);
+}
+
+.ai-project-summary-form textarea:focus {
+  border-bottom-color: var(--md-primary);
 }
 
 .ai-project-summary-actions {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
+  border-top: 1px solid var(--md-outline-variant);
+  padding-top: 14px;
 }
 
 .ai-project-summary-actions > div {
@@ -351,12 +428,10 @@
 }
 
 @media (max-width: 720px) {
-  .ai-drawer-layer {
-    grid-template-columns: 1fr;
-  }
-
-  .ai-drawer-backdrop {
-    display: none;
+  .ai-drawer {
+    width: 100vw;
+    min-width: 0;
+    border-radius: 0;
   }
 
   .ai-draft-grid {

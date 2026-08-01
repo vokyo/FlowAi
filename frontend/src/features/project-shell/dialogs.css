@@ -1,25 +1,22 @@
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: grid;
-  align-items: start;
-  justify-items: center;
-  overflow: auto;
-  background: rgba(15, 23, 42, 0.22);
-  padding: 52px 18px 24px;
-}
+/* Rendered by DialogContent. Two of its base utilities have to be reclaimed:
+   sm:max-w-sm would clamp every panel to 384px, and the component centres the
+   panel without bounding its height, so a tall form would overflow the viewport
+   with nowhere to scroll.
 
+   Shape is MD3's extra-large (28px) — the spec's dedicated dialog radius. */
 .modal-panel {
   display: grid;
-  gap: 18px;
+  gap: 20px;
   width: min(100%, 520px);
+  max-width: none;
   min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--background);
-  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.22);
-  padding: 18px;
+  max-height: calc(100svh - 64px);
+  overflow: auto;
+  border: 0;
+  border-radius: var(--md-shape-xl);
+  background: var(--md-surface-container-high);
+  box-shadow: var(--elevation-4);
+  padding: 24px;
 }
 
 .modal-panel[data-variant='issue'] {
@@ -40,35 +37,36 @@
 }
 
 .modal-panel[data-variant='issue'] .modal-header {
-  border-bottom: 1px solid var(--border);
-  padding: 12px 12px 10px;
+  border-bottom: 1px solid var(--md-outline-variant);
+  padding: 16px 16px 12px;
 }
 
+/* Headline Small. */
 .modal-header h2 {
   margin: 2px 0 0;
-  color: var(--foreground);
-  font-size: 18px;
-  font-weight: 700;
+  color: var(--md-on-surface);
+  font-size: 20px;
+  font-weight: 500;
   letter-spacing: 0;
 }
 
 .modal-form {
   display: grid;
-  gap: 14px;
+  gap: 16px;
   min-width: 0;
 }
 
 .modal-actions {
   justify-content: flex-end;
   gap: 8px;
-  padding-top: 2px;
+  padding-top: 4px;
 }
 
 .issue-modal-form {
   display: grid;
-  gap: 16px;
+  gap: 18px;
   min-width: 0;
-  padding: 16px 12px 12px;
+  padding: 20px 16px 16px;
 }
 
 .workspace-invitation-form {
@@ -80,16 +78,18 @@
 
 .workspace-invitation-link {
   display: grid;
-  gap: 7px;
-  border: 1px solid color-mix(in oklch, var(--ring), transparent 68%);
-  border-radius: 7px;
-  background: color-mix(in oklch, var(--ring), transparent 95%);
-  padding: 12px;
+  gap: 8px;
+  border: 0;
+  border-radius: var(--md-shape-md);
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  padding: 16px;
 }
 
 .workspace-invitation-link > span {
   font-size: 12px;
   font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
 .workspace-invitation-link > div {
@@ -101,17 +101,24 @@
 .workspace-invitation-link input {
   min-width: 0;
   flex: 1;
-  border: 1px solid var(--input);
-  border-radius: 6px;
-  background: var(--background);
-  color: var(--foreground);
+  border: 0;
+  border-bottom: 2px solid color-mix(in oklab, var(--md-on-primary-container), transparent 60%);
+  border-radius: var(--md-shape-xs) var(--md-shape-xs) 0 0;
+  background: color-mix(in oklab, var(--md-surface), transparent 30%);
+  color: var(--md-on-surface);
   font: inherit;
   font-size: 12px;
-  padding: 8px 9px;
+  outline: none;
+  padding: 10px 12px;
+}
+
+.workspace-invitation-link input:focus {
+  border-bottom-color: var(--md-primary);
 }
 
 .workspace-invitation-link small {
-  color: var(--muted-foreground);
+  color: inherit;
+  opacity: 0.78;
 }
 
 .workspace-invitation-list {
@@ -129,17 +136,17 @@
 
 .workspace-invitation-list-header {
   justify-content: space-between;
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 12px;
-  padding: 2px 4px;
+  padding: 2px 6px;
 }
 
 .workspace-invitation-row {
   justify-content: space-between;
   gap: 12px;
   min-width: 0;
-  border-top: 1px solid var(--border);
-  padding: 10px 4px 4px;
+  border-top: 1px solid var(--md-outline-variant);
+  padding: 12px 6px 6px;
 }
 
 .workspace-invitation-row > div:first-child {
@@ -154,7 +161,7 @@
 }
 
 .workspace-invitation-row span {
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 12px;
 }
 
@@ -165,42 +172,44 @@
 
 .invitation-panel {
   display: grid;
-  gap: 16px;
+  gap: 18px;
   width: min(100%, 500px);
 }
 
 .invitation-mark {
   display: grid;
-  width: 40px;
-  height: 40px;
+  width: 52px;
+  height: 52px;
   place-items: center;
-  border-radius: 8px;
-  background: color-mix(in oklch, var(--primary), transparent 88%);
-  color: var(--primary);
+  border-radius: var(--md-shape-md);
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  box-shadow: var(--elevation-1);
 }
 
 .invitation-mark svg,
 .invitation-state svg {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
 }
 
 .invitation-summary {
   display: grid;
   grid-template-columns: 130px minmax(0, 1fr);
-  gap: 8px 14px;
-  border-block: 1px solid var(--border);
-  padding-block: 14px;
+  gap: 10px 14px;
+  border-block: 1px solid var(--md-outline-variant);
+  padding-block: 16px;
 }
 
 .invitation-summary span {
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 13px;
 }
 
 .invitation-summary strong {
   min-width: 0;
   font-size: 13px;
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
 
@@ -218,18 +227,20 @@
 .invitation-account-mismatch p,
 .invitation-state p {
   margin: 0;
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.55;
 }
 
 .invitation-state {
   justify-items: start;
-  border-radius: 7px;
-  background: var(--muted);
-  padding: 13px;
+  border-radius: var(--md-shape-md);
+  background: var(--md-surface-container-high);
+  padding: 16px;
 }
 
+/* Borderless by design: these two sit inside the panel's own surface, so a
+   field outline would only add noise. Placeholder tone does the affordance. */
 .issue-modal-title,
 .issue-modal-description {
   width: 100%;
@@ -237,61 +248,79 @@
   box-sizing: border-box;
   border: 0;
   background: transparent;
-  color: var(--foreground);
+  color: var(--md-on-surface);
   font: inherit;
   outline: none;
   resize: vertical;
 }
 
 .issue-modal-title {
-  min-height: 34px;
-  font-size: 20px;
-  font-weight: 700;
+  min-height: 36px;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
   line-height: 1.25;
 }
 
 .issue-modal-description {
-  min-height: 96px;
-  color: var(--foreground);
+  min-height: 100px;
+  color: var(--md-on-surface);
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .issue-modal-title::placeholder,
 .issue-modal-description::placeholder {
-  color: color-mix(in oklch, var(--muted-foreground), transparent 12%);
+  color: var(--md-on-surface-variant);
+  opacity: 0.7;
+}
+
+.issue-modal-title:focus-visible,
+.issue-modal-description:focus-visible {
+  outline: 2px solid var(--md-primary);
+  outline-offset: 4px;
+  border-radius: var(--md-shape-xs);
 }
 
 .issue-modal-chip-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
+  gap: 8px;
   min-width: 0;
 }
 
+/* MD3 input chip: pill, hairline outline, tonal on hover. */
 .issue-modal-chip {
-  min-height: 30px;
+  min-height: 36px;
   max-width: 100%;
   gap: 6px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--background);
-  color: var(--foreground);
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-shape-full);
+  background: transparent;
+  color: var(--md-on-surface);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1;
-  padding: 6px 9px;
+  padding: 6px 14px;
+  transition: background-color var(--md-duration-short) var(--md-easing),
+    border-color var(--md-duration-short) var(--md-easing);
+}
+
+.issue-modal-chip:hover,
+.issue-modal-chip:focus-within {
+  border-color: var(--md-outline);
+  background: color-mix(in oklab, var(--md-primary), transparent 92%);
 }
 
 .issue-modal-chip svg {
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
   flex: 0 0 auto;
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
 }
 
 .issue-modal-chip-select {
-  padding-right: 5px;
+  padding-right: 8px;
 }
 
 .issue-modal-chip select,
@@ -310,67 +339,76 @@
 }
 
 .issue-modal-chip-date {
-  padding-right: 8px;
+  padding-right: 12px;
 }
 
 .issue-modal-chip-muted {
-  width: 30px;
+  width: 36px;
   justify-content: center;
   padding-inline: 0;
 }
 
 .issue-modal-label-section {
   display: grid;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
+  border-top: 1px solid var(--md-outline-variant);
+  padding-top: 16px;
 }
 
 .issue-modal-section-title {
-  gap: 7px;
-  color: var(--foreground);
+  gap: 8px;
+  color: var(--md-on-surface);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 .issue-modal-section-title svg {
-  width: 14px;
-  height: 14px;
-  color: var(--muted-foreground);
+  width: 15px;
+  height: 15px;
+  color: var(--md-on-surface-variant);
 }
 
 .label-toggle-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
+  gap: 8px;
   min-width: 0;
 }
 
 .label-toggle-list-inline {
-  max-height: 92px;
+  max-height: 100px;
   overflow: auto;
 }
 
 .label-toggle {
-  gap: 6px;
+  gap: 7px;
   max-width: 100%;
-  color: var(--foreground);
+  border-radius: var(--md-shape-full);
+  color: var(--md-on-surface);
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 500;
+  padding: 4px 10px 4px 4px;
+  transition: background-color var(--md-duration-short) var(--md-easing);
+}
+
+.label-toggle:hover {
+  background: color-mix(in oklab, var(--md-primary), transparent 92%);
 }
 
 .label-toggle input {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   flex: 0 0 auto;
   margin: 0;
+  accent-color: var(--md-primary);
 }
 
 .issue-modal-label-create {
   display: grid;
   grid-template-columns: minmax(160px, 1fr) 72px auto;
-  gap: 9px;
+  gap: 10px;
   align-items: end;
   min-width: 0;
 }
@@ -383,8 +421,8 @@
 .issue-modal-footer {
   justify-content: space-between;
   gap: 12px;
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
+  border-top: 1px solid var(--md-outline-variant);
+  padding: 16px;
 }
 
 .project-members-dialog,
@@ -396,7 +434,7 @@
 }
 
 .project-members-dialog {
-  gap: 16px;
+  gap: 18px;
 }
 
 .project-member-list {
@@ -407,14 +445,19 @@
 
 .project-member-row {
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) auto;
-  gap: 10px;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  gap: 12px;
   align-items: center;
   min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: color-mix(in oklch, var(--card), transparent 4%);
-  padding: 10px;
+  border: 0;
+  border-radius: var(--md-shape-md);
+  background: var(--md-surface-container-low);
+  padding: 12px;
+  transition: background-color var(--md-duration-short) var(--md-easing);
+}
+
+.project-member-row:hover {
+  background: var(--md-surface-container-lowest);
 }
 
 .project-workflow-row {
@@ -422,9 +465,9 @@
 }
 
 .project-member-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--md-shape-full);
 }
 
 .project-member-person {
@@ -434,19 +477,19 @@
 .project-member-person strong {
   min-width: 0;
   overflow-wrap: anywhere;
-  color: var(--foreground);
+  color: var(--md-on-surface);
   font-size: 13px;
-  font-weight: 700;
-  line-height: 1.25;
+  font-weight: 600;
+  line-height: 1.3;
 }
 
 .project-member-person small,
 .project-member-status {
   min-width: 0;
   overflow-wrap: anywhere;
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 12px;
-  line-height: 1.35;
+  line-height: 1.4;
 }
 
 .project-member-meta,
@@ -464,23 +507,25 @@
 }
 
 .project-member-role-select {
-  min-width: 92px;
-  min-height: 28px;
+  min-width: 100px;
+  min-height: 36px;
   box-sizing: border-box;
-  border: 1px solid var(--input);
-  border-radius: 6px;
-  background: var(--background);
-  color: var(--foreground);
+  border: 0;
+  border-bottom: 2px solid var(--md-outline);
+  border-radius: var(--md-shape-xs) var(--md-shape-xs) 0 0;
+  background: var(--md-surface-container-highest);
+  color: var(--md-on-surface);
   font: inherit;
   font-size: 12px;
   line-height: 1.2;
   outline: none;
-  padding: 5px 24px 5px 7px;
+  padding: 5px 24px 5px 10px;
+  transition: border-color var(--md-duration-short) var(--md-easing);
 }
 
 .project-member-role-select:focus {
-  border-color: var(--ring);
-  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring), transparent 78%);
+  border-bottom-color: var(--md-primary);
+  box-shadow: none;
 }
 
 .project-member-role-select:disabled {
@@ -491,26 +536,27 @@
 .project-role-badge {
   width: fit-content;
   max-width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: color-mix(in oklch, var(--muted), transparent 34%);
-  color: var(--foreground);
+  border: 0;
+  border-radius: var(--md-shape-full);
+  background: var(--md-surface-container-high);
+  color: var(--md-on-surface-variant);
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   line-height: 1;
-  padding: 5px 7px;
+  padding: 6px 10px;
   white-space: nowrap;
 }
 
 .project-role-badge[data-role='OWNER'] {
-  border-color: color-mix(in oklch, var(--ring), transparent 56%);
-  background: color-mix(in oklch, var(--ring), transparent 88%);
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
 }
 
 .project-member-add-section {
-  gap: 10px;
-  border-top: 1px solid var(--border);
-  padding-top: 14px;
+  gap: 12px;
+  border-top: 1px solid var(--md-outline-variant);
+  padding-top: 16px;
 }
 
 .project-member-add-heading {
@@ -520,9 +566,9 @@
 
 .project-member-add-heading h3 {
   margin: 0;
-  color: var(--foreground);
-  font-size: 14px;
-  font-weight: 700;
+  color: var(--md-on-surface);
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .project-member-add-form {
@@ -554,5 +600,3 @@
   gap: 6px;
   align-items: center;
 }
-
-

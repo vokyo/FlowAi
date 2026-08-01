@@ -1,10 +1,17 @@
+/* Series colours are pointers into the shared status tokens, not a second
+   palette. That is what makes an "In progress" bar here the same colour as the
+   "In progress" column on the board — the validated categorical set is defined
+   once, in index.css, and this view consumes it.
+
+   Assignee and trend are single-series, so they take a role colour rather than
+   a slot from the categorical set. */
 .analytics-page {
-  --analytics-todo: #64748b;
-  --analytics-in-progress: #0284c7;
-  --analytics-done: #16a34a;
-  --analytics-assignee: #0f766e;
-  --analytics-trend: #2563eb;
-  gap: 22px;
+  --analytics-todo: var(--status-todo);
+  --analytics-in-progress: var(--status-progress);
+  --analytics-done: var(--status-done);
+  --analytics-assignee: var(--md-tertiary);
+  --analytics-trend: var(--md-primary);
+  gap: 24px;
 }
 
 .analytics-header {
@@ -16,10 +23,10 @@
   flex: 0 0 auto;
   align-items: center;
   gap: 2px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: color-mix(in oklch, var(--muted), transparent 42%);
-  padding: 2px;
+  border: 0;
+  border-radius: var(--md-shape-full);
+  background: var(--md-surface-container-high);
+  padding: 4px;
 }
 
 .analytics-content,
@@ -31,34 +38,43 @@
 .analytics-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  gap: 14px;
 }
 
+/* Stat tiles: a headline number is its own form, so these carry no plot — just
+   a tonal container, the figure in text ink, and a tinted icon. */
 .analytics-metric {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--background);
-  padding: 15px;
+  gap: 14px;
+  border: 0;
+  border-radius: var(--md-shape-lg);
+  background: var(--md-surface-container);
+  padding: 18px;
+  transition: background-color var(--md-duration-medium) var(--md-easing),
+    box-shadow var(--md-duration-medium) var(--md-easing);
+}
+
+.analytics-metric:hover {
+  background: var(--md-surface-container-high);
+  box-shadow: var(--elevation-1);
 }
 
 .analytics-metric-icon {
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: 40px;
+  height: 40px;
   flex: 0 0 auto;
   place-items: center;
-  border-radius: 7px;
-  background: color-mix(in oklch, var(--muted), transparent 24%);
-  color: var(--muted-foreground);
+  border-radius: var(--md-shape-sm);
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
 }
 
 .analytics-metric-icon svg {
-  width: 17px;
-  height: 17px;
+  width: 19px;
+  height: 19px;
 }
 
 .analytics-metric > div {
@@ -69,24 +85,26 @@
 
 .analytics-metric span:not(.analytics-metric-icon) {
   overflow-wrap: anywhere;
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .analytics-metric strong {
-  color: var(--foreground);
-  font-size: 23px;
+  color: var(--md-on-surface);
+  font-size: 26px;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
   line-height: 1.15;
 }
 
 .analytics-panel {
   min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--background);
-  padding: 18px;
+  border: 0;
+  border-radius: var(--md-shape-lg);
+  background: var(--md-surface-container);
+  padding: 22px;
 }
 
 .analytics-section-header {
@@ -94,8 +112,8 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 14px;
+  border-bottom: 1px solid var(--md-outline-variant);
+  padding-bottom: 16px;
 }
 
 .analytics-section-header > div {
@@ -104,23 +122,25 @@
 
 .analytics-section-header h2 {
   margin: 0;
-  color: var(--foreground);
-  font-size: 15px;
+  color: var(--md-on-surface);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
   line-height: 1.3;
 }
 
 .analytics-section-header p {
   margin: 5px 0 0;
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
 .analytics-section-header > svg {
-  width: 17px;
-  height: 17px;
+  width: 18px;
+  height: 18px;
   flex: 0 0 auto;
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
 }
 
 .analytics-trend-wrap {
@@ -129,13 +149,15 @@
   padding-top: 16px;
 }
 
+/* Recessive baseline: the axis is a hairline in the outline-variant tone, never
+   a competing line. */
 .analytics-trend-chart {
   display: grid;
   height: 258px;
   min-width: 0;
   align-items: end;
   gap: 3px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--md-outline-variant);
   padding: 10px 0 34px;
 }
 
@@ -149,30 +171,33 @@
   justify-content: center;
 }
 
+/* Thin mark, 4px rounded data-end, square where it meets the baseline. */
 .analytics-trend-bar {
   display: block;
   width: min(100%, 18px);
   min-height: 3px;
-  border-radius: 3px 3px 0 0;
+  border-radius: 4px 4px 0 0;
   background: var(--analytics-trend);
-  transition: opacity 120ms ease;
+  transition: opacity var(--md-duration-short) var(--md-easing),
+    background-color var(--md-duration-short) var(--md-easing);
 }
 
 .analytics-trend-column:hover .analytics-trend-bar {
-  opacity: 0.72;
+  background: color-mix(in oklab, var(--analytics-trend), var(--md-on-surface) 22%);
 }
 
 .analytics-trend-bar[data-empty='true'] {
   height: 2px !important;
   min-height: 2px;
-  background: var(--border);
+  border-radius: 1px;
+  background: var(--md-outline-variant);
 }
 
 .analytics-trend-column small {
   position: absolute;
   bottom: -27px;
   left: 50%;
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 10px;
   white-space: nowrap;
   transform: translateX(-50%);
@@ -195,7 +220,7 @@
   left: 50%;
   width: min(90%, 320px);
   margin: 0;
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 13px;
   text-align: center;
   transform: translate(-50%, -50%);
@@ -226,14 +251,17 @@
   gap: 7px;
 }
 
+/* Label and value wear text ink, never the series colour — the bar beside them
+   is what carries identity. */
 .analytics-bar-label {
   display: flex;
   min-width: 0;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  color: var(--foreground);
+  color: var(--md-on-surface);
   font-size: 12px;
+  font-weight: 500;
 }
 
 .analytics-bar-label span {
@@ -245,14 +273,15 @@
 
 .analytics-bar-label strong {
   flex: 0 0 auto;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
 .analytics-bar-track {
   height: 8px;
   overflow: hidden;
-  border-radius: 4px;
-  background: color-mix(in oklch, var(--muted), transparent 28%);
+  border-radius: var(--md-shape-full);
+  background: var(--md-surface-container-highest);
 }
 
 .analytics-bar-track span {
@@ -267,20 +296,20 @@
   min-height: 214px;
   place-items: center;
   margin: 0;
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 13px;
   text-align: center;
 }
 
 .analytics-skeleton {
   display: block;
-  border-radius: 8px;
-  background: var(--muted);
+  border-radius: var(--md-shape-lg);
+  background: var(--md-surface-container-high);
   animation: analytics-pulse 1.25s ease-in-out infinite alternate;
 }
 
 .analytics-skeleton-metric {
-  height: 82px;
+  height: 88px;
 }
 
 .analytics-skeleton-chart {
@@ -290,11 +319,11 @@
 .analytics-error-state {
   display: grid;
   gap: 6px;
-  border: 1px solid color-mix(in oklch, var(--destructive), transparent 70%);
-  border-radius: 8px;
-  background: color-mix(in oklch, var(--destructive), transparent 94%);
-  color: var(--destructive);
-  padding: 16px;
+  border: 0;
+  border-radius: var(--md-shape-md);
+  background: var(--md-error-container);
+  color: var(--md-on-error-container);
+  padding: 18px;
 }
 
 .analytics-error-state strong,
@@ -304,7 +333,7 @@
 }
 
 .analytics-error-state p {
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
 @keyframes analytics-pulse {
@@ -352,24 +381,25 @@
 
   .analytics-metric {
     align-items: flex-start;
-    padding: 12px;
+    border-radius: var(--md-shape-md);
+    padding: 14px;
   }
 
   .analytics-metric-icon {
-    width: 30px;
-    height: 30px;
+    width: 34px;
+    height: 34px;
   }
 
   .analytics-metric strong {
-    font-size: 20px;
+    font-size: 22px;
   }
 
   .analytics-panel {
-    padding: 14px;
+    border-radius: var(--md-shape-md);
+    padding: 16px;
   }
 
   .analytics-trend-chart {
     gap: 2px;
   }
 }
-

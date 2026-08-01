@@ -4,28 +4,37 @@
 @import "@fontsource-variable/geist";
 
 @custom-variant dark (&:is(.dark *));
+
+/* ---------------------------------------------------------------------------
+   Material Design 3 (Material You) token layer.
+
+   Two tiers, and the split is the whole reason a restyle of this size is a
+   token edit rather than a rewrite:
+
+   1. `--md-*` roles are the source of truth. They are the MD3 tonal palette
+      generated from the #6750A4 seed, transcribed to oklch so they mix in the
+      same space as everything else here.
+   2. The shadcn/legacy names below them (`--background`, `--muted`, `--border`)
+      are now *aliases* onto those roles. ~3,400 lines of feature CSS already
+      read tokens and never hardcode colour, so re-pointing the aliases moves
+      the entire app onto MD3 at once and keeps the shadcn primitives coherent.
+
+   Add new work against `--md-*`. The aliases exist to carry the existing
+   surface area, not as a second vocabulary to design in.
+   --------------------------------------------------------------------------- */
+
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: oklch(0.922 0 0);
-  --code-bg: #f4f3ec;
-  --accent: oklch(0.97 0 0);
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  /* Feature CSS is authored in px against an 18px root, so this value rescales
+     every heading and label that doesn't set its own size. */
+  font-size: 18px;
+  letter-spacing: 0;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  /* Only light is declared as active: nothing toggles the .dark class yet, so
+     promising dark here just makes native controls (scrollbars, date pickers)
+     go dark on an otherwise light page. The .dark block below is a complete
+     MD3 dark palette, ready for whenever a toggle lands. */
+  color-scheme: light;
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -35,90 +44,196 @@
     font-size: 16px;
   }
 
-  --background: oklch(1 0 0);
+  /* === MD3 tonal palette — light =========================================== */
 
-  --foreground: oklch(0.145 0 0);
+  /* Primary: the seed. Carries CTAs, focus, and the active nav state. */
+  --md-primary: oklch(0.4955 0.1305 293.7);
+  --md-on-primary: oklch(1 0 0);
+  --md-primary-container: oklch(0.9183 0.0477 302.8);
+  --md-on-primary-container: oklch(0.2420 0.1404 286.1);
 
-  --card: oklch(1 0 0);
+  /* Secondary: desaturated companion for chips, pills, quieter containers. */
+  --md-secondary: oklch(0.4859 0.0358 299.6);
+  --md-on-secondary: oklch(1 0 0);
+  --md-secondary-container: oklch(0.9163 0.0365 303.1);
+  --md-on-secondary-container: oklch(0.2272 0.0347 293.7);
 
-  --card-foreground: oklch(0.145 0 0);
+  /* Tertiary: the dusty rose accent. Reserved for FABs and AI surfaces so it
+     stays meaningful instead of becoming a third neutral. */
+  --md-tertiary: oklch(0.4904 0.0605 358.4);
+  --md-on-tertiary: oklch(1 0 0);
+  --md-tertiary-container: oklch(0.9184 0.0460 357.6);
+  --md-on-tertiary-container: oklch(0.2323 0.0543 358.6);
 
-  --popover: oklch(1 0 0);
+  --md-error: oklch(0.5013 0.1783 28.7);
+  --md-on-error: oklch(1 0 0);
+  --md-error-container: oklch(0.9221 0.0301 22.8);
+  --md-on-error-container: oklch(0.2539 0.0794 27.6);
 
-  --popover-foreground: oklch(0.145 0 0);
+  /* Surface ramp. Depth here comes from tone, not shadow — every step is a
+     real colour difference, which is why cards need almost no elevation. */
+  --md-surface: oklch(0.9920 0.0058 334.0);
+  --md-on-surface: oklch(0.2249 0.0078 297.2);
+  --md-surface-variant: oklch(0.9157 0.0177 311.6);
+  --md-on-surface-variant: oklch(0.3981 0.0174 303.7);
 
-  --primary: oklch(0.205 0 0);
+  --md-surface-container-lowest: oklch(1 0 0);
+  --md-surface-container-low: oklch(0.9673 0.0118 313.2);
+  --md-surface-container: oklch(0.9536 0.0147 312.2);
+  --md-surface-container-high: oklch(0.9325 0.0148 312.2);
+  --md-surface-container-highest: oklch(0.9140 0.0137 314.8);
 
-  --primary-foreground: oklch(0.985 0 0);
+  --md-outline: oklch(0.5667 0.0163 308.1);
+  --md-outline-variant: oklch(0.8287 0.0178 308.2);
 
-  --secondary: oklch(0.97 0 0);
+  --md-inverse-surface: oklch(0.3114 0.0055 301.2);
+  --md-inverse-on-surface: oklch(0.9574 0.0085 325.6);
+  --md-inverse-primary: oklch(0.8349 0.0946 298.0);
+  --md-scrim: oklch(0 0 0);
 
-  --secondary-foreground: oklch(0.205 0 0);
+  /* === State layers ========================================================
+     MD3 signals interaction by compositing a translucent layer of the *content*
+     colour over the element, rather than swapping the base colour. Two families,
+     because the maths differs: solid-fill elements dial their own colour down;
+     transparent elements pick the primary up.
+     ------------------------------------------------------------------------ */
+  --md-state-hover-on-fill: 0.90;   /* filled button at rest -> hover */
+  --md-state-press-on-fill: 0.80;   /* filled button -> pressed */
+  --md-state-hover: 0.10;           /* transparent surface -> hover */
+  --md-state-focus: 0.05;           /* transparent surface -> focus */
+  --md-state-drag: 0.16;
 
-  --muted: oklch(0.97 0 0);
+  /* === Motion ==============================================================
+     `--md-easing` is MD3's emphasised-decelerate curve: quick to commit, slow
+     to settle. Using one curve everywhere is what makes the motion read as a
+     system rather than a pile of transitions. */
+  --md-easing: cubic-bezier(0.2, 0, 0, 1);
+  --md-easing-accelerate: cubic-bezier(0.3, 0, 1, 1);
+  --md-duration-short: 200ms;
+  --md-duration-medium: 300ms;
+  --md-duration-long: 400ms;
 
-  --muted-foreground: oklch(0.556 0 0);
+  /* === Shape ===============================================================
+     MD3's shape scale. Generous by default — the radius is architectural here,
+     not a finishing touch. Density calibration for this app: cards take
+     `md` (16px), dense rows take `sm` (12px), dialogs take `xl` (28px), and
+     the expressive 32-48px sizes are reserved for low-density surfaces
+     (auth, empty states, settings hero). Buttons and chips are always full. */
+  --md-shape-xs: 8px;
+  --md-shape-sm: 12px;
+  --md-shape-md: 16px;
+  --md-shape-lg: 24px;
+  --md-shape-xl: 28px;
+  --md-shape-2xl: 32px;
+  --md-shape-3xl: 48px;
+  --md-shape-full: 9999px;
 
-  --accent-foreground: oklch(0.205 0 0);
+  /* === Elevation ===========================================================
+     Tinted toward the neutral-variant hue rather than pure black, so shadows
+     sit in the same tonal family as the surfaces they fall on. Deliberately
+     softer than the MD3 reference values: with a real surface ramp doing the
+     depth work, heavy shadows just look muddy. */
+  --elevation-1: 0 1px 2px oklch(0.2249 0.0078 297.2 / 0.06);
+  --elevation-2:
+    0 1px 2px oklch(0.2249 0.0078 297.2 / 0.06),
+    0 4px 12px oklch(0.2249 0.0078 297.2 / 0.09);
+  --elevation-3:
+    0 4px 10px oklch(0.2249 0.0078 297.2 / 0.09),
+    0 12px 32px oklch(0.2249 0.0078 297.2 / 0.12);
+  --elevation-4:
+    0 8px 20px oklch(0.2249 0.0078 297.2 / 0.12),
+    0 24px 56px oklch(0.2249 0.0078 297.2 / 0.16);
 
-  --destructive: oklch(0.577 0.245 27.325);
+  /* Brand alias. The seed *is* the brand now, so the sidebar accent and the
+     MD3 primary are one colour instead of two violets a few degrees apart. */
+  --brand: var(--md-primary);
 
-  --input: oklch(0.922 0 0);
+  /* === Status and priority =================================================
+     These are the app's one *categorical* palette — they identify workflow
+     states on the board, in the list, and as series in the analytics bars — so
+     they are chosen by validation, not by eye. The four active states clear
+     all-pairs CVD separation (worst ΔE 14.1 protan/deutan) and the
+     normal-vision floor (worst ΔE 21.1) against the light surface.
 
-  --ring: oklch(0.708 0 0);
+     In-progress is anchored to the seed, which is what ties the board to the
+     brand. The first attempt gave Todo the MD3 secondary — but a low-chroma
+     purple beside the primary purple failed both the chroma floor and the
+     normal-vision floor, so Todo is re-stepped onto a cyan far enough from both
+     the primary and Done to survive colour-blind simulation.
 
-  --chart-1: oklch(0.87 0 0);
+     Archived sits outside the set on purpose: it is a muted, inactive state
+     rather than a series, and it always ships with an icon and a text label.
 
-  --chart-2: oklch(0.556 0 0);
+     Containers sit at MD3 tone ~94 on the matching hue, so a column header and
+     its fill read as one pair rather than ink beside an unrelated wash. */
+  --status-todo: oklch(0.65 0.130 225);
+  --status-progress: var(--md-primary);
+  --status-done: oklch(0.48 0.110 163);
+  --status-review: oklch(0.66 0.140 77);
+  --status-archived: var(--md-outline);
 
-  --chart-3: oklch(0.439 0 0);
+  --status-todo-tint: oklch(0.9450 0.0320 225);
+  --status-progress-tint: oklch(0.9380 0.0330 300);
+  --status-done-tint: oklch(0.9440 0.0360 163);
+  --status-review-tint: oklch(0.9460 0.0400 77);
+  --status-archived-tint: oklch(0.9480 0.0090 308);
 
-  --chart-4: oklch(0.371 0 0);
+  --priority-urgent: var(--md-error);
+  --priority-high: oklch(0.57 0.145 55);
+  --priority-medium: oklch(0.52 0.115 250);
+  --priority-low: var(--md-outline);
 
-  --chart-5: oklch(0.269 0 0);
+  /* === shadcn / legacy aliases =============================================
+     Everything below is a pointer, not a value. Feature CSS and the shadcn
+     primitives keep their existing names and inherit MD3 automatically.
+     ------------------------------------------------------------------------ */
 
-  --radius: 0.625rem;
+  --background: var(--md-surface);
+  --foreground: var(--md-on-surface);
 
-  --sidebar: oklch(0.985 0 0);
+  /* Cards resolve to a *tonal* surface, never white. This single line is what
+     removes the "white card on white page" look across the whole app. */
+  --card: var(--md-surface-container-low);
+  --card-foreground: var(--md-on-surface);
+  --popover: var(--md-surface-container-low);
+  --popover-foreground: var(--md-on-surface);
 
-  --sidebar-foreground: oklch(0.145 0 0);
+  --primary: var(--md-primary);
+  --primary-foreground: var(--md-on-primary);
+  --secondary: var(--md-secondary-container);
+  --secondary-foreground: var(--md-on-secondary-container);
+  --muted: var(--md-surface-container-high);
+  --muted-foreground: var(--md-on-surface-variant);
+  --accent: var(--md-secondary-container);
+  --accent-foreground: var(--md-on-secondary-container);
+  --destructive: var(--md-error);
 
-  --sidebar-primary: oklch(0.205 0 0);
+  --border: var(--md-outline-variant);
+  --input: var(--md-outline-variant);
+  --ring: var(--md-primary);
 
-  --sidebar-primary-foreground: oklch(0.985 0 0);
+  /* Read by shadcn's Chart component. The analytics views define their own
+     series colors locally and do not use these. */
+  --chart-1: var(--md-primary);
+  --chart-2: var(--md-tertiary);
+  --chart-3: var(--md-secondary);
+  --chart-4: oklch(0.50 0.110 158);
+  --chart-5: oklch(0.55 0.120 68);
 
-  --sidebar-accent: oklch(0.97 0 0);
+  --radius: var(--md-shape-md);
 
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-
-  --sidebar-border: oklch(0.922 0 0);
-
-  --sidebar-ring: oklch(0.708 0 0)
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
-
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
+  --sidebar: var(--md-surface-container-low);
+  --sidebar-foreground: var(--md-on-surface);
+  --sidebar-primary: var(--md-primary);
+  --sidebar-primary-foreground: var(--md-on-primary);
+  --sidebar-accent: var(--md-secondary-container);
+  --sidebar-accent-foreground: var(--md-on-secondary-container);
+  --sidebar-border: var(--md-outline-variant);
+  --sidebar-ring: var(--md-primary);
 }
 
 #root {
   width: 100%;
-  text-align: center;
   min-height: 100svh;
   display: flex;
   flex-direction: column;
@@ -129,53 +244,87 @@ body {
   margin: 0;
 }
 
+/* === MD3 type scale ========================================================
+   Geist stands in for Roboto: a neutral grotesque with the same upright,
+   unfussy character, already self-hosted and better fitted to dense UI. The
+   scale, weights and tracking below are MD3's — headlines tight and confident,
+   body relaxed for reading, labels slightly wide so they hold up at 12-14px.
+   Medium (500) is the heading default; MD3 gets its friendliness from shape and
+   colour, so heavy weights would just make it shout. */
+
 h1,
 h2 {
-  font-family: var(--heading);
   font-weight: 500;
-  color: var(--text-h);
+  color: var(--foreground);
 }
 
+/* Headline Large. */
 h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
+  font-size: 48px;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
   margin: 32px 0;
   @media (max-width: 1024px) {
-    font-size: 36px;
+    font-size: 32px;
     margin: 20px 0;
   }
 }
+
+/* Title Large. */
 h2 {
   font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
+  line-height: 1.25;
+  letter-spacing: 0;
   margin: 0 0 8px;
   @media (max-width: 1024px) {
     font-size: 20px;
   }
 }
+
 p {
   margin: 0;
-}
-
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
-}
-
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+  line-height: 1.5;
 }
 
 @theme inline {
   --font-heading: var(--font-sans);
   --font-sans: 'Geist Variable', sans-serif;
+
+  --color-brand: var(--brand);
+
+  /* MD3 roles, exposed as utilities for the component library. */
+  --color-md-primary: var(--md-primary);
+  --color-md-on-primary: var(--md-on-primary);
+  --color-md-primary-container: var(--md-primary-container);
+  --color-md-on-primary-container: var(--md-on-primary-container);
+  --color-md-secondary: var(--md-secondary);
+  --color-md-secondary-container: var(--md-secondary-container);
+  --color-md-on-secondary-container: var(--md-on-secondary-container);
+  --color-md-tertiary: var(--md-tertiary);
+  --color-md-on-tertiary: var(--md-on-tertiary);
+  --color-md-tertiary-container: var(--md-tertiary-container);
+  --color-md-on-tertiary-container: var(--md-on-tertiary-container);
+  --color-md-error: var(--md-error);
+  --color-md-on-error: var(--md-on-error);
+  --color-md-error-container: var(--md-error-container);
+  --color-md-on-error-container: var(--md-on-error-container);
+  --color-md-surface: var(--md-surface);
+  --color-md-on-surface: var(--md-on-surface);
+  --color-md-surface-variant: var(--md-surface-variant);
+  --color-md-on-surface-variant: var(--md-on-surface-variant);
+  --color-md-surface-container-lowest: var(--md-surface-container-lowest);
+  --color-md-surface-container-low: var(--md-surface-container-low);
+  --color-md-surface-container: var(--md-surface-container);
+  --color-md-surface-container-high: var(--md-surface-container-high);
+  --color-md-surface-container-highest: var(--md-surface-container-highest);
+  --color-md-outline: var(--md-outline);
+  --color-md-outline-variant: var(--md-outline-variant);
+  /* Needed as a utility, not just a variable: the dialog overlay is styled in
+     the component library, so the scrim has to exist as `bg-md-scrim`. */
+  --color-md-scrim: var(--md-scrim);
+  --color-md-inverse-surface: var(--md-inverse-surface);
+  --color-md-inverse-on-surface: var(--md-inverse-on-surface);
+
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -207,53 +356,108 @@ code {
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Shape scale, mapped onto Tailwind's radius names so `rounded-lg` and
+     friends land on MD3 values wherever the component library uses them. */
+  --radius-sm: var(--md-shape-xs);
+  --radius-md: var(--md-shape-sm);
+  --radius-lg: var(--md-shape-md);
+  --radius-xl: var(--md-shape-lg);
+  --radius-2xl: var(--md-shape-xl);
+  --radius-3xl: var(--md-shape-2xl);
+  --radius-4xl: var(--md-shape-3xl);
+
+  --ease-md: var(--md-easing);
 }
 
+/* MD3 dark tonal palette, generated from the same #6750A4 seed. Nothing toggles
+   .dark yet, so this ships unused — but it is authored, not stubbed, so a future
+   theme switch is a class and a `color-scheme` change rather than a colour pass.
+   Only the roles are restated; every alias above resolves through them. */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --md-primary: oklch(0.8349 0.0946 298.0);
+  --md-on-primary: oklch(0.3251 0.1353 291.2);
+  --md-primary-container: oklch(0.4103 0.1337 292.7);
+  --md-on-primary-container: oklch(0.9183 0.0477 302.8);
+
+  --md-secondary: oklch(0.8303 0.0374 303.0);
+  --md-on-secondary: oklch(0.2272 0.0347 293.7);
+  --md-secondary-container: oklch(0.4005 0.0340 298.6);
+  --md-on-secondary-container: oklch(0.9163 0.0365 303.1);
+
+  --md-tertiary: oklch(0.8367 0.0666 359.4);
+  --md-on-tertiary: oklch(0.2323 0.0543 358.6);
+  --md-tertiary-container: oklch(0.4044 0.0591 359.1);
+  --md-on-tertiary-container: oklch(0.9184 0.0460 357.6);
+
+  --md-error: oklch(0.8345 0.0677 22.0);
+  --md-on-error: oklch(0.2539 0.0794 27.6);
+  --md-error-container: oklch(0.4200 0.1473 28.1);
+  --md-on-error-container: oklch(0.9221 0.0301 22.8);
+
+  --md-surface: oklch(0.1874 0.0124 300.4);
+  --md-on-surface: oklch(0.9140 0.0137 314.8);
+  --md-surface-variant: oklch(0.3981 0.0174 303.7);
+  --md-on-surface-variant: oklch(0.8287 0.0178 308.2);
+
+  --md-surface-container-lowest: oklch(0.1645 0.0128 300.2);
+  --md-surface-container-low: oklch(0.2265 0.0100 303.7);
+  --md-surface-container: oklch(0.2445 0.0134 298.5);
+  --md-surface-container-high: oklch(0.2859 0.0129 298.6);
+  --md-surface-container-highest: oklch(0.3298 0.0125 298.8);
+
+  --md-outline: oklch(0.6566 0.0153 304.0);
+  --md-outline-variant: oklch(0.3981 0.0174 303.7);
+
+  --md-inverse-surface: oklch(0.9140 0.0137 314.8);
+  --md-inverse-on-surface: oklch(0.3107 0.0113 308.1);
+  --md-inverse-primary: oklch(0.4955 0.1305 293.7);
+
+  /* Dark needs its own validated steps rather than a lightened copy: the
+     accessible band on a dark surface is L 0.48-0.67, so MD3's pale dark
+     primary (#D0BCFF, L 0.83, chroma 0.095) is too washed out to carry
+     identity as a series colour. In-progress therefore takes a saturated
+     mid-purple here instead of the UI primary. This set also clears all-pairs
+     CVD and the normal-vision floor against the dark surface. */
+  --status-todo: oklch(0.58 0.110 240);
+  --status-progress: oklch(0.67 0.190 296);
+  --status-done: oklch(0.63 0.130 168);
+  --status-review: oklch(0.62 0.140 70);
+
+  /* Containers need more presence against a dark surface than the light-mode
+     tints do against a light one, so these sit at tone ~28 rather than ~94. */
+  --status-todo-tint: oklch(0.2780 0.0300 240);
+  --status-progress-tint: oklch(0.2850 0.0400 296);
+  --status-done-tint: oklch(0.2800 0.0330 168);
+  --status-review-tint: oklch(0.2820 0.0340 70);
+  --status-archived-tint: oklch(0.2700 0.0080 306);
+
+  --priority-high: oklch(0.80 0.130 62);
+  --priority-medium: oklch(0.76 0.110 250);
 }
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;}
+    @apply border-border outline-ring/50;
+  }
   body {
-    @apply bg-background text-foreground;}
+    @apply bg-background text-foreground;
+  }
   html {
-    @apply font-sans;}}
+    @apply font-sans;
+  }
+}
+
+/* MD3 motion is expressive by design, which makes honouring this preference
+   non-optional. Colour transitions survive — they carry state — while the
+   scale, lift and slide that ride on top of them are what get removed. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

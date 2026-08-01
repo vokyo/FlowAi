@@ -12,32 +12,38 @@
     grid-template-columns: 1fr;
   }
 
+  /* MD3 modal navigation drawer: shaped on the trailing edge, riding on
+     elevation rather than a border, and entering on the standard easing. */
   .app-sidebar {
     position: fixed;
     z-index: 70;
     top: 0;
     bottom: 0;
     left: 0;
-    width: min(84vw, 300px);
+    width: min(84vw, 320px);
     height: 100svh;
-    border-right: 1px solid var(--border);
-    box-shadow: 18px 0 50px rgba(15, 23, 42, 0.16);
+    border-right: 0;
+    border-radius: 0 var(--md-shape-xl) var(--md-shape-xl) 0;
+    box-shadow: var(--elevation-4);
     transform: translateX(-105%);
-    transition: transform 180ms ease;
+    transition: transform var(--md-duration-long) var(--md-easing);
   }
 
   .app-sidebar[data-mobile-open='true'] {
     transform: translateX(0);
   }
 
+  /* Small FAB, per MD3 — a floating control needs to read as floating. */
   .mobile-sidebar-trigger {
     position: fixed;
     z-index: 60;
     top: 12px;
     left: 12px;
     display: inline-flex;
-    background: color-mix(in oklch, var(--background), transparent 4%);
-    box-shadow: 0 6px 22px rgba(15, 23, 42, 0.12);
+    border-radius: var(--md-shape-md);
+    background: var(--md-surface-container-high);
+    color: var(--md-on-surface);
+    box-shadow: var(--elevation-3);
   }
 
   .mobile-sidebar-backdrop {
@@ -46,7 +52,7 @@
     inset: 0;
     display: block;
     border: 0;
-    background: rgba(15, 23, 42, 0.34);
+    background: color-mix(in oklab, var(--md-scrim), transparent 68%);
   }
 
   .content-page {
@@ -89,10 +95,6 @@
   .issue-row-meta {
     grid-column: 2;
     justify-content: flex-start;
-  }
-
-  .modal-backdrop {
-    padding: 18px 12px;
   }
 
   .issue-modal-footer,

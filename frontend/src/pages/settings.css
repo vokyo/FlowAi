@@ -8,19 +8,21 @@
   text-align: center;
 }
 
+/* The keyframe is `flowai-spin` (styles/responsive.css). This rule named
+   `auth-spin`, which does not exist, so the route spinner sat still. */
 .route-loading span {
-  width: 34px;
-  height: 34px;
-  border: 3px solid var(--muted);
-  border-top-color: var(--primary);
-  border-radius: 999px;
-  animation: auth-spin 700ms linear infinite;
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--md-surface-container-highest);
+  border-top-color: var(--md-primary);
+  border-radius: var(--md-shape-full);
+  animation: flowai-spin 700ms linear infinite;
 }
 
 .settings-page {
   min-height: 100dvh;
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--md-surface);
+  color: var(--md-on-surface);
   padding: 32px clamp(18px, 4vw, 64px) 64px;
 }
 
@@ -43,22 +45,26 @@
   margin: 0;
 }
 
+/* Display Small — the settings page is low-density, so it gets to be
+   expressive where the app chrome cannot. */
 .settings-header h1 {
-  font-size: clamp(28px, 4vw, 42px);
-  letter-spacing: -0.04em;
+  font-size: clamp(32px, 4vw, 44px);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
 }
 
 .settings-header > div > p:last-child,
 .settings-card-heading p,
 .settings-danger-zone > p {
-  margin-top: 5px;
-  color: var(--muted-foreground);
+  margin-top: 6px;
+  color: var(--md-on-surface-variant);
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.55;
 }
 
 .settings-eyebrow {
-  color: var(--primary);
+  color: var(--md-primary);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.12em;
@@ -77,12 +83,17 @@
 .settings-card {
   display: grid;
   min-width: 0;
-  gap: 18px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--card);
-  padding: 22px;
-  box-shadow: 0 12px 34px rgb(0 0 0 / 4%);
+  gap: 20px;
+  border: 0;
+  border-radius: var(--md-shape-lg);
+  background: var(--md-surface-container);
+  padding: 26px;
+  box-shadow: var(--elevation-1);
+  transition: box-shadow var(--md-duration-medium) var(--md-easing);
+}
+
+.settings-card:hover {
+  box-shadow: var(--elevation-2);
 }
 
 .settings-card-wide {
@@ -92,52 +103,65 @@
 .settings-card-heading {
   display: flex;
   align-items: flex-start;
-  gap: 11px;
+  gap: 12px;
 }
 
 .settings-card-heading > svg {
-  width: 19px;
-  height: 19px;
+  width: 20px;
+  height: 20px;
   margin-top: 2px;
-  color: var(--muted-foreground);
+  color: var(--md-primary);
   flex: 0 0 auto;
 }
 
 .settings-card-heading h2 {
-  font-size: 17px;
+  font-size: 18px;
+  font-weight: 500;
 }
 
 .settings-card-heading h3,
 .settings-danger-zone h3 {
-  font-size: 14px;
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .settings-card hr {
   width: 100%;
   height: 1px;
   border: 0;
-  background: var(--border);
+  background: var(--md-outline-variant);
 }
 
 .settings-form,
 .project-settings-sections,
 .settings-subsection {
   display: grid;
-  gap: 14px;
+  gap: 16px;
 }
 
+/* `.settings-card` is a grid, so a button dropped straight into it stretches to
+   the full column. Pills read as controls only at their natural width. */
 .settings-form > button,
-.settings-inline-form > button {
+.settings-inline-form > button,
+.settings-card > button {
   width: fit-content;
+  justify-self: start;
 }
 
 .settings-field {
   display: grid;
-  gap: 7px;
+  gap: 0;
+  color: var(--md-on-surface-variant);
   font-size: 12px;
   font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
+.settings-field > span {
+  padding: 0 0 6px 4px;
+}
+
+/* Filled text field, consistent with the rest of the app. */
 .settings-field input,
 .settings-field textarea,
 .settings-field select,
@@ -147,12 +171,36 @@
 .settings-inline-form select,
 .settings-migration-action select {
   min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--background);
-  color: var(--foreground);
-  padding: 9px 10px;
+  min-height: 44px;
+  box-sizing: border-box;
+  border: 0;
+  border-bottom: 2px solid var(--md-outline);
+  border-radius: var(--md-shape-sm) var(--md-shape-sm) 0 0;
+  background: var(--md-surface-container-highest);
+  color: var(--md-on-surface);
+  padding: 10px 14px;
   font: inherit;
+  font-weight: 400;
+  outline: none;
+  transition: border-color var(--md-duration-short) var(--md-easing),
+    background-color var(--md-duration-short) var(--md-easing);
+}
+
+.settings-field input:hover:not(:disabled),
+.settings-field textarea:hover:not(:disabled),
+.settings-field select:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--md-surface-container-highest), var(--md-on-surface) 4%);
+}
+
+.settings-field input:focus,
+.settings-field textarea:focus,
+.settings-field select:focus,
+.settings-list-row input:focus,
+.settings-list-row select:focus,
+.settings-inline-form input:focus,
+.settings-inline-form select:focus,
+.settings-migration-action select:focus {
+  border-bottom-color: var(--md-primary);
 }
 
 .settings-field textarea {
@@ -170,9 +218,15 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  padding: 10px 11px;
+  border: 0;
+  border-radius: var(--md-shape-md);
+  background: var(--md-surface-container-low);
+  padding: 12px 14px;
+  transition: background-color var(--md-duration-short) var(--md-easing);
+}
+
+.settings-list-row:hover {
+  background: var(--md-surface-container-lowest);
 }
 
 .settings-list-row > div:first-child {
@@ -190,11 +244,12 @@
 
 .settings-list-row strong {
   font-size: 13px;
+  font-weight: 600;
 }
 
 .settings-list-row small,
 .settings-migration-action {
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 11px;
 }
 
@@ -216,63 +271,76 @@
 
 .settings-edit-row input[type='color'],
 .settings-inline-form input[type='color'] {
-  width: 38px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   flex: 0 0 auto;
-  padding: 3px;
+  border-radius: var(--md-shape-sm);
+  padding: 4px;
 }
 
 .settings-subsection {
-  border-top: 1px solid var(--border);
-  padding-top: 18px;
+  border-top: 1px solid var(--md-outline-variant);
+  padding-top: 20px;
 }
 
 .settings-workflow-row {
   display: grid;
   gap: 8px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  padding: 10px;
+  border: 0;
+  border-radius: var(--md-shape-md);
+  background: var(--md-surface-container-low);
+  padding: 12px;
 }
 
 .settings-migration-action {
   justify-content: flex-end;
 }
 
+/* Error container role rather than a red-tinted white box. */
 .settings-danger-zone {
   display: grid;
   gap: 10px;
-  border: 1px solid color-mix(in oklch, var(--destructive), transparent 65%);
-  border-radius: 10px;
-  background: color-mix(in oklch, var(--destructive), transparent 96%);
-  padding: 15px;
+  border: 0;
+  border-radius: var(--md-shape-md);
+  background: var(--md-error-container);
+  color: var(--md-on-error-container);
+  padding: 18px;
+}
+
+.settings-danger-zone > p {
+  color: inherit;
+  opacity: 0.82;
 }
 
 .settings-message,
 .settings-inline-state {
   margin: 0;
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
 .settings-message-error,
 .settings-danger-text {
-  color: var(--destructive);
+  color: var(--md-error);
+}
+
+.settings-danger-zone .settings-danger-text {
+  color: inherit;
 }
 
 .settings-message-success {
-  color: #16803c;
+  color: var(--status-done);
 }
 
 .settings-inline-state {
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
 }
 
 .settings-skeleton {
   max-width: 1120px;
   margin: 0 auto;
-  border-radius: 12px;
-  background: var(--muted);
+  border-radius: var(--md-shape-lg);
+  background: var(--md-surface-container-high);
   animation: analytics-pulse 1.25s ease-in-out infinite alternate;
 }
 
@@ -300,7 +368,8 @@
   }
 
   .settings-card {
-    padding: 16px;
+    border-radius: var(--md-shape-md);
+    padding: 18px;
   }
 
   .settings-list-row,
@@ -319,5 +388,3 @@
     flex: 1 1 100%;
   }
 }
-
-

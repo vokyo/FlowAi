@@ -4,7 +4,7 @@
 
 .kanban-board-region {
   display: grid;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
 }
 
@@ -14,9 +14,12 @@
   align-items: center;
   gap: 6px;
   margin: 0;
-  color: var(--muted-foreground);
+  border-radius: var(--md-shape-full);
+  background: var(--md-surface-container-high);
+  color: var(--md-on-surface-variant);
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 600;
+  padding: 6px 12px;
 }
 
 .kanban-save-state svg {
@@ -34,22 +37,57 @@
 .kanban-board {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(270px, 1fr);
+  grid-auto-columns: minmax(288px, 1fr);
   align-items: start;
-  gap: 12px;
+  gap: 14px;
   width: 100%;
   min-width: max-content;
 }
 
+/* Each column is keyed to its workflow category, so the board reads as a
+   left-to-right progression before a single card title is parsed. --status is
+   resolved once here and reused by the rule below and by the header.
+
+   MD3 turns this into a *tonal* signal rather than a rule-and-fill one: the
+   whole column is a tinted surface container at the category's hue, sitting at
+   MD3's tone-92, with no border at all. Depth comes from the tone step against
+   the page surface. */
 .kanban-column {
+  --status: var(--status-todo);
+  --status-tint: var(--status-todo-tint);
+
   display: grid;
   align-content: start;
   min-width: 0;
   min-height: 240px;
   overflow: hidden;
-  border-top: 3px solid color-mix(in oklch, var(--border), var(--foreground) 12%);
-  border-radius: 8px;
-  background: color-mix(in oklch, var(--muted), var(--background) 34%);
+  border: 0;
+  border-radius: var(--md-shape-lg);
+  background: var(--status-tint);
+}
+
+.kanban-column[data-category='IN_PROGRESS'] {
+  --status: var(--status-progress);
+  --status-tint: var(--status-progress-tint);
+}
+
+.kanban-column[data-category='DONE'] {
+  --status: var(--status-done);
+  --status-tint: var(--status-done-tint);
+}
+
+.kanban-column[data-category='REVIEW'] {
+  --status: var(--status-review);
+  --status-tint: var(--status-review-tint);
+}
+
+.kanban-column[data-category='ARCHIVED'] {
+  --status: var(--status-archived);
+  --status-tint: var(--status-archived-tint);
+}
+
+.kanban-column-title .status-icon {
+  color: var(--status);
 }
 
 .kanban-column-header,
@@ -63,51 +101,58 @@
 .kanban-column-header {
   justify-content: space-between;
   gap: 8px;
-  min-height: 42px;
-  padding: 7px 9px 6px 11px;
+  min-height: 48px;
+  padding: 10px 12px 8px 16px;
 }
 
 .kanban-column-title {
   min-width: 0;
-  gap: 7px;
+  gap: 8px;
 }
 
 .kanban-column-title strong {
   min-width: 0;
   overflow: hidden;
-  color: var(--foreground);
+  color: var(--md-on-surface);
   font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* The count chip carries the column's hue instead of reading as grey text. */
 .kanban-column-title small {
   display: inline-grid;
-  min-width: 22px;
-  height: 22px;
+  min-width: 24px;
+  height: 24px;
   place-items: center;
-  border-radius: 999px;
-  background: var(--background);
-  color: var(--muted-foreground);
+  border-radius: var(--md-shape-full);
+  background: color-mix(in oklab, var(--status), var(--md-surface) 74%);
+  color: color-mix(in oklab, var(--status), var(--md-on-surface) 26%);
   font-size: 11px;
   font-weight: 700;
+  padding-inline: 7px;
 }
 
 .kanban-column-body {
   display: grid;
   align-content: start;
-  gap: 8px;
+  gap: 10px;
   min-height: 188px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  padding: 0 8px 8px;
-  transition: border-color 140ms ease, background-color 140ms ease;
+  border: 2px solid transparent;
+  border-radius: var(--md-shape-md);
+  padding: 0 10px 10px;
+  transition: border-color var(--md-duration-short) var(--md-easing),
+    background-color var(--md-duration-short) var(--md-easing);
 }
 
+/* Drop target uses MD3's drag state layer (16%) over the column's own hue, so
+   the affordance stays inside the column's colour family. */
 .kanban-column-body[data-over='true'] {
-  border-color: color-mix(in oklch, var(--ring), transparent 52%);
-  background: color-mix(in oklch, var(--ring), transparent 93%);
+  border-color: color-mix(in oklab, var(--status), transparent 46%);
+  background: color-mix(in oklab, var(--status), transparent 84%);
 }
 
 .kanban-column-empty {
@@ -115,7 +160,7 @@
   min-height: 150px;
   place-items: center;
   margin: 0;
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 12px;
   text-align: center;
   padding: 12px;
@@ -137,33 +182,42 @@
 }
 
 .kanban-loading-block {
-  height: 94px;
-  margin: 0 8px;
-  border: 1px solid color-mix(in oklch, var(--border), transparent 28%);
-  border-radius: 7px;
-  background: color-mix(in oklch, var(--background), var(--muted) 48%);
+  height: 96px;
+  margin: 0 10px;
+  border: 0;
+  border-radius: var(--md-shape-md);
+  background: color-mix(in oklab, var(--md-surface-container-low), var(--status) 8%);
   animation: kanban-loading-pulse 1.2s ease-in-out infinite alternate;
 }
 
+/* Cards sit one tone *lighter* than their column, which is the inverse of the
+   usual "white card on grey page" and is what makes the tonal system read. */
 .kanban-card {
   position: relative;
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr);
+  grid-template-columns: 28px minmax(0, 1fr);
   min-width: 0;
   min-height: 94px;
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--card);
-  color: var(--card-foreground);
-  box-shadow: 0 1px 2px color-mix(in oklch, var(--foreground), transparent 92%);
-  transition: border-color 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+  border: 0;
+  border-radius: var(--md-shape-md);
+  background: var(--md-surface-container-low);
+  color: var(--md-on-surface);
+  box-shadow: var(--elevation-1);
+  transition:
+    box-shadow var(--md-duration-medium) var(--md-easing),
+    opacity var(--md-duration-short) var(--md-easing),
+    translate var(--md-duration-medium) var(--md-easing),
+    background-color var(--md-duration-medium) var(--md-easing);
 }
 
+/* Hover lifts the card and warms it with the column's hue at state-layer
+   strength — the same "touched, not different" model the buttons use. */
 .kanban-card:hover,
 .kanban-card[data-active='true'] {
-  border-color: color-mix(in oklch, var(--ring), var(--border) 52%);
-  box-shadow: 0 3px 10px color-mix(in oklch, var(--foreground), transparent 90%);
+  background: color-mix(in oklab, var(--md-surface-container-low), var(--status) 7%);
+  box-shadow: var(--elevation-2);
+  translate: 0 -2px;
 }
 
 .kanban-card[data-dragging='true'] {
@@ -175,16 +229,17 @@
 }
 
 .kanban-card[data-sortable='false'] .kanban-card-open {
-  padding-left: 10px;
+  padding-left: 12px;
 }
 
 .kanban-card-overlay {
   width: 294px;
   grid-template-columns: minmax(0, 1fr);
-  opacity: 0.96;
+  opacity: 0.98;
   padding: 10px;
   pointer-events: none;
-  box-shadow: 0 12px 30px color-mix(in oklch, var(--foreground), transparent 80%);
+  rotate: -1.5deg;
+  box-shadow: var(--elevation-4);
 }
 
 .kanban-drag-handle,
@@ -197,12 +252,12 @@
 
 .kanban-drag-handle {
   display: grid;
-  width: 26px;
+  width: 28px;
   min-height: 100%;
   cursor: grab;
   place-items: start center;
-  color: var(--muted-foreground);
-  padding: 12px 0 0;
+  color: var(--md-on-surface-variant);
+  padding: 14px 0 0;
   touch-action: none;
 }
 
@@ -212,8 +267,9 @@
 
 .kanban-drag-handle:focus-visible,
 .kanban-card-open:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: -2px;
+  outline: 2px solid var(--md-primary);
+  outline-offset: -3px;
+  border-radius: var(--md-shape-md);
 }
 
 .kanban-drag-handle svg {
@@ -225,40 +281,41 @@
   min-width: 0;
   cursor: pointer;
   text-align: left;
-  padding: 10px 10px 10px 0;
+  padding: 12px 12px 12px 0;
 }
 
 .kanban-card-content {
   display: grid;
-  gap: 9px;
+  gap: 10px;
   min-width: 0;
 }
 
 .kanban-card-content > strong {
   overflow-wrap: anywhere;
-  color: var(--foreground);
+  color: var(--md-on-surface);
   font-size: 13px;
+  font-weight: 600;
   line-height: 1.4;
 }
 
 .kanban-card .label-badge,
 .kanban-card .priority-badge {
   font-size: 11px;
-  padding: 5px 6px;
+  padding: 5px 9px;
 }
 
 .kanban-card-meta {
   flex-wrap: wrap;
   gap: 6px;
   min-width: 0;
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .kanban-card-meta > span {
   min-width: 0;
-  gap: 3px;
+  gap: 4px;
 }
 
 .kanban-card-meta > span:not(.priority-badge) {
@@ -276,33 +333,35 @@
 
 .kanban-inline-composer {
   display: grid;
-  gap: 7px;
+  gap: 8px;
   min-width: 0;
-  border: 1px solid color-mix(in oklch, var(--ring), var(--border) 58%);
-  border-radius: 7px;
-  background: var(--card);
-  padding: 8px;
-  box-shadow: 0 4px 14px color-mix(in oklch, var(--foreground), transparent 90%);
+  border: 0;
+  border-radius: var(--md-shape-md);
+  background: var(--md-surface-container-lowest);
+  padding: 10px;
+  box-shadow: var(--elevation-3);
 }
 
 .kanban-inline-composer > input {
   width: 100%;
   min-width: 0;
-  min-height: 34px;
+  min-height: 44px;
   box-sizing: border-box;
-  border: 1px solid var(--input);
-  border-radius: 6px;
-  background: var(--background);
-  color: var(--foreground);
+  border: 0;
+  border-bottom: 2px solid var(--md-outline);
+  border-radius: var(--md-shape-sm) var(--md-shape-sm) 0 0;
+  background: var(--md-surface-container-highest);
+  color: var(--md-on-surface);
   font: inherit;
   font-size: 13px;
-  padding: 7px 9px;
+  padding: 8px 14px;
   outline: none;
+  transition: border-color var(--md-duration-short) var(--md-easing);
 }
 
 .kanban-inline-composer > input:focus {
-  border-color: var(--ring);
-  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring), transparent 78%);
+  border-bottom-color: var(--md-primary);
+  box-shadow: none;
 }
 
 .kanban-inline-composer > input:disabled {
@@ -312,7 +371,7 @@
 
 .kanban-inline-composer .inline-notice {
   font-size: 11px;
-  padding: 7px 8px;
+  padding: 8px 12px;
 }
 
 .kanban-inline-composer-actions,
@@ -339,4 +398,3 @@
     opacity: 0.9;
   }
 }
-

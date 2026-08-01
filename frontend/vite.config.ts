@@ -7,8 +7,11 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     host: '127.0.0.1',
-    port: 5173,
-    strictPort: true,
+    // Defaults to 5173, but yields to PORT so a second dev server can run
+    // alongside one that already holds the default. strictPort stays on for the
+    // default case, where a silent port shift would break the proxy assumptions.
+    port: Number(process.env.PORT ?? 5173),
+    strictPort: !process.env.PORT,
     proxy: {
       '/api': {
         target: process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:8080',

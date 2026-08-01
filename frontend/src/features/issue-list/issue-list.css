@@ -4,73 +4,109 @@
   min-width: 0;
 }
 
+/* A low-density surface with room to be expressive, so it takes the full MD3
+   treatment: extra-extra-large radius, a tonal container, and two layered
+   organic blur shapes behind the content. `isolation` keeps them under the
+   text without needing a z-index on every child. */
 .project-empty-state {
   position: relative;
   display: grid;
   width: min(100%, 720px);
   justify-items: center;
-  gap: 10px;
+  gap: 12px;
   overflow: hidden;
   margin: clamp(28px, 8vh, 88px) auto 0;
-  border: 1px solid color-mix(in oklch, var(--border), var(--primary) 12%);
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at 50% 0%, color-mix(in oklch, var(--primary), transparent 90%), transparent 54%),
-    color-mix(in oklch, var(--card), var(--background) 24%);
-  padding: clamp(34px, 6vw, 56px) clamp(24px, 7vw, 68px);
-  box-shadow: 0 18px 48px color-mix(in oklch, var(--foreground), transparent 95%);
+  border: 0;
+  border-radius: var(--md-shape-2xl);
+  background: var(--md-surface-container);
+  padding: clamp(40px, 6vw, 64px) clamp(24px, 7vw, 68px);
+  box-shadow: var(--elevation-1);
   text-align: center;
+  isolation: isolate;
 }
 
+.project-empty-state::before,
+.project-empty-state::after {
+  position: absolute;
+  z-index: -1;
+  content: '';
+  filter: blur(64px);
+  pointer-events: none;
+}
+
+.project-empty-state::before {
+  top: -46%;
+  left: 50%;
+  width: 78%;
+  aspect-ratio: 1.6;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--md-primary), transparent 76%);
+  translate: -50% 0;
+}
+
+.project-empty-state::after {
+  right: -18%;
+  bottom: -38%;
+  width: 46%;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--md-tertiary), transparent 80%);
+}
+
+/* Squircle, echoing the FAB shape rather than the pill. */
 .project-empty-icon {
   display: grid;
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   place-items: center;
-  border: 1px solid color-mix(in oklch, var(--primary), transparent 72%);
-  border-radius: 14px;
-  background: color-mix(in oklch, var(--primary), transparent 91%);
-  color: var(--primary);
+  border: 0;
+  border-radius: var(--md-shape-md);
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  box-shadow: var(--elevation-1);
 }
 
 .project-empty-icon svg {
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
 }
 
 .project-empty-eyebrow {
-  color: var(--muted-foreground);
+  color: var(--md-primary);
   font-size: 11px;
-  font-weight: 750;
-  letter-spacing: 0.09em;
+  font-weight: 700;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
 .project-empty-state h2 {
   margin: 0;
-  color: var(--foreground);
-  font-size: clamp(20px, 3vw, 26px);
-  letter-spacing: -0.025em;
+  color: var(--md-on-surface);
+  font-size: clamp(22px, 3vw, 28px);
+  font-weight: 500;
+  letter-spacing: -0.01em;
 }
 
 .project-empty-state p {
   max-width: 500px;
-  margin: 0 0 8px;
-  color: var(--muted-foreground);
+  margin: 0 0 10px;
+  color: var(--md-on-surface-variant);
   font-size: 14px;
-  line-height: 1.65;
+  line-height: 1.6;
 }
 
+/* Grouping header for the list view: a tonal pill band, matching the board's
+   column headers so the two views read as the same system. */
 .status-section-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 34px;
-  border-radius: 7px;
-  background: color-mix(in oklch, var(--muted), transparent 35%);
-  color: var(--foreground);
-  padding: 8px 10px;
+  min-height: 40px;
+  border-radius: var(--md-shape-full);
+  background: var(--md-surface-container-high);
+  color: var(--md-on-surface);
+  padding: 8px 16px;
 }
 
 .status-section-header span {
@@ -79,59 +115,71 @@
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 .status-section-header small {
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 12px;
   font-weight: 700;
 }
 
 .status-section-actions {
   flex: 0 0 auto;
-  gap: 4px;
+  gap: 2px;
 }
 
 .status-empty {
-  padding: 8px 10px 10px 33px;
+  padding: 8px 10px 10px 38px;
 }
 
 .status-icon {
-  color: var(--muted-foreground);
+  color: var(--status-todo);
 }
 
 .status-icon-progress {
-  color: #2563eb;
+  color: var(--status-progress);
 }
 
 .status-icon-done {
-  color: #16a34a;
+  color: var(--status-done);
 }
 
 .status-icon-muted {
-  color: color-mix(in oklch, var(--muted-foreground), transparent 24%);
+  color: var(--status-archived);
 }
 
+/* MD3 list item: full-radius, state layer on hover, secondary container when
+   selected — the same interaction model as the sidebar nav rows. */
 .issue-row {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr) auto;
-  gap: 10px;
+  gap: 12px;
   align-items: center;
   width: 100%;
   min-width: 0;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--md-shape-full);
   background: transparent;
-  color: var(--foreground);
+  color: var(--md-on-surface);
   font: inherit;
   text-align: left;
-  padding: 9px 10px;
+  padding: 10px 16px;
+  transition: background-color var(--md-duration-short) var(--md-easing);
 }
 
-.issue-row:hover,
+.issue-row:hover {
+  background: color-mix(in oklab, var(--md-primary), transparent 92%);
+}
+
 .issue-row[data-active='true'] {
-  background: color-mix(in oklch, var(--muted), var(--foreground) 4%);
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
+}
+
+.issue-row[data-active='true'] strong {
+  color: var(--md-on-secondary-container);
 }
 
 .issue-row-main {
@@ -143,12 +191,11 @@
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .issue-comment-count {
   gap: 4px;
 }
-

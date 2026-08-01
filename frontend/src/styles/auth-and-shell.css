@@ -9,109 +9,177 @@
   border-inline: 0;
 }
 
+/* The auth screen is the one full-page surface with room to breathe, so it
+   carries the expressive end of MD3: layered organic blur shapes in the seed's
+   own tonal family, positioned partly off-canvas. Pseudo-elements rather than
+   markup — they stay out of the accessibility tree for free. */
 .auth-screen {
+  position: relative;
   display: grid;
   place-items: center;
+  overflow: hidden;
   padding: 40px 20px;
-  background:
-    linear-gradient(135deg, rgba(14, 165, 233, 0.08), transparent 34%),
-    linear-gradient(315deg, rgba(34, 197, 94, 0.08), transparent 34%),
-    var(--background);
+  background: var(--md-surface);
+  isolation: isolate;
 }
 
+.auth-screen::before,
+.auth-screen::after {
+  position: absolute;
+  z-index: -1;
+  content: '';
+  filter: blur(88px);
+  pointer-events: none;
+}
+
+/* Primary shape: a squircle bleeding off the top-left. One corner is
+   deliberately tighter than the rest — MD3's organic silhouette, not a circle.
+   Kept well under 20% opacity: these are atmosphere behind the panel, and at
+   full strength they stop reading as shapes and become a flat wash. */
+.auth-screen::before {
+  top: -26%;
+  left: -20%;
+  width: min(42vw, 460px);
+  aspect-ratio: 1.15;
+  border-radius: 100px 100px 100px 28px;
+  background: color-mix(in oklab, var(--md-primary), transparent 84%);
+}
+
+/* Tertiary counterweight, low and to the right, at lower opacity so the
+   composition has a clear primary. */
+.auth-screen::after {
+  right: -20%;
+  bottom: -30%;
+  width: min(38vw, 420px);
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--md-tertiary), transparent 88%);
+}
+
+/* Extra-large shape (28px), per MD3's dialog and sheet spec. */
 .auth-panel {
-  width: min(100%, 420px);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card);
-  color: var(--card-foreground);
-  padding: 28px;
-  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
+  position: relative;
+  width: min(100%, 448px);
+  border: 0;
+  border-radius: var(--md-shape-xl);
+  background: var(--md-surface-container-low);
+  color: var(--md-on-surface);
+  padding: 36px 32px;
+  box-shadow: var(--elevation-3);
 }
 
 .auth-panel-wide {
-  width: min(100%, 480px);
+  width: min(100%, 500px);
 }
 
 .auth-eyebrow,
 .app-muted {
   margin: 0;
-  color: var(--muted-foreground);
-  font-size: 13px;
-  font-weight: 500;
+  color: var(--md-primary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
+.app-muted {
+  color: var(--md-on-surface-variant);
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+
+/* Headline Medium. */
 .auth-title,
 .content-header h1,
 .issue-title-block h1 {
-  margin: 8px 0 0;
-  color: var(--foreground);
-  font-size: 28px;
-  line-height: 1.2;
-  letter-spacing: 0;
+  margin: 10px 0 0;
+  color: var(--md-on-surface);
+  font-size: 32px;
+  font-weight: 500;
+  line-height: 1.22;
+  letter-spacing: -0.01em;
 }
 
 .auth-form {
   display: grid;
-  gap: 16px;
-  margin-top: 28px;
+  gap: 18px;
+  margin-top: 30px;
 }
 
 .auth-field {
   display: grid;
-  gap: 7px;
-  color: var(--foreground);
-  font-size: 13px;
-  font-weight: 500;
+  gap: 0;
+  color: var(--md-on-surface-variant);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
+.auth-field > span {
+  padding: 0 0 7px 4px;
+}
+
+/* MD3 filled text field. The asymmetry is the point: rounded at the top, square
+   at the bottom, with the bottom border acting as the focus indicator. The
+   auth screen is low-density, so these get the full 56px height. */
 .auth-field input {
   width: 100%;
+  min-height: 56px;
   box-sizing: border-box;
-  border: 1px solid var(--input);
-  border-radius: 6px;
-  background: var(--background);
-  color: var(--foreground);
+  border: 0;
+  border-bottom: 2px solid var(--md-outline);
+  border-radius: var(--md-shape-sm) var(--md-shape-sm) 0 0;
+  background: var(--md-surface-container-highest);
+  color: var(--md-on-surface);
   font: inherit;
   font-size: 15px;
-  padding: 10px 11px;
+  font-weight: 400;
+  padding: 8px 16px;
   outline: none;
+  transition: border-color var(--md-duration-short) var(--md-easing),
+    background-color var(--md-duration-short) var(--md-easing);
+}
+
+.auth-field input:hover {
+  background: color-mix(in oklab, var(--md-surface-container-highest), var(--md-on-surface) 4%);
 }
 
 .auth-field input:focus {
-  border-color: var(--ring);
-  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring), transparent 75%);
+  border-bottom-color: var(--md-primary);
+  box-shadow: none;
 }
 
 .auth-submit {
   width: 100%;
-  margin-top: 4px;
+  margin-top: 8px;
 }
 
 .auth-spin {
   animation: flowai-spin 0.9s linear infinite;
 }
 
+/* Error container role, not a red-on-white alert. */
 .auth-error,
 .app-error {
   margin: 0;
-  border: 1px solid color-mix(in oklch, var(--destructive), transparent 70%);
-  border-radius: 6px;
-  background: color-mix(in oklch, var(--destructive), transparent 92%);
-  color: var(--destructive);
+  border: 0;
+  border-radius: var(--md-shape-sm);
+  background: var(--md-error-container);
+  color: var(--md-on-error-container);
   font-size: 13px;
-  line-height: 1.4;
-  padding: 10px 11px;
+  line-height: 1.45;
+  padding: 12px 14px;
 }
 
 .auth-switch {
-  margin: 20px 0 0;
-  color: var(--muted-foreground);
+  margin: 24px 0 0;
+  color: var(--md-on-surface-variant);
   font-size: 14px;
 }
 
 .auth-switch a {
-  color: var(--foreground);
+  border-radius: var(--md-shape-xs);
+  color: var(--md-primary);
   font-weight: 600;
   text-decoration: none;
 }
@@ -122,11 +190,14 @@
 
 .app-shell {
   display: grid;
-  grid-template-columns: 244px minmax(0, 1fr);
+  grid-template-columns: 260px minmax(0, 1fr);
   overflow: hidden;
-  background: var(--background);
+  background: var(--md-surface);
 }
 
+/* Tonal separation instead of a hairline: the sidebar reads as a distinct
+   surface because it *is* a different tone, which is the whole premise of the
+   MD3 surface ramp. */
 .app-sidebar {
   display: grid;
   align-content: start;
@@ -136,9 +207,9 @@
   height: 100svh;
   min-width: 0;
   overflow-y: auto;
-  border-right: 1px solid var(--border);
-  background: color-mix(in oklch, var(--muted), var(--background) 45%);
-  padding: 14px 12px;
+  border-right: 0;
+  background: var(--md-surface-container-low);
+  padding: 16px 12px;
 }
 
 .sidebar-brand-row {
@@ -152,10 +223,10 @@
 .sidebar-brand {
   display: flex;
   align-items: center;
-  gap: 9px;
-  min-height: 32px;
-  padding: 0 4px;
-  color: var(--foreground);
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 6px;
+  color: var(--md-on-surface);
 }
 
 .sidebar-brand img {
@@ -165,57 +236,49 @@
 }
 
 .sidebar-brand strong {
-  font-size: 15px;
-  font-weight: 750;
-  letter-spacing: -0.02em;
-}
-
-.sidebar-user-menu-root {
-  position: relative;
-  flex: 0 0 auto;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 .sidebar-user-trigger {
   display: inline-grid;
-  width: 30px;
-  height: 30px;
+  width: 36px;
+  height: 36px;
   place-items: center;
-  border: 1px solid color-mix(in oklch, #6d5dfb, var(--border) 58%);
-  border-radius: 999px;
-  background: color-mix(in oklch, #6d5dfb, var(--background) 88%);
-  color: color-mix(in oklch, #6d5dfb, var(--foreground) 18%);
+  border: 0;
+  border-radius: var(--md-shape-full);
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
   cursor: pointer;
   font: inherit;
-  font-size: 10px;
-  font-weight: 800;
+  font-size: 11px;
+  font-weight: 700;
+  transition: background-color var(--md-duration-short) var(--md-easing),
+    box-shadow var(--md-duration-short) var(--md-easing), scale var(--md-duration-short) var(--md-easing);
 }
 
 .sidebar-user-trigger:hover,
 .sidebar-user-trigger[aria-expanded='true'] {
-  background: color-mix(in oklch, #6d5dfb, var(--background) 80%);
+  background: color-mix(in oklab, var(--md-primary-container), var(--md-primary) 18%);
+  box-shadow: var(--elevation-1);
 }
 
-.sidebar-user-menu {
-  position: absolute;
-  z-index: 50;
-  top: calc(100% + 7px);
-  right: 0;
-  display: grid;
-  gap: 3px;
-  width: 220px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--background);
-  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
-  padding: 7px;
+.sidebar-user-trigger:active {
+  scale: 0.95;
+}
+
+.sidebar-user-trigger:focus-visible {
+  outline: 2px solid var(--md-primary);
+  outline-offset: 2px;
 }
 
 .sidebar-user-summary {
   display: grid;
   gap: 2px;
   min-width: 0;
-  border-bottom: 1px solid var(--border);
-  padding: 6px 7px 9px;
+  border-bottom: 1px solid var(--md-outline-variant);
+  padding: 8px 10px 11px;
   text-align: left;
 }
 
@@ -231,33 +294,8 @@
 }
 
 .sidebar-user-summary small {
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 11px;
-}
-
-.sidebar-user-menu > button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--foreground);
-  cursor: pointer;
-  font: inherit;
-  font-size: 13px;
-  padding: 7px 8px;
-  text-align: left;
-}
-
-.sidebar-user-menu > button:hover {
-  background: var(--muted);
-}
-
-.sidebar-user-menu > button svg {
-  width: 15px;
-  height: 15px;
 }
 
 .mobile-sidebar-trigger,
@@ -303,101 +341,78 @@
 .workspace-switcher {
   min-width: 0;
   flex: 1;
-  gap: 9px;
+  gap: 10px;
 }
 
-.workspace-switcher-root {
-  position: relative;
-  min-width: 0;
-  flex: 1;
-}
-
+/* Pill, like every other interactive surface in the shell. */
 button.workspace-switcher {
   width: 100%;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--md-shape-full);
   background: transparent;
   color: inherit;
   cursor: pointer;
-  padding: 4px;
+  padding: 6px 10px 6px 6px;
   text-align: left;
+  transition: background-color var(--md-duration-short) var(--md-easing);
 }
 
 button.workspace-switcher:hover,
 button.workspace-switcher[aria-expanded='true'] {
-  background: var(--muted);
+  background: color-mix(in oklab, var(--md-primary), transparent 90%);
 }
 
 button.workspace-switcher:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 1px;
+  outline: 2px solid var(--md-primary);
+  outline-offset: 2px;
 }
 
 .workspace-switcher-chevron {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
   flex: 0 0 auto;
   margin-left: auto;
-  color: var(--muted-foreground);
-}
-
-.workspace-menu {
-  position: absolute;
-  z-index: 40;
-  top: calc(100% + 6px);
-  left: 0;
-  display: grid;
-  gap: 6px;
-  width: min(310px, calc(100vw - 28px));
-  max-height: min(520px, calc(100svh - 80px));
-  overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--background);
-  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
-  padding: 8px;
+  color: var(--md-on-surface-variant);
 }
 
 .workspace-menu-heading {
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 11px;
-  font-weight: 750;
-  padding: 4px 6px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 6px 10px;
   text-transform: uppercase;
 }
 
 .workspace-menu-error {
-  color: var(--destructive);
-  padding: 4px 6px;
+  color: var(--md-error);
+  padding: 4px 10px;
 }
 
-.workspace-menu-list,
-.workspace-menu-actions {
-  display: grid;
-  gap: 2px;
-}
-
-.workspace-menu-item,
-.workspace-menu-actions button {
+.workspace-menu-item {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   width: 100%;
   min-width: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--md-shape-full);
   background: transparent;
-  color: var(--foreground);
+  color: var(--md-on-surface);
   cursor: pointer;
   font: inherit;
-  padding: 7px 8px;
+  padding: 9px 12px;
   text-align: left;
+  transition: background-color var(--md-duration-short) var(--md-easing);
 }
 
-.workspace-menu-item:hover,
-.workspace-menu-item[data-active='true'],
-.workspace-menu-actions button:hover {
-  background: var(--muted);
+.workspace-menu-item:hover {
+  background: color-mix(in oklab, var(--md-primary), transparent 90%);
+}
+
+.workspace-menu-item[data-active='true'] {
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
 }
 
 .workspace-menu-item > span:nth-child(2) {
@@ -413,75 +428,78 @@ button.workspace-switcher:focus-visible {
 }
 
 .workspace-menu-item small {
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 11px;
 }
 
-.workspace-menu-item > svg,
-.workspace-menu-actions svg {
-  width: 15px;
-  height: 15px;
+.workspace-menu-item[data-active='true'] small {
+  color: inherit;
+  opacity: 0.76;
+}
+
+.workspace-menu-item > svg {
+  width: 16px;
+  height: 16px;
   flex: 0 0 auto;
 }
 
 .workspace-avatar-small {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   font-size: 9px;
 }
 
-.workspace-menu-actions {
-  border-top: 1px solid var(--border);
-  padding-top: 6px;
-}
-
+/* Circular, per MD3 avatar guidance, and carrying a tonal container rather than
+   an inverted near-black chip. */
 .workspace-avatar {
   display: inline-grid;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   flex: 0 0 auto;
   place-items: center;
-  border-radius: 7px;
-  background: color-mix(in oklch, var(--foreground), transparent 12%);
-  color: var(--background);
+  border-radius: var(--md-shape-full);
+  background: var(--md-tertiary-container);
+  color: var(--md-on-tertiary-container);
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 700;
 }
 
 .workspace-select-label {
   display: grid;
   min-width: 0;
-  gap: 2px;
-  color: var(--muted-foreground);
+  gap: 1px;
+  color: var(--md-on-surface-variant);
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 600;
   line-height: 1.2;
 }
 
 .workspace-select-label strong {
   min-width: 0;
   width: 100%;
-  color: var(--foreground);
+  color: var(--md-on-surface);
   font: inherit;
   font-size: 14px;
-  font-weight: 650;
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
 
 .sidebar-section,
 .sidebar-create {
   display: grid;
-  gap: 10px;
+  gap: 4px;
   min-width: 0;
 }
 
 .sidebar-section-header {
   justify-content: space-between;
   gap: 8px;
-  color: var(--muted-foreground);
-  font-size: 12px;
+  color: var(--md-on-surface-variant);
+  font-size: 11px;
   font-weight: 700;
-  padding: 0 8px;
+  letter-spacing: 0.08em;
+  padding: 0 12px 4px;
+  text-transform: uppercase;
 }
 
 .sidebar-section-header-interactive {
@@ -493,27 +511,32 @@ button.workspace-switcher:focus-visible {
   display: inline-flex;
   min-width: 0;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
 }
 
+/* Also rendered by Button — see .sidebar-list-item for why height is reclaimed. */
 .sidebar-collapse-button {
   min-width: 0;
+  height: auto;
   border: 0;
   background: transparent;
   color: inherit;
   font: inherit;
+  font-size: inherit;
   font-weight: 700;
+  letter-spacing: inherit;
   gap: 6px;
   padding: 0;
 }
 
 .sidebar-collapse-button:hover {
-  color: var(--foreground);
+  background: transparent;
+  color: var(--md-on-surface);
 }
 
 .sidebar-section-actions {
   flex: 0 0 auto;
-  gap: 4px;
+  gap: 2px;
 }
 
 .sidebar-section-header svg,
@@ -542,35 +565,56 @@ button.workspace-switcher:focus-visible {
   min-width: 0;
 }
 
+.sidebar-list {
+  gap: 2px;
+}
+
+/* MD3's navigation-drawer item: a full-radius pill that fills with the
+   secondary container when active. This is the shape that reads as Material You
+   at a glance, so it replaces the old inset accent bar outright.
+
+   Rendered by the Button component, so this class has to win back the two base
+   utilities that would otherwise clamp the row: the fixed height, and
+   whitespace-nowrap which stops project descriptions from wrapping. Everything
+   else Button contributes (focus ring, disabled handling) is what we want. */
 .sidebar-list-item {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 12px;
   align-items: start;
   width: 100%;
+  height: auto;
   min-width: 0;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--md-shape-full);
   background: transparent;
-  color: var(--foreground);
+  color: var(--md-on-surface-variant);
   font: inherit;
   text-align: left;
-  padding: 8px;
+  white-space: normal;
+  padding: 10px 16px;
+  transition: background-color var(--md-duration-short) var(--md-easing),
+    color var(--md-duration-short) var(--md-easing);
 }
 
-.sidebar-list-item:hover,
-.sidebar-list-item[data-active='true'] {
-  background: color-mix(in oklch, var(--muted), var(--foreground) 5%);
+.sidebar-list-item:hover {
+  background: color-mix(in oklab, var(--md-primary), transparent 90%);
+  color: var(--md-on-surface);
 }
 
 .sidebar-list-item[data-active='true'] {
-  background: color-mix(in oklch, #6d5dfb, var(--background) 90%);
-  box-shadow: inset 3px 0 0 #6d5dfb;
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
 }
 
 .sidebar-list-item[data-active='true'] > svg,
 .sidebar-list-item[data-active='true'] strong {
-  color: #6d5dfb;
+  color: var(--md-on-secondary-container);
+}
+
+.sidebar-list-item[data-active='true'] small {
+  color: inherit;
+  opacity: 0.74;
 }
 
 .sidebar-list-item:disabled {
@@ -579,12 +623,12 @@ button.workspace-switcher:focus-visible {
 }
 
 .sidebar-view-list {
-  gap: 3px;
+  gap: 2px;
 }
 
 .sidebar-view-item {
   align-items: center;
-  padding-block: 7px;
+  padding-block: 10px;
 }
 
 .sidebar-list-item span,
@@ -605,10 +649,14 @@ button.workspace-switcher:focus-visible {
   display: block;
   min-width: 0;
   overflow-wrap: anywhere;
-  color: var(--foreground);
+  color: var(--md-on-surface);
   font-size: 13px;
-  font-weight: 650;
-  line-height: 1.25;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.sidebar-list-item strong {
+  color: inherit;
 }
 
 .sidebar-list-item small,
@@ -618,14 +666,15 @@ button.workspace-switcher:focus-visible {
 .status-empty {
   min-width: 0;
   overflow-wrap: anywhere;
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 12px;
-  line-height: 1.35;
+  line-height: 1.4;
 }
 
 .sidebar-create {
-  border-top: 1px solid var(--border);
-  padding-top: 14px;
+  border-top: 1px solid var(--md-outline-variant);
+  margin-top: 4px;
+  padding-top: 16px;
 }
 
 .app-main {
@@ -636,18 +685,18 @@ button.workspace-switcher:focus-visible {
 .content-page {
   display: grid;
   align-content: start;
-  gap: 18px;
+  gap: 20px;
   min-height: 100svh;
   min-width: 0;
-  padding: 18px 22px 28px;
+  padding: 20px 24px 32px;
 }
 
 .content-header {
   justify-content: space-between;
   gap: 16px;
   min-width: 0;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 16px;
+  border-bottom: 1px solid var(--md-outline-variant);
+  padding-bottom: 18px;
 }
 
 .content-header-actions {
@@ -657,15 +706,16 @@ button.workspace-switcher:focus-visible {
   gap: 8px;
 }
 
+/* MD3 segmented button: one pill-shaped track, pill-shaped segments inside. */
 .issue-view-switch,
 .board-view-switch {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: color-mix(in oklch, var(--muted), transparent 42%);
-  padding: 2px;
+  border: 0;
+  border-radius: var(--md-shape-full);
+  background: var(--md-surface-container-high);
+  padding: 4px;
 }
 
 .board-view-switch {
@@ -683,8 +733,8 @@ button.workspace-switcher:focus-visible {
 .issue-title-block p,
 .muted-placeholder {
   max-width: 760px;
-  margin: 8px 0 0;
-  color: var(--muted-foreground);
+  margin: 10px 0 0;
+  color: var(--md-on-surface-variant);
   font-size: 14px;
   line-height: 1.5;
   overflow-wrap: anywhere;
@@ -695,9 +745,9 @@ button.workspace-switcher:focus-visible {
   flex-wrap: wrap;
   gap: 6px;
   margin: 0;
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .breadcrumb-line span {
@@ -707,13 +757,20 @@ button.workspace-switcher:focus-visible {
 
 .app-field {
   display: grid;
-  gap: 6px;
+  gap: 0;
   min-width: 0;
-  color: var(--foreground);
+  color: var(--md-on-surface-variant);
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
+.app-field > span {
+  padding: 0 0 6px 4px;
+}
+
+/* The same filled text field as the auth screen, calibrated down for app
+   density: 44px instead of 56px, which still clears the 44px touch target. */
 .app-field input,
 .app-field textarea,
 .app-field select,
@@ -723,14 +780,18 @@ button.workspace-switcher:focus-visible {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  border: 1px solid var(--input);
-  border-radius: 6px;
-  background: var(--background);
-  color: var(--foreground);
+  border: 0;
+  border-bottom: 2px solid var(--md-outline);
+  border-radius: var(--md-shape-sm) var(--md-shape-sm) 0 0;
+  background: var(--md-surface-container-highest);
+  color: var(--md-on-surface);
   font: inherit;
   font-size: 13px;
-  line-height: 1.35;
+  font-weight: 400;
+  line-height: 1.4;
   outline: none;
+  transition: border-color var(--md-duration-short) var(--md-easing),
+    background-color var(--md-duration-short) var(--md-easing);
 }
 
 .app-field input,
@@ -738,13 +799,22 @@ button.workspace-switcher:focus-visible {
 .issue-search-field input,
 .property-field input,
 .property-field select {
-  min-height: 34px;
-  padding: 7px 9px;
+  min-height: 44px;
+  padding: 8px 14px;
 }
 
 .app-field textarea {
-  padding: 8px 9px;
+  min-height: 44px;
+  padding: 12px 14px;
   resize: vertical;
+}
+
+.app-field input:hover:not(:disabled),
+.app-field textarea:hover:not(:disabled),
+.app-field select:hover:not(:disabled),
+.property-field input:hover:not(:disabled),
+.property-field select:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--md-surface-container-highest), var(--md-on-surface) 4%);
 }
 
 .app-field input:disabled,
@@ -763,8 +833,8 @@ button.workspace-switcher:focus-visible {
 .issue-search-field:focus-within,
 .property-field input:focus,
 .property-field select:focus {
-  border-color: var(--ring);
-  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring), transparent 78%);
+  border-bottom-color: var(--md-primary);
+  box-shadow: none;
 }
 
 .issue-filter-bar,
@@ -779,102 +849,141 @@ button.workspace-switcher:focus-visible {
   grid-template-columns: minmax(220px, 1fr) minmax(118px, 150px) minmax(128px, 160px) minmax(140px, 170px) minmax(150px, 190px) auto;
 }
 
+/* Search is the one field that stays a pill: it is a standalone control rather
+   than a labelled form row, and MD3 gives search bars full radius. */
 .issue-search-field {
-  gap: 8px;
+  gap: 10px;
   align-self: end;
+  min-height: 44px;
   min-width: 0;
-  border: 1px solid var(--input);
-  border-radius: 6px;
-  background: var(--background);
-  color: var(--muted-foreground);
-  padding: 0 9px;
+  border: 0;
+  border-radius: var(--md-shape-full);
+  background: var(--md-surface-container-high);
+  color: var(--md-on-surface-variant);
+  padding: 0 16px;
+  transition: background-color var(--md-duration-short) var(--md-easing);
+}
+
+.issue-search-field:hover {
+  background: color-mix(in oklab, var(--md-surface-container-high), var(--md-on-surface) 4%);
+}
+
+.issue-search-field:focus-within {
+  background: var(--md-surface-container-high);
+  outline: 2px solid var(--md-primary);
+  outline-offset: 1px;
 }
 
 .issue-search-field svg {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
   flex: 0 0 auto;
 }
 
 .issue-search-field input {
+  min-height: 0;
   border: 0;
+  border-radius: 0;
   background: transparent;
   box-shadow: none;
-  padding-inline: 0;
+  padding: 0;
 }
 
+.issue-search-field input:hover,
 .issue-search-field input:focus {
+  background: transparent;
   box-shadow: none;
 }
 
 .issue-create-bar {
   grid-template-columns: minmax(180px, 1.2fr) minmax(120px, 180px) minmax(220px, 1fr) auto;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 18px;
+  border-bottom: 1px solid var(--md-outline-variant);
+  padding-bottom: 20px;
 }
 
 .app-state,
 .inline-notice {
   margin: 0;
-  color: var(--muted-foreground);
+  color: var(--md-on-surface-variant);
   font-size: 13px;
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
 .inline-notice {
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: color-mix(in oklch, var(--muted), transparent 52%);
-  padding: 9px 10px;
+  border: 0;
+  border-radius: var(--md-shape-sm);
+  background: var(--md-surface-container-high);
+  padding: 12px 14px;
 }
 
 .inline-notice[data-tone='warning'] {
-  border-color: color-mix(in oklch, var(--destructive), transparent 74%);
-  background: color-mix(in oklch, var(--destructive), transparent 94%);
-  color: color-mix(in oklch, var(--destructive), var(--foreground) 22%);
+  background: var(--md-error-container);
+  color: var(--md-on-error-container);
 }
 
+/* Chips and badges: full radius and a tonal fill, never an outlined white chip. */
 .app-pill,
 .priority-badge,
 .label-badge {
   width: fit-content;
   max-width: 100%;
   gap: 6px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--background);
-  color: var(--foreground);
+  border: 0;
+  border-radius: var(--md-shape-full);
+  background: var(--md-surface-container-high);
+  color: var(--md-on-surface-variant);
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 600;
+  letter-spacing: 0.01em;
   line-height: 1;
-  padding: 6px 8px;
+  padding: 7px 12px;
   white-space: nowrap;
 }
 
+/* Priority defaults to neutral and only takes a hue once one is actually set,
+   so an unprioritised backlog stays quiet instead of glowing. */
 .priority-badge {
-  background: color-mix(in oklch, var(--muted), transparent 34%);
+  --priority: var(--priority-low);
+  background: color-mix(in oklab, var(--priority), var(--md-surface) 86%);
+  color: color-mix(in oklab, var(--priority), var(--md-on-surface) 24%);
+}
+
+.priority-badge[data-priority='URGENT'] {
+  --priority: var(--priority-urgent);
+}
+
+.priority-badge[data-priority='HIGH'] {
+  --priority: var(--priority-high);
+}
+
+.priority-badge[data-priority='MEDIUM'] {
+  --priority: var(--priority-medium);
+}
+
+.priority-badge svg {
+  color: var(--priority);
 }
 
 .priority-badge-empty {
-  color: var(--muted-foreground);
+  background: var(--md-surface-container-high);
+  color: var(--md-on-surface-variant);
 }
 
 .label-badge {
-  background: color-mix(in oklch, var(--muted), transparent 46%);
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
 }
 
 .label-swatch {
   width: 8px;
   height: 8px;
   flex: 0 0 auto;
-  border-radius: 999px;
+  border-radius: var(--md-shape-full);
 }
 
 .issue-label-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 6px;
   min-width: 0;
 }
-
-
