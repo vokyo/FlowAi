@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CursorPage } from '@/api/pagination'
 import { PROJECT_METADATA_STALE_TIME_MS } from '@/lib/query-config'
+import { queryKeys } from '@/lib/query-keys'
 import {
   getProjectBoard,
   listProjectWorkflowStates,
@@ -25,14 +26,14 @@ export function useBoardQueries({
 }) {
   const queryClient = useQueryClient()
   const workflowStatesQuery = useQuery({
-    queryKey: ['project-workflow-states', projectId],
+    queryKey: queryKeys.projectWorkflowStates(projectId),
     queryFn: () => listProjectWorkflowStates(projectId ?? ''),
     enabled: metadataEnabled,
     staleTime: PROJECT_METADATA_STALE_TIME_MS,
     retry: false,
   })
   const boardQuery = useQuery({
-    queryKey: ['project-board', workspaceId, projectId],
+    queryKey: queryKeys.board(workspaceId, projectId),
     queryFn: () => getProjectBoard(projectId ?? ''),
     enabled: boardEnabled,
     retry: false,
@@ -43,7 +44,7 @@ export function useBoardQueries({
   ) => {
     if (!projectId) return
     queryClient.setQueryData<ProjectBoard>(
-      ['project-board', workspaceId, projectId],
+      queryKeys.board(workspaceId, projectId),
       (board) => appendBoardColumnPage(board, workflowStateId, page),
     )
   }

@@ -12,32 +12,61 @@ public class AiFeatureException extends RuntimeException {
             String code,
             String message
     ) {
-        super(message);
+        this(status, code, message, null);
+    }
+
+    /**
+     * The message and code stay generic on purpose — callers see only that the
+     * provider failed. The cause is kept so the failure is still diagnosable from
+     * the server log.
+     */
+    private AiFeatureException(
+            HttpStatus status,
+            String code,
+            String message,
+            Throwable cause
+    ) {
+        super(message, cause);
         this.status = status;
         this.code = code;
     }
 
     public static AiFeatureException providerUnavailable() {
+        return providerUnavailable(null);
+    }
+
+    public static AiFeatureException providerUnavailable(Throwable cause) {
         return new AiFeatureException(
                 HttpStatus.SERVICE_UNAVAILABLE,
                 "AI_PROVIDER_UNAVAILABLE",
-                "AI provider is unavailable"
+                "AI provider is unavailable",
+                cause
         );
     }
 
     public static AiFeatureException invalidResponse() {
+        return invalidResponse(null);
+    }
+
+    public static AiFeatureException invalidResponse(Throwable cause) {
         return new AiFeatureException(
                 HttpStatus.BAD_GATEWAY,
                 "AI_INVALID_RESPONSE",
-                "AI provider returned an invalid response"
+                "AI provider returned an invalid response",
+                cause
         );
     }
 
     public static AiFeatureException timeout() {
+        return timeout(null);
+    }
+
+    public static AiFeatureException timeout(Throwable cause) {
         return new AiFeatureException(
                 HttpStatus.GATEWAY_TIMEOUT,
                 "AI_PROVIDER_TIMEOUT",
-                "AI provider request timed out"
+                "AI provider request timed out",
+                cause
         );
     }
 

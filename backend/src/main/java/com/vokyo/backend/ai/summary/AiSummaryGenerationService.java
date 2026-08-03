@@ -90,9 +90,9 @@ public class AiSummaryGenerationService {
             return totals.result(validator.apply(repaired.content()));
         } catch (AiModelOutputException exception) {
             totals.add(exception);
-            throw AiFeatureException.invalidResponse();
+            throw AiFeatureException.invalidResponse(exception);
         } catch (AiSummaryValidationException exception) {
-            throw AiFeatureException.invalidResponse();
+            throw AiFeatureException.invalidResponse(exception);
         }
     }
 

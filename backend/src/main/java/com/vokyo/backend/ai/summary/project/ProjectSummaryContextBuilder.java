@@ -14,13 +14,13 @@ import com.vokyo.backend.project.WorkflowStateCategory;
 import com.vokyo.backend.user.User;
 import com.vokyo.backend.workspace.CurrentWorkspaceContext;
 import com.vokyo.backend.workspace.WorkspaceAccessService;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.ZoneOffset;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -63,26 +63,39 @@ public class ProjectSummaryContextBuilder {
         );
         int rangeDays = request.effectiveRangeDays();
         AnalyticsOverviewResponse overview = analyticsService.getOverview(
-                jwt,
-                projectId,
+                context,
+                project,
                 rangeDays
         );
-        List<Issue> activeIssues = issueRepository.findAllActiveForAiSummary(
-                context.workspace().getId(),
-                projectId
-        );
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        List<Issue> sorted = activeIssues.stream()
-                .sorted(issueComparator(today))
-                .toList();
+        UUID workspaceId = context.workspace().getId();
         int limit = aiProperties.maxContextIssues();
-        List<Issue> retained = sorted.subList(0, Math.min(limit, sorted.size()));
-        boolean truncated = sorted.size() > limit;
+
+        // Ranking and counting both run in the database. Pulling every active issue
+        // in to sort it here made the cost of a summary scale with project size.
+        IssueRepository.AiSummaryIssueStats stats = issueRepository.summarizeActiveForAiSummary(
+                workspaceId,
+                projectId,
+                today,
+                WorkflowStateCategory.DONE,
+                IssuePriority.URGENT,
+                IssuePriority.HIGH
+        );
+        List<Issue> retained = issueRepository.findRankedActiveForAiSummary(
+                workspaceId,
+                projectId,
+                today,
+                WorkflowStateCategory.DONE,
+                IssuePriority.URGENT,
+                IssuePriority.HIGH,
+                PageRequest.of(0, limit)
+        );
+        boolean truncated = stats.getTotalActive() > limit;
 
         ProjectSummaryContext.SourceStats sourceStats =
                 new ProjectSummaryContext.SourceStats(
                         retained.size(),
-                        activeIssues.size(),
+                        stats.getTotalActive(),
                         rangeDays,
                         truncated
                 );
@@ -95,34 +108,25 @@ public class ProjectSummaryContextBuilder {
                 ),
                 rangeDays,
                 request.normalizedFocus(),
-                analytics(activeIssues, overview, today),
+                analytics(stats, overview),
                 retained.stream().map(this::toIssueContext).toList(),
                 sourceStats
         );
         return new BuiltProjectSummaryContext(context, project, modelContext);
     }
 
-    static Comparator<Issue> issueComparator(LocalDate today) {
-        return Comparator
-                .comparingInt((Issue issue) -> isOverdue(issue, today) ? 0 : 1)
-                .thenComparingInt(ProjectSummaryContextBuilder::priorityRank)
-                .thenComparing(Issue::getUpdatedAt, Comparator.reverseOrder())
-                .thenComparing(Issue::getId);
-    }
-
     private ProjectSummaryContext.AnalyticsContext analytics(
-            List<Issue> activeIssues,
-            AnalyticsOverviewResponse overview,
-            LocalDate today
+            IssueRepository.AiSummaryIssueStats stats,
+            AnalyticsOverviewResponse overview
     ) {
         return new ProjectSummaryContext.AnalyticsContext(
                 overview.totalIssues(),
                 overview.completedIssues(),
                 overview.completionRate(),
                 overview.archivedIssues(),
-                activeIssues.stream().filter(issue -> isOverdue(issue, today)).count(),
-                activeIssues.stream().filter(ProjectSummaryContextBuilder::isHighPriority).count(),
-                activeIssues.stream().filter(issue -> issue.getAssigneeUser() == null).count(),
+                stats.getOverdue(),
+                stats.getHighPriority(),
+                stats.getUnassigned(),
                 overview.statusDistribution().stream()
                         .map(value -> new ProjectSummaryContext.StatusCount(
                                 value.category(),
@@ -160,20 +164,4 @@ public class ProjectSummaryContextBuilder {
         );
     }
 
-    private static boolean isOverdue(Issue issue, LocalDate today) {
-        return issue.getDueDate() != null
-                && issue.getDueDate().isBefore(today)
-                && issue.getWorkflowState().getCategory() != WorkflowStateCategory.DONE;
-    }
-
-    private static boolean isHighPriority(Issue issue) {
-        return issue.getPriority() == IssuePriority.URGENT
-                || issue.getPriority() == IssuePriority.HIGH;
-    }
-
-    private static int priorityRank(Issue issue) {
-        if (issue.getPriority() == IssuePriority.URGENT) return 0;
-        if (issue.getPriority() == IssuePriority.HIGH) return 1;
-        return 2;
-    }
 }

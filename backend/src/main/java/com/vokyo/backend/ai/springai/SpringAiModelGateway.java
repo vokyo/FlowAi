@@ -6,6 +6,8 @@ import com.vokyo.backend.ai.AiFeatureException;
 import com.vokyo.backend.ai.AiGeneration;
 import com.vokyo.backend.ai.AiModelGateway;
 import com.vokyo.backend.ai.AiModelOutputException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.metadata.Usage;
@@ -19,6 +21,8 @@ import java.util.Objects;
 import java.util.concurrent.TimeoutException;
 
 public class SpringAiModelGateway implements AiModelGateway {
+
+    private static final Logger log = LoggerFactory.getLogger(SpringAiModelGateway.class);
 
     private static final String PROVIDER = "openai";
 
@@ -84,12 +88,16 @@ public class SpringAiModelGateway implements AiModelGateway {
     }
 
     private RuntimeException mapProviderFailure(RuntimeException exception) {
+        // An expired key, an exhausted quota and an unreachable provider all reach
+        // the caller as AI_PROVIDER_UNAVAILABLE, so the log line is the only place
+        // those stay distinguishable.
+        log.warn("event=ai_provider_failure provider={}", PROVIDER, exception);
         if (hasCause(exception, TimeoutException.class)
                 || hasCause(exception, SocketTimeoutException.class)
                 || hasCause(exception, HttpTimeoutException.class)) {
-            return AiFeatureException.timeout();
+            return AiFeatureException.timeout(exception);
         }
-        return AiFeatureException.providerUnavailable();
+        return AiFeatureException.providerUnavailable(exception);
     }
 
     private boolean hasCause(Throwable failure, Class<? extends Throwable> type) {

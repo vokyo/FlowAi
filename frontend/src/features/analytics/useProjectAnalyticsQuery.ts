@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query-keys'
 import { getProjectAnalytics, type AnalyticsRangeDays } from '@/api/analytics-api'
 
 export function useProjectAnalyticsQuery({
@@ -13,7 +14,7 @@ export function useProjectAnalyticsQuery({
   enabled: boolean
 }) {
   return useQuery({
-    queryKey: ['project-analytics', workspaceId, projectId, rangeDays],
+    queryKey: queryKeys.analyticsRange(workspaceId, projectId, rangeDays),
     queryFn: () => getProjectAnalytics(projectId ?? '', rangeDays),
     enabled,
     retry: false,

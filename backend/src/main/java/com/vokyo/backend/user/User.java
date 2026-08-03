@@ -8,11 +8,17 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.BatchSize;
 
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * Batched because issue lists and boards resolve a creator and an assignee proxy
+ * per row; without it a page of issues costs a query per distinct participant.
+ */
 @Entity
+@BatchSize(size = 50)
 @Table(name = "users")
 public class User {
 

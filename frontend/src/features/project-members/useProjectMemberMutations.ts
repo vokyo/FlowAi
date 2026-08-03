@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query-keys'
 import {
   addProjectMember,
   removeProjectMember,
@@ -20,8 +21,8 @@ export function useProjectMemberMutations({
       queryClient.invalidateQueries({ queryKey: ['project', projectId] }),
       queryClient.invalidateQueries({ queryKey: ['project-members', projectId] }),
       queryClient.invalidateQueries({ queryKey: ['projects', workspaceId] }),
-      queryClient.invalidateQueries({ queryKey: ['issues', workspaceId, projectId] }),
-      queryClient.invalidateQueries({ queryKey: ['issue'] }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.issues(workspaceId, projectId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.allIssueDetails() }),
     ])
 
   const addMemberMutation = useMutation({

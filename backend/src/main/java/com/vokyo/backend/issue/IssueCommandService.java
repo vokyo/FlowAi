@@ -335,20 +335,6 @@ public class IssueCommandService {
         return labelIds.stream().distinct().map(labelsById::get).toList();
     }
 
-    private ProjectWorkflowState resolveWorkflowStateForCreate(
-            Project project,
-            UUID workflowStateId,
-            IssueStatus status
-    ) {
-        if (workflowStateId != null) {
-            return requireProjectWorkflowState(project, workflowStateId);
-        }
-        if (status != null) {
-            return requireDefaultWorkflowState(project, categoryFromStatus(status));
-        }
-        return requireDefaultWorkflowState(project, WorkflowStateCategory.TODO);
-    }
-
     private ProjectWorkflowState requireProjectWorkflowState(Project project, UUID workflowStateId) {
         return projectWorkflowStateRepository.findByWorkspace_IdAndProject_IdAndId(
                         project.getWorkspace().getId(),
@@ -378,14 +364,6 @@ public class IssueCommandService {
             case DONE -> WorkflowStateCategory.DONE;
             case ARCHIVED -> throw badRequest("Archived is not a workflow state");
         };
-    }
-
-    private long nextBoardPosition(Project project, ProjectWorkflowState workflowState) {
-        return issueRepository.findMaxActiveBoardPosition(
-                project.getWorkspace().getId(),
-                project.getId(),
-                workflowState.getId()
-        ) + BOARD_POSITION_STEP;
     }
 
     private long nextBoardPositionExcludingIssue(

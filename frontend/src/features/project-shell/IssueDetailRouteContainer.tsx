@@ -9,6 +9,7 @@ import { useIssueDetailQueries } from '@/features/issue-detail/useIssueDetailQue
 import { useProjectLabelsQuery } from '@/features/issue-list/useProjectLabelsQuery'
 import { useProjectMemberQueries } from '@/features/project-members/useProjectMemberQueries'
 import { InlineState } from '@/ui/feature-ui'
+import { queryKeys, resetProjectBoard } from '@/lib/query-keys'
 import type { CommentFormValues } from '@/domain/project-model'
 import { pathWithSearchParams, projectPath } from '@/routing/route-utils'
 import type { Project, UpdateIssueRequest } from '@/api/work-api'
@@ -154,15 +155,12 @@ export function IssueDetailRouteContainer({
 
   async function refreshAfterApply() {
     if (!workspaceId || !selectedProjectId) return
-    queryClient.removeQueries({
-      queryKey: ['project-board-column', workspaceId, selectedProjectId],
-    })
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['issue', workspaceId, issueId] }),
-      queryClient.invalidateQueries({ queryKey: ['issue-activities', workspaceId, issueId] }),
-      queryClient.invalidateQueries({ queryKey: ['issues', workspaceId, selectedProjectId] }),
-      queryClient.invalidateQueries({ queryKey: ['project-board', workspaceId, selectedProjectId] }),
-      queryClient.invalidateQueries({ queryKey: ['project-analytics', workspaceId, selectedProjectId] }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.issue(workspaceId, issueId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.issueActivities(workspaceId, issueId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.issues(workspaceId, selectedProjectId) }),
+      resetProjectBoard(queryClient, workspaceId, selectedProjectId),
+      queryClient.invalidateQueries({ queryKey: queryKeys.analytics(workspaceId, selectedProjectId) }),
     ])
   }
 

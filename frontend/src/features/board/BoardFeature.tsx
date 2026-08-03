@@ -124,7 +124,6 @@ export function BoardFeature({
     }),
   )
   const activeIssue = activeIssueId ? findBoardIssue(board, activeIssueId) : null
-  const isSortingEnabled = true
   const defaultAssigneeUserId =
     boardIssueView === 'MINE' ? (currentUserId ?? undefined) : undefined
   const emptyColumnLabel = boardEmptyColumnLabel(boardIssueView)
@@ -206,7 +205,7 @@ export function BoardFeature({
 
   async function handleDragEnd(event: DragEndEvent) {
     setActiveIssueId(null)
-    if (!event.over || isReordering || !isSortingEnabled) {
+    if (!event.over || isReordering) {
       return
     }
 
@@ -282,7 +281,6 @@ export function BoardFeature({
                 defaultAssigneeUserId={defaultAssigneeUserId}
                 emptyLabel={emptyColumnLabel}
                 isReordering={isReordering}
-                isSortingEnabled={isSortingEnabled}
                 isComposerOpen={composerWorkflowStateId === column.workflowState.id}
                 isQuickCreating={isQuickCreating}
                 quickCreateError={
@@ -322,7 +320,6 @@ function KanbanColumn({
   emptyLabel,
   selectedIssueId,
   isReordering,
-  isSortingEnabled,
   isComposerOpen,
   isQuickCreating,
   quickCreateError,
@@ -340,7 +337,6 @@ function KanbanColumn({
   emptyLabel: string
   selectedIssueId: string | null
   isReordering: boolean
-  isSortingEnabled: boolean
   isComposerOpen: boolean
   isQuickCreating: boolean
   quickCreateError: Error | null
@@ -371,7 +367,7 @@ function KanbanColumn({
       type: 'column',
       workflowStateId: column.workflowState.id,
     } satisfies KanbanDragData,
-    disabled: !isSortingEnabled || isReordering,
+    disabled: isReordering,
   })
 
   return (
@@ -409,7 +405,6 @@ function KanbanColumn({
               workflowStateId={column.workflowState.id}
               isActive={issue.id === selectedIssueId}
               isReordering={isReordering}
-              isSortingEnabled={isSortingEnabled}
               key={issue.id}
               onIssueSelect={onIssueSelect}
             />
@@ -576,14 +571,12 @@ function SortableIssueCard({
   workflowStateId,
   isActive,
   isReordering,
-  isSortingEnabled,
   onIssueSelect,
 }: {
   issue: IssueSummary
   workflowStateId: string
   isActive: boolean
   isReordering: boolean
-  isSortingEnabled: boolean
   onIssueSelect: (issueId: string) => void
 }) {
   const {
@@ -599,7 +592,7 @@ function SortableIssueCard({
       type: 'issue',
       workflowStateId,
     } satisfies KanbanDragData,
-    disabled: isReordering || !isSortingEnabled,
+    disabled: isReordering,
   })
 
   return (
@@ -607,26 +600,23 @@ function SortableIssueCard({
       className="kanban-card"
       data-active={isActive}
       data-dragging={isDragging}
-      data-sortable={isSortingEnabled}
       ref={setNodeRef}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
       }}
     >
-      {isSortingEnabled ? (
-        <button
-          className="kanban-drag-handle"
-          type="button"
-          disabled={isReordering}
-          aria-label={`Move ${issue.title}`}
-          title="Move issue"
-          {...attributes}
-          {...listeners}
-        >
-          <GripVertical aria-hidden="true" />
-        </button>
-      ) : null}
+      <button
+        className="kanban-drag-handle"
+        type="button"
+        disabled={isReordering}
+        aria-label={`Move ${issue.title}`}
+        title="Move issue"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical aria-hidden="true" />
+      </button>
       <button
         className="kanban-card-open"
         type="button"

@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { compareCreatedAtAscending, mergeCursorPageItems } from '@/api/pagination'
+import { queryKeys } from '@/lib/query-keys'
 import { getIssue, listIssueActivities, listIssueComments } from '@/api/work-api'
 
 export function useIssueDetailQueries({
@@ -13,13 +14,13 @@ export function useIssueDetailQueries({
   enabled: boolean
 }) {
   const issueQuery = useQuery({
-    queryKey: ['issue', workspaceId, issueId],
+    queryKey: queryKeys.issue(workspaceId, issueId),
     queryFn: () => getIssue(issueId ?? ''),
     enabled,
     retry: false,
   })
   const commentsQuery = useInfiniteQuery({
-    queryKey: ['issue-comments', workspaceId, issueId],
+    queryKey: queryKeys.issueComments(workspaceId, issueId),
     queryFn: ({ pageParam }) => listIssueComments(issueId ?? '', pageParam),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
@@ -27,7 +28,7 @@ export function useIssueDetailQueries({
     retry: false,
   })
   const activitiesQuery = useInfiniteQuery({
-    queryKey: ['issue-activities', workspaceId, issueId],
+    queryKey: queryKeys.issueActivities(workspaceId, issueId),
     queryFn: ({ pageParam }) => listIssueActivities(issueId ?? '', pageParam),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,

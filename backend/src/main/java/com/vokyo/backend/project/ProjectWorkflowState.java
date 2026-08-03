@@ -2,11 +2,17 @@ package com.vokyo.backend.project;
 
 import com.vokyo.backend.workspace.Workspace;
 import jakarta.persistence.*;
+import org.hibernate.annotations.BatchSize;
 
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * Batched because every mapped issue dereferences its workflow state proxy. A
+ * filtered issue list can span more states than a board column does.
+ */
 @Entity
+@BatchSize(size = 50)
 @Table(name = "project_workflow_states")
 public class ProjectWorkflowState {
 

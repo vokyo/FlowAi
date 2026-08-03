@@ -109,15 +109,13 @@ Requirements: Docker Desktop or another Docker installation with Compose v2.
    cp .env.example .env
    ```
 
-2. Add `POSTGRES_PASSWORD` to `.env`, replace the JWT secret, and allow the refresh cookie over local HTTP:
+2. Replace the JWT secret in `.env`:
 
    ```dotenv
-   POSTGRES_PASSWORD=flowai_dev_password
    JWT_SECRET=replace-with-at-least-32-random-bytes
-   REFRESH_COOKIE_SECURE=false
    ```
 
-   `POSTGRES_PASSWORD` must match the local datasource password. Never use these development values in a deployed environment.
+   The template already ships working local values for `POSTGRES_PASSWORD` (which must match the datasource password) and `REFRESH_COOKIE_SECURE=false` (the local stack serves plain HTTP). Never use any of these development values in a deployed environment.
 
 3. Build and start the stack:
 
@@ -269,6 +267,19 @@ Authorization: Bearer <access-token>
 ```
 
 The refresh token is rotated server-side and delivered as an `HttpOnly`, `SameSite=Strict` cookie scoped to `/api`. Errors share one JSON shape (`code`, `message`, `fieldErrors`, `traceId`), and `management.endpoints.web.exposure` limits Actuator to `health`, `info`, and `metrics`.
+
+`fieldErrors` maps a request field to the reason it was rejected, and is populated only when request-body validation fails:
+
+```json
+{
+  "code": "VALIDATION_FAILED",
+  "message": "Request validation failed",
+  "fieldErrors": { "email": "must be a well-formed email address" },
+  "traceId": "..."
+}
+```
+
+It is an empty object on every other error. Conflicts that only the server can detect — a duplicate email, a label name already in use, an incorrect current password — carry their explanation in `message` instead, because they belong to no single request field. The web client validates the same constraints before submitting, so `fieldErrors` is aimed at direct API callers rather than the UI.
 
 ## Verification
 
