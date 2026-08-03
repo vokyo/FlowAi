@@ -1,5 +1,6 @@
 import { useInfiniteQuery } from '@tanstack/react-query'
 import type { CursorPage } from '@/api/pagination'
+import { queryKeys } from '@/lib/query-keys'
 import {
   getBoardColumnPage,
   type BoardColumn,
@@ -18,7 +19,7 @@ export function useBoardColumnPagination({
   onPageLoaded: (workflowStateId: string, page: CursorPage<IssueSummary>) => void
 }) {
   const query = useInfiniteQuery({
-    queryKey: ['project-board-column', workspaceId, projectId, column.workflowState.id],
+    queryKey: queryKeys.boardColumn(workspaceId, projectId, column.workflowState.id),
     queryFn: async ({ pageParam }) => {
       const page = await getBoardColumnPage(projectId, column.workflowState.id, pageParam)
       onPageLoaded(column.workflowState.id, page)

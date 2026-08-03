@@ -7,6 +7,7 @@ import com.vokyo.backend.project.WorkflowStateCategory;
 import com.vokyo.backend.user.User;
 import com.vokyo.backend.workspace.Workspace;
 import jakarta.persistence.*;
+import org.hibernate.annotations.BatchSize;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -41,7 +42,11 @@ public class Issue {
     @Column(columnDefinition = "text")
     private String description;
 
+    // IssueMapper reads the labels of every issue it maps, so a list or board page
+    // would otherwise load this collection one issue at a time. The size matches
+    // CursorPagination.DEFAULT_LIMIT so a full page resolves in a single read.
     @ManyToMany
+    @BatchSize(size = 50)
     @JoinTable(
             name = "issue_labels",
             joinColumns = @JoinColumn(name = "issue_id"),

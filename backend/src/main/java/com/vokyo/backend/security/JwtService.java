@@ -9,7 +9,6 @@ import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
-import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.stereotype.Service;
 
@@ -55,15 +54,6 @@ public class JwtService {
 
     public Jwt decode(String token) {
         return jwtDecoder.decode(token);
-    }
-
-    public boolean isValid(String token) {
-        try {
-            decode(token);
-            return true;
-        } catch (JwtException ex) {
-            return false;
-        }
     }
 
     public UUID getUserId(String token) {

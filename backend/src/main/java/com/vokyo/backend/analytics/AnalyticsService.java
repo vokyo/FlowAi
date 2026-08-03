@@ -45,15 +45,40 @@ public class AnalyticsService {
 
     @Transactional(readOnly = true)
     public AnalyticsOverviewResponse getOverview(Jwt jwt, UUID projectId, int days) {
+        requireAllowedRange(days);
+        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
+        Project project = projectAccessService.requireAccessibleProject(projectId, context);
+        return overviewFor(context, project, days);
+    }
+
+    /**
+     * For callers that have already resolved the workspace context and project.
+     * Going back through the Jwt overload would repeat both lookups.
+     */
+    @Transactional(readOnly = true)
+    public AnalyticsOverviewResponse getOverview(
+            CurrentWorkspaceContext context,
+            Project project,
+            int days
+    ) {
+        requireAllowedRange(days);
+        return overviewFor(context, project, days);
+    }
+
+    private void requireAllowedRange(int days) {
         if (!ALLOWED_RANGE_DAYS.contains(days)) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
                     "Analytics range must be 7, 30, or 90 days"
             );
         }
+    }
 
-        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
-        Project project = projectAccessService.requireAccessibleProject(projectId, context);
+    private AnalyticsOverviewResponse overviewFor(
+            CurrentWorkspaceContext context,
+            Project project,
+            int days
+    ) {
         UUID workspaceId = context.workspace().getId();
         AnalyticsRepository.SummaryProjection summary = analyticsRepository.summarize(
                 workspaceId,

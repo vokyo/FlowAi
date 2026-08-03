@@ -257,6 +257,9 @@ public class ApiExceptionHandler {
             DataIntegrityViolationException exception,
             HttpServletRequest request
     ) {
+        // The response deliberately hides which constraint fired, but that is the
+        // one detail worth having server-side when a tenant-integrity check trips.
+        log.warn("event=data_integrity_violation", exception);
         return response(HttpStatus.CONFLICT, errorService.create(
                 request,
                 HttpStatus.CONFLICT.value(),
@@ -335,7 +338,8 @@ public class ApiExceptionHandler {
     ) {
         log.error(
                 "event=api_exception exceptionType={}",
-                exception.getClass().getName()
+                exception.getClass().getName(),
+                exception
         );
         return response(HttpStatus.INTERNAL_SERVER_ERROR, errorService.create(
                 request,

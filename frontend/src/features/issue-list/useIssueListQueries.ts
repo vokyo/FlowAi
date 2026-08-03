@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { mergeCursorPageItems } from '@/api/pagination'
+import { queryKeys } from '@/lib/query-keys'
 import { listIssues, type ListIssuesFilters } from '@/api/work-api'
 
 export function useIssueListQueries({
@@ -17,7 +18,7 @@ export function useIssueListQueries({
   enabled: boolean
 }) {
   const issuesQuery = useInfiniteQuery({
-    queryKey: ['issues', workspaceId, projectId, ...filterKey],
+    queryKey: queryKeys.issueList(workspaceId, projectId, filterKey),
     queryFn: ({ pageParam }) => listIssues(projectId ?? '', filters, pageParam),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,

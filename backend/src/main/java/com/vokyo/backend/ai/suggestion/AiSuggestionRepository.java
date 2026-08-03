@@ -11,13 +11,6 @@ import java.util.UUID;
 public interface AiSuggestionRepository
         extends JpaRepository<AiSuggestion, UUID> {
 
-    Optional<AiSuggestion>
-    findByWorkspace_IdAndCreatedByUser_IdAndId(
-            UUID workspaceId,
-            UUID userId,
-            UUID suggestionId
-    );
-
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
         select suggestion

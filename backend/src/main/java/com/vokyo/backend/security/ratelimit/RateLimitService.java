@@ -17,6 +17,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public class RateLimitService {
 
     private static final long CLEANUP_MASK = 1023;
+    private static final int EVICTION_HEADROOM_DIVISOR = 10;
 
     private final RateLimitProperties properties;
     private final TimeMeter timeMeter;
@@ -102,18 +103,30 @@ public class RateLimitService {
 
     private void cleanupIfNeeded(long now) {
         long operation = operations.incrementAndGet();
-        if ((operation & CLEANUP_MASK) != 0 && buckets.size() < properties.maxEntries()) {
+        int maxEntries = properties.maxEntries();
+        if ((operation & CLEANUP_MASK) != 0 && buckets.size() < maxEntries) {
             return;
         }
 
         long cutoff = now - properties.idleTtl().toNanos();
         buckets.entrySet().removeIf(entry -> entry.getValue().lastAccessNanos().get() < cutoff);
-        while (buckets.size() >= properties.maxEntries()) {
-            buckets.entrySet().stream()
-                    .min(Comparator.comparingLong(entry -> entry.getValue().lastAccessNanos().get()))
-                    .map(Map.Entry::getKey)
-                    .ifPresentOrElse(buckets::remove, () -> buckets.clear());
+
+        // Evict down to a target below the cap rather than to exactly one slot under
+        // it. Freeing a single slot per sweep means the next new identity refills the
+        // map and pays for another full scan, so a request stream of distinct
+        // identities turns every request into an O(entries) pass.
+        int target = maxEntries - Math.max(1, maxEntries / EVICTION_HEADROOM_DIVISOR);
+        int excess = buckets.size() - target;
+        if (excess <= 0) {
+            return;
         }
+
+        buckets.entrySet().stream()
+                .sorted(Comparator.comparingLong(entry -> entry.getValue().lastAccessNanos().get()))
+                .limit(excess)
+                .map(Map.Entry::getKey)
+                .toList()
+                .forEach(buckets::remove);
     }
 
     private record BucketKey(

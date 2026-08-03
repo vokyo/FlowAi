@@ -7,6 +7,7 @@ import { changePassword, getCurrentSession, revokeAllSessions, updateProfile } f
 import { clearClientSession } from '@/auth/client-session'
 import { Button } from '@/components/ui/button'
 import { PROJECT_METADATA_STALE_TIME_MS } from '@/lib/query-config'
+import { queryKeys, resetProjectBoard } from '@/lib/query-keys'
 import {
   archiveProject,
   createProjectLabel,
@@ -239,12 +240,12 @@ function ProjectSettings({ project, workspaceId, onProjectChanged, onProjectRemo
   const [name, setName] = useState(project.name)
   const [description, setDescription] = useState(project.description ?? '')
   const labelsQuery = useQuery({
-    queryKey: ['project-labels', project.id],
+    queryKey: queryKeys.projectLabels(project.id),
     queryFn: () => listProjectLabels(project.id),
     staleTime: PROJECT_METADATA_STALE_TIME_MS,
   })
   const statesQuery = useQuery({
-    queryKey: ['project-workflow-states', project.id],
+    queryKey: queryKeys.projectWorkflowStates(project.id),
     queryFn: () => listProjectWorkflowStates(project.id),
     staleTime: PROJECT_METADATA_STALE_TIME_MS,
   })
@@ -252,12 +253,12 @@ function ProjectSettings({ project, workspaceId, onProjectChanged, onProjectRemo
   const archiveMutation = useMutation({ mutationFn: () => archiveProject(project.id), onSuccess: onProjectChanged })
   const restoreMutation = useMutation({ mutationFn: () => restoreProject(project.id), onSuccess: onProjectChanged })
   const deleteMutation = useMutation({ mutationFn: () => deleteProject(project.id), onSuccess: onProjectRemoved })
-  const invalidateLabels = () => queryClient.invalidateQueries({ queryKey: ['project-labels', project.id] })
+  const invalidateLabels = () => queryClient.invalidateQueries({ queryKey: queryKeys.projectLabels(project.id) })
   const invalidateStates = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['project-workflow-states', project.id] }),
-      queryClient.invalidateQueries({ queryKey: ['issues', workspaceId, project.id] }),
-      queryClient.invalidateQueries({ queryKey: ['project-board', workspaceId, project.id] }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.projectWorkflowStates(project.id) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.issues(workspaceId, project.id) }),
+      resetProjectBoard(queryClient, workspaceId, project.id),
     ])
   }
 

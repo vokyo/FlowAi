@@ -224,14 +224,6 @@
   opacity: 0.32;
 }
 
-.kanban-card[data-sortable='false'] {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.kanban-card[data-sortable='false'] .kanban-card-open {
-  padding-left: 12px;
-}
-
 .kanban-card-overlay {
   width: 294px;
   grid-template-columns: minmax(0, 1fr);

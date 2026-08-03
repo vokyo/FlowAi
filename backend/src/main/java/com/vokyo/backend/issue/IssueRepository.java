@@ -1,5 +1,6 @@
 package com.vokyo.backend.issue;
 
+import com.vokyo.backend.project.WorkflowStateCategory;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.domain.Pageable;
@@ -8,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -16,20 +18,75 @@ public interface IssueRepository extends JpaRepository<Issue, UUID>, JpaSpecific
 
     Optional<Issue> findByIdAndWorkspace_Id(UUID id, UUID workspaceId);
 
+    /**
+     * Ranks issues the way an AI project summary wants to read them — overdue
+     * first, then by priority, then most recently touched — so the caller can stop
+     * at its context limit instead of loading a whole project into memory.
+     * Associations are left lazy on purpose and resolved by
+     * hibernate.default_batch_fetch_size, because a collection fetch join here
+     * would push the limit into memory.
+     */
     @Query("""
-            select distinct issue
+            select issue
             from Issue issue
-            left join fetch issue.assigneeUser
-            left join fetch issue.workflowState
-            left join fetch issue.labels
+            where issue.workspace.id = :workspaceId
+              and issue.project.id = :projectId
+              and issue.archivedAt is null
+            order by
+              case when issue.dueDate is not null
+                        and issue.dueDate < :today
+                        and issue.workflowState.category <> :doneCategory
+                   then 0 else 1 end asc,
+              case when issue.priority = :urgentPriority then 0
+                   when issue.priority = :highPriority then 1
+                   else 2 end asc,
+              issue.updatedAt desc,
+              issue.id asc
+            """)
+    List<Issue> findRankedActiveForAiSummary(
+            @Param("workspaceId") UUID workspaceId,
+            @Param("projectId") UUID projectId,
+            @Param("today") LocalDate today,
+            @Param("doneCategory") WorkflowStateCategory doneCategory,
+            @Param("urgentPriority") IssuePriority urgentPriority,
+            @Param("highPriority") IssuePriority highPriority,
+            Pageable pageable
+    );
+
+    @Query("""
+            select count(issue) as totalActive,
+                   coalesce(sum(case when issue.dueDate is not null
+                                          and issue.dueDate < :today
+                                          and issue.workflowState.category <> :doneCategory
+                                     then 1 else 0 end), 0) as overdue,
+                   coalesce(sum(case when issue.priority = :urgentPriority
+                                          or issue.priority = :highPriority
+                                     then 1 else 0 end), 0) as highPriority,
+                   coalesce(sum(case when issue.assigneeUser is null
+                                     then 1 else 0 end), 0) as unassigned
+            from Issue issue
             where issue.workspace.id = :workspaceId
               and issue.project.id = :projectId
               and issue.archivedAt is null
             """)
-    List<Issue> findAllActiveForAiSummary(
+    AiSummaryIssueStats summarizeActiveForAiSummary(
             @Param("workspaceId") UUID workspaceId,
-            @Param("projectId") UUID projectId
+            @Param("projectId") UUID projectId,
+            @Param("today") LocalDate today,
+            @Param("doneCategory") WorkflowStateCategory doneCategory,
+            @Param("urgentPriority") IssuePriority urgentPriority,
+            @Param("highPriority") IssuePriority highPriority
     );
+
+    interface AiSummaryIssueStats {
+        long getTotalActive();
+
+        long getOverdue();
+
+        long getHighPriority();
+
+        long getUnassigned();
+    }
 
     @Query("""
             select issue.project.id
