@@ -198,9 +198,11 @@
 /* Tonal separation instead of a hairline: the sidebar reads as a distinct
    surface because it *is* a different tone, which is the whole premise of the
    MD3 surface ramp. */
+/* Flex rather than grid so the settings entry can take `margin-top: auto` and
+   sit against the bottom edge; `align-content: start` cannot be pushed off. */
 .app-sidebar {
-  display: grid;
-  align-content: start;
+  display: flex;
+  flex-direction: column;
   gap: 18px;
   position: sticky;
   top: 0;
@@ -577,6 +579,33 @@ button.workspace-switcher:focus-visible {
    utilities that would otherwise clamp the row: the fixed height, and
    whitespace-nowrap which stops project descriptions from wrapping. Everything
    else Button contributes (focus ring, disabled handling) is what we want. */
+/* Pinned to the bottom of the drawer, where every other app puts settings. */
+.sidebar-footer-section {
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--md-outline-variant);
+}
+
+/* The row action reserves its column at all times: revealing it on hover would
+   otherwise reflow the project name under the cursor. */
+.sidebar-project-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.sidebar-project-menu-trigger {
+  opacity: 0;
+  transition: opacity var(--md-duration-short) var(--md-easing);
+}
+
+.sidebar-project-row:hover .sidebar-project-menu-trigger,
+.sidebar-project-menu-trigger:focus-visible,
+.sidebar-project-menu-trigger[data-state='open'] {
+  opacity: 1;
+}
+
 .sidebar-list-item {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr);

@@ -99,6 +99,10 @@ export function projectAnalyticsPath(workspaceId: string, projectId: string) {
   return `${projectPath(workspaceId, projectId)}/analytics`
 }
 
+export function projectSettingsPath(workspaceId: string, projectId: string) {
+  return `${projectPath(workspaceId, projectId)}/settings`
+}
+
 export function issuePath(workspaceId: string, projectId: string, issueId: string) {
   return `${projectPath(workspaceId, projectId)}/issues/${issueId}`
 }
