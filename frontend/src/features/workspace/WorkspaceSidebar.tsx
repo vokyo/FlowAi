@@ -451,9 +451,11 @@ function ProjectList({
           onClick={() => onProjectSelect(project.id)}
         >
           <FolderKanban aria-hidden="true" />
+          {/* Name only, like the view items above. The row wraps rather than
+              truncates, so a description here sets the sidebar's width against
+              whatever the longest one happens to be. */}
           <span>
             <strong>{project.name}</strong>
-            {project.description ? <small>{project.description}</small> : null}
           </span>
         </Button>
       ))}
