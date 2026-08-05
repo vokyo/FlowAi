@@ -61,7 +61,9 @@
   min-width: 0;
   min-height: 240px;
   overflow: hidden;
-  border: 0;
+  /* A hairline separates the columns now that the tints are near-neutral;
+     the status hue survives in the header icon and nowhere else. */
+  border: 1px solid var(--md-outline-variant);
   border-radius: var(--md-shape-lg);
   background: var(--status-tint);
 }
@@ -76,15 +78,6 @@
   --status-tint: var(--status-done-tint);
 }
 
-.kanban-column[data-category='REVIEW'] {
-  --status: var(--status-review);
-  --status-tint: var(--status-review-tint);
-}
-
-.kanban-column[data-category='ARCHIVED'] {
-  --status: var(--status-archived);
-  --status-tint: var(--status-archived-tint);
-}
 
 .kanban-column-title .status-icon {
   color: var(--status);
@@ -123,17 +116,19 @@
 }
 
 /* The count chip carries the column's hue instead of reading as grey text. */
+/* A count, not a status chip: the header already names the status right next
+   to it, so tinting the number too was saying the same thing twice. */
 .kanban-column-title small {
   display: inline-grid;
-  min-width: 24px;
-  height: 24px;
+  min-width: 20px;
+  height: 20px;
   place-items: center;
-  border-radius: var(--md-shape-full);
-  background: color-mix(in oklab, var(--status), var(--md-surface) 74%);
-  color: color-mix(in oklab, var(--status), var(--md-on-surface) 26%);
+  border-radius: var(--md-shape-xs);
+  background: var(--md-surface-container-high);
+  color: var(--md-on-surface-variant);
   font-size: 11px;
-  font-weight: 700;
-  padding-inline: 7px;
+  font-weight: 600;
+  padding-inline: 5px;
 }
 
 .kanban-column-body {
@@ -293,7 +288,7 @@
 .kanban-card .label-badge,
 .kanban-card .priority-badge {
   font-size: 11px;
-  padding: 5px 9px;
+  padding: 0;
 }
 
 .kanban-card-meta {
