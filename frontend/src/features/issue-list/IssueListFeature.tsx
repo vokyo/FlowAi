@@ -193,7 +193,13 @@ export function IssueListFeature({
             items={[currentWorkspace?.name ?? 'Workspace', selectedProject?.name ?? 'Issues']}
           />
           <h1>{selectedProject?.name ?? (hasProjects ? 'Choose a project' : 'Projects')}</h1>
-          {selectedProject?.description ? <p>{selectedProject.description}</p> : null}
+          {/* Clamped to two lines in CSS; the title carries the full text so a
+              truncated description is still readable on hover. */}
+          {selectedProject?.description ? (
+            <p className="content-header-description" title={selectedProject.description}>
+              {selectedProject.description}
+            </p>
+          ) : null}
         </div>
         <div className="content-header-actions">
           {selectedProject ? (

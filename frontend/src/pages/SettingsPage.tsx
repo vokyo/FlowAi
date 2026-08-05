@@ -216,16 +216,26 @@ function WorkspaceMemberSettings({ currentUserId, currentRole, members, isLoadin
       {error ? <SettingsError error={error} compact /> : null}
       <div className="settings-list">
         {members.map((member) => {
-          const protectedMember = member.userId === currentUserId || member.role === 'OWNER'
+          const isSelf = member.userId === currentUserId
+          const protectedMember = isSelf || member.role === 'OWNER'
           const editable = canManage && !protectedMember && !(currentRole === 'ADMIN' && member.role === 'ADMIN')
           return (
             <div className="settings-list-row" key={member.id}>
               <div><strong>{member.displayName}</strong><small>{member.email} · {member.status.toLowerCase()}</small></div>
               <div className="settings-row-actions">
-                <select aria-label={`Role for ${member.displayName}`} value={member.role} disabled={!editable || mutation.isPending} onChange={(event) => mutation.mutate({ id: member.id, role: event.target.value as WorkspaceRole })}>
-                  {member.role === 'OWNER' ? <option value="OWNER">Owner</option> : null}
-                  <option value="ADMIN">Admin</option><option value="MEMBER">Member</option><option value="GUEST">Guest</option>
-                </select>
+                {editable ? (
+                  <select aria-label={`Role for ${member.displayName}`} value={member.role} disabled={mutation.isPending} onChange={(event) => mutation.mutate({ id: member.id, role: event.target.value as WorkspaceRole })}>
+                    <option value="ADMIN">Admin</option><option value="MEMBER">Member</option><option value="GUEST">Guest</option>
+                  </select>
+                ) : (
+                  // A select that can never open reads as broken — and for these
+                  // rows it never can: you cannot demote yourself out of your own
+                  // workspace, and the owner role has nowhere to go. Say which.
+                  <span className="settings-static-role">
+                    {titleCaseRole(member.role)}
+                    <small>{lockedRoleReason(isSelf, member.role, canManage)}</small>
+                  </span>
+                )}
                 {editable && member.status === 'DISABLED' ? <Button size="sm" variant="outline" onClick={() => mutation.mutate({ id: member.id, status: 'ACTIVE' })}>Reactivate</Button> : null}
                 {editable && member.status === 'ACTIVE' ? <Button size="icon-xs" variant="ghost" aria-label={`Remove ${member.displayName}`} onClick={() => { if (window.confirm(`Remove ${member.displayName} from this workspace?`)) removeMutation.mutate(member.id) }}><Trash2 aria-hidden="true" /></Button> : null}
               </div>
@@ -233,8 +243,22 @@ function WorkspaceMemberSettings({ currentUserId, currentRole, members, isLoadin
           )
         })}
       </div>
+      {members.length === 1 ? (
+        <SettingsInlineState>You are the only member. Invite someone from the workspace switcher to start assigning roles.</SettingsInlineState>
+      ) : null}
       <MutationMessage mutation={mutation} />
       <MutationMessage mutation={removeMutation} />
     </section>
   )
+}
+
+function titleCaseRole(role: string) {
+  return role.charAt(0) + role.slice(1).toLowerCase()
+}
+
+/** Why this row's role is fixed. Ordered by which rule actually bites first. */
+function lockedRoleReason(isSelf: boolean, role: string, canManage: boolean) {
+  if (isSelf) return 'Your own role'
+  if (role === 'OWNER') return 'Workspace owner'
+  return canManage ? 'Managed by the owner' : 'Requires admin access'
 }
