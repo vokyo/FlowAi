@@ -264,18 +264,38 @@
   gap: 8px;
 }
 
-.settings-edit-row > input:not([type='color']),
-.settings-inline-form > input:not([type='color']) {
+.settings-edit-row > input,
+.settings-inline-form > input {
   flex: 1 1 auto;
 }
 
-.settings-edit-row input[type='color'],
-.settings-inline-form input[type='color'] {
-  width: 44px;
-  height: 44px;
+/* The eight swatches replaced a 44px colour well, so they get their own line
+   rather than squeezing the name field. */
+.settings-label-form,
+.settings-label-row {
+  flex-wrap: wrap;
+}
+
+.settings-label-form .label-color-picker,
+.settings-label-row .label-color-picker {
   flex: 0 0 auto;
-  border-radius: var(--md-shape-sm);
-  padding: 4px;
+}
+
+/* Stands in for a role select that could never be opened. */
+.settings-static-role {
+  display: grid;
+  justify-items: end;
+  gap: 1px;
+  color: var(--md-on-surface);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: right;
+}
+
+.settings-static-role small {
+  color: var(--md-on-surface-variant);
+  font-size: 11px;
+  font-weight: 400;
 }
 
 .settings-subsection {

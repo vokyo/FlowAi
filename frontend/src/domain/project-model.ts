@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { ReorderIssuesRequest, ProjectBoard } from '@/api/work-api'
 import type { WorkspaceRole } from '@/api/workspace-api'
+import { LABEL_COLORS } from '@/ui/label-colors'
 
 export const ISSUE_STATUSES = ['TODO', 'IN_PROGRESS', 'DONE', 'ARCHIVED'] as const
 export const WORKFLOW_STATE_CATEGORIES = ['TODO', 'IN_PROGRESS', 'DONE'] as const
@@ -8,7 +9,8 @@ export const ISSUE_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const
 export type InvitableWorkspaceRole = Exclude<WorkspaceRole, 'OWNER'>
 export const OWNER_INVITATION_ROLES: InvitableWorkspaceRole[] = ['ADMIN', 'MEMBER', 'GUEST']
 export const ADMIN_INVITATION_ROLES: InvitableWorkspaceRole[] = ['MEMBER', 'GUEST']
-export const DEFAULT_LABEL_COLOR = '#64748b'
+/** Points at the palette so there is one place a label colour can come from. */
+export const DEFAULT_LABEL_COLOR: string = LABEL_COLORS[5].value
 
 const FORM_LIMITS = {
   projectName: 160,

@@ -33,6 +33,8 @@ import {
   SettingsInlineState,
   SettingsSkeleton,
 } from '@/pages/SettingsShared'
+import { LabelColorPicker } from '@/ui/feature-ui'
+import { DEFAULT_LABEL_COLOR } from '@/domain/project-model'
 
 const categories: WorkflowStateCategory[] = ['TODO', 'IN_PROGRESS', 'DONE']
 
@@ -184,7 +186,7 @@ function ProjectSettings({ project, workspaceId, currentUserId, onProjectChanged
 // deleting one is owner-gated, so this section stays usable for members.
 function LabelSettings({ projectId, labels, isLoading, canDeleteLabels, onChanged }: { projectId: string; labels: ProjectLabel[]; isLoading: boolean; canDeleteLabels: boolean; onChanged: () => Promise<unknown> }) {
   const [newName, setNewName] = useState('')
-  const [newColor, setNewColor] = useState('#64748b')
+  const [newColor, setNewColor] = useState<string>(DEFAULT_LABEL_COLOR)
   const createMutation = useMutation({ mutationFn: () => createProjectLabel(projectId, { name: newName.trim(), color: newColor }), onSuccess: async () => { setNewName(''); await onChanged() } })
   const updateMutation = useMutation({ mutationFn: ({ id, name, color }: { id: string; name: string; color: string }) => updateProjectLabel(projectId, id, { name, color }), onSuccess: onChanged })
   const deleteMutation = useMutation({ mutationFn: (id: string) => deleteProjectLabel(projectId, id), onSuccess: onChanged })
@@ -192,7 +194,11 @@ function LabelSettings({ projectId, labels, isLoading, canDeleteLabels, onChange
     <section className="settings-subsection"><div className="settings-card-heading"><Tag aria-hidden="true" /><div><h3>Labels</h3><p>Edit or remove project labels.</p></div></div>
       {isLoading ? <SettingsInlineState>Loading labels…</SettingsInlineState> : null}
       <div className="settings-list">{labels.map((label) => <EditableLabel key={label.id} label={label} isPending={updateMutation.isPending || deleteMutation.isPending} canDelete={canDeleteLabels} onSave={(name, color) => updateMutation.mutate({ id: label.id, name, color })} onDelete={() => deleteMutation.mutate(label.id)} />)}</div>
-      <form className="settings-inline-form" onSubmit={(event) => { event.preventDefault(); createMutation.mutate() }}><input aria-label="New label color" type="color" value={newColor} onChange={(event) => setNewColor(event.target.value)} /><input aria-label="New label name" placeholder="New label" maxLength={60} required value={newName} onChange={(event) => setNewName(event.target.value)} /><Button size="sm" disabled={createMutation.isPending || !newName.trim()}>Add label</Button></form>
+      <form className="settings-inline-form settings-label-form" onSubmit={(event) => { event.preventDefault(); createMutation.mutate() }}>
+        <input aria-label="New label name" placeholder="New label" maxLength={60} required value={newName} onChange={(event) => setNewName(event.target.value)} />
+        <LabelColorPicker idPrefix="new-label" value={newColor} onChange={setNewColor} />
+        <Button size="sm" disabled={createMutation.isPending || !newName.trim()}>Add label</Button>
+      </form>
       <MutationMessage mutation={createMutation} /><MutationMessage mutation={updateMutation} /><MutationMessage mutation={deleteMutation} />
     </section>
   )
@@ -200,7 +206,14 @@ function LabelSettings({ projectId, labels, isLoading, canDeleteLabels, onChange
 
 function EditableLabel({ label, isPending, canDelete, onSave, onDelete }: { label: ProjectLabel; isPending: boolean; canDelete: boolean; onSave: (name: string, color: string) => void; onDelete: () => void }) {
   const [name, setName] = useState(label.name); const [color, setColor] = useState(label.color)
-  return <div className="settings-list-row settings-edit-row"><input aria-label={`Color for ${label.name}`} type="color" value={color} onChange={(event) => setColor(event.target.value)} /><input aria-label={`Name for ${label.name}`} value={name} maxLength={60} onChange={(event) => setName(event.target.value)} /><Button size="icon-xs" variant="ghost" disabled={isPending || !name.trim()} aria-label={`Save ${label.name}`} onClick={() => onSave(name.trim(), color)}><Save aria-hidden="true" /></Button>{canDelete ? <Button size="icon-xs" variant="ghost" disabled={isPending} aria-label={`Delete ${label.name}`} onClick={() => { if (window.confirm(`Delete label ${label.name}? It will be removed from every issue.`)) onDelete() }}><Trash2 aria-hidden="true" /></Button> : null}</div>
+  return (
+    <div className="settings-list-row settings-edit-row settings-label-row">
+      <input aria-label={`Name for ${label.name}`} value={name} maxLength={60} onChange={(event) => setName(event.target.value)} />
+      <LabelColorPicker idPrefix={`label-${label.id}`} value={color} onChange={setColor} disabled={isPending} />
+      <Button size="icon-xs" variant="ghost" disabled={isPending || !name.trim()} aria-label={`Save ${label.name}`} onClick={() => onSave(name.trim(), color)}><Save aria-hidden="true" /></Button>
+      {canDelete ? <Button size="icon-xs" variant="ghost" disabled={isPending} aria-label={`Delete ${label.name}`} onClick={() => { if (window.confirm(`Delete label ${label.name}? It will be removed from every issue.`)) onDelete() }}><Trash2 aria-hidden="true" /></Button> : null}
+    </div>
+  )
 }
 
 // Unlike labels, every workflow-state write is owner-gated, so a member sees
