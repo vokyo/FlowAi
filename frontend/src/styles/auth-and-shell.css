@@ -615,7 +615,9 @@ button.workspace-switcher:focus-visible {
   height: auto;
   min-width: 0;
   border: 0;
-  border-radius: var(--md-shape-full);
+  /* Not `full`: a nav row is a rectangle, and a pill radius on one that grows
+     past ~60px tall renders as a circle. */
+  border-radius: var(--md-shape-sm);
   background: transparent;
   color: var(--md-on-surface-variant);
   font: inherit;
@@ -767,6 +769,24 @@ button.workspace-switcher:focus-visible {
   font-size: 14px;
   line-height: 1.5;
   overflow-wrap: anywhere;
+}
+
+/* The header is a flex row, so the title block shrinks to whatever the actions
+   leave it. Without a basis, `overflow-wrap: anywhere` then breaks a long URL
+   into a one-fragment-per-line column and the description alone pushes the
+   board below the fold. Take the free space, and clamp to two lines. */
+.content-header > div {
+  flex: 1 1 auto;
+}
+
+/* Targeted by class, not by structure: BreadcrumbLine is also a <p> in this
+   block, and giving it `display: -webkit-box` drops its flex gap. */
+.content-header-description {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .breadcrumb-line {
@@ -970,11 +990,16 @@ button.workspace-switcher:focus-visible {
 }
 
 /* Priority defaults to neutral and only takes a hue once one is actually set,
-   so an unprioritised backlog stays quiet instead of glowing. */
+   so an unprioritised backlog stays quiet instead of glowing.
+
+   No fill: a tinted capsule per metadata field is what made a row read as a
+   strip of candy. The hue lives in the glyph below, the text stays neutral. */
 .priority-badge {
   --priority: var(--priority-low);
-  background: color-mix(in oklab, var(--priority), var(--md-surface) 86%);
-  color: color-mix(in oklab, var(--priority), var(--md-on-surface) 24%);
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  font-weight: 500;
+  padding: 0;
 }
 
 .priority-badge[data-priority='URGENT'] {
@@ -994,20 +1019,62 @@ button.workspace-switcher:focus-visible {
 }
 
 .priority-badge-empty {
-  background: var(--md-surface-container-high);
+  background: transparent;
   color: var(--md-on-surface-variant);
 }
 
+/* The swatch carries the label's identity; the chip around it carried nothing. */
 .label-badge {
-  background: var(--md-secondary-container);
-  color: var(--md-on-secondary-container);
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  font-weight: 500;
+  padding: 0;
 }
 
+/* Chroma is pinned to the palette's, lightness is left alone. New labels come
+   from LABEL_COLORS and are unaffected; labels written by the old free colour
+   picker get pulled into the family instead of sitting outside it. Normalising
+   lightness too would flatten the palette's deliberate 0.54/0.72 rhythm, which
+   is the part carrying its colour-blind separation. */
 .label-swatch {
   width: 8px;
   height: 8px;
   flex: 0 0 auto;
   border-radius: var(--md-shape-full);
+  background: oklch(from var(--swatch) l 0.13 h);
+}
+
+.label-color-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.label-color-option {
+  width: 20px;
+  height: 20px;
+  border: 2px solid transparent;
+  border-radius: var(--md-shape-full);
+  background: var(--swatch);
+  background-clip: padding-box;
+  padding: 0;
+  cursor: pointer;
+  transition: outline-color var(--md-duration-short) var(--md-easing);
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+.label-color-option:hover:not(:disabled) {
+  outline-color: var(--md-outline-variant);
+}
+
+.label-color-option[aria-checked='true'] {
+  outline-color: var(--md-on-surface);
+}
+
+.label-color-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .issue-label-row {

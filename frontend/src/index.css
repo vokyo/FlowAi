@@ -46,45 +46,50 @@
 
   /* === MD3 tonal palette — light =========================================== */
 
-  /* Primary: the seed. Carries CTAs, focus, and the active nav state. */
-  --md-primary: oklch(0.4955 0.1305 293.7);
+  /* Primary: the accent. Carries CTAs, focus, and the active nav state — and
+     nothing else. Bluer and lower-chroma than the old seed, with a container
+     that is nearly neutral, so the accent marks things instead of flooding
+     them. Colour is a budget; the surfaces below spend none of it. */
+  --md-primary: oklch(0.5300 0.1500 277);
   --md-on-primary: oklch(1 0 0);
-  --md-primary-container: oklch(0.9183 0.0477 302.8);
-  --md-on-primary-container: oklch(0.2420 0.1404 286.1);
+  --md-primary-container: oklch(0.9520 0.0230 277);
+  --md-on-primary-container: oklch(0.3200 0.1150 277);
 
-  /* Secondary: desaturated companion for chips, pills, quieter containers. */
-  --md-secondary: oklch(0.4859 0.0358 299.6);
+  /* Secondary: a true neutral. Chips and quiet containers should not carry a
+     hue at all — that job belongs to labels, status, and priority. */
+  --md-secondary: oklch(0.4800 0 0);
   --md-on-secondary: oklch(1 0 0);
-  --md-secondary-container: oklch(0.9163 0.0365 303.1);
-  --md-on-secondary-container: oklch(0.2272 0.0347 293.7);
+  --md-secondary-container: oklch(0.9550 0 0);
+  --md-on-secondary-container: oklch(0.3000 0 0);
 
-  /* Tertiary: the dusty rose accent. Reserved for FABs and AI surfaces so it
-     stays meaningful instead of becoming a third neutral. */
-  --md-tertiary: oklch(0.4904 0.0605 358.4);
+  /* Tertiary now tracks primary rather than introducing a third hue. */
+  --md-tertiary: oklch(0.5300 0.1500 277);
   --md-on-tertiary: oklch(1 0 0);
-  --md-tertiary-container: oklch(0.9184 0.0460 357.6);
-  --md-on-tertiary-container: oklch(0.2323 0.0543 358.6);
+  --md-tertiary-container: oklch(0.9520 0.0230 277);
+  --md-on-tertiary-container: oklch(0.3200 0.1150 277);
 
   --md-error: oklch(0.5013 0.1783 28.7);
   --md-on-error: oklch(1 0 0);
   --md-error-container: oklch(0.9221 0.0301 22.8);
   --md-on-error-container: oklch(0.2539 0.0794 27.6);
 
-  /* Surface ramp. Depth here comes from tone, not shadow — every step is a
-     real colour difference, which is why cards need almost no elevation. */
-  --md-surface: oklch(0.9920 0.0058 334.0);
-  --md-on-surface: oklch(0.2249 0.0078 297.2);
-  --md-surface-variant: oklch(0.9157 0.0177 311.6);
-  --md-on-surface-variant: oklch(0.3981 0.0174 303.7);
+  /* Surface ramp. Chroma is zero on every step and the ladder is deliberately
+     tight: separation comes from `--md-outline-variant` as a hairline, not
+     from tinting five containers. The previous ramp carried ~0.015 chroma at
+     hue 312, which is what made every screen read faintly purple. */
+  --md-surface: oklch(0.9940 0 0);
+  --md-on-surface: oklch(0.2100 0 0);
+  --md-surface-variant: oklch(0.9550 0 0);
+  --md-on-surface-variant: oklch(0.4600 0 0);
 
   --md-surface-container-lowest: oklch(1 0 0);
-  --md-surface-container-low: oklch(0.9673 0.0118 313.2);
-  --md-surface-container: oklch(0.9536 0.0147 312.2);
-  --md-surface-container-high: oklch(0.9325 0.0148 312.2);
-  --md-surface-container-highest: oklch(0.9140 0.0137 314.8);
+  --md-surface-container-low: oklch(0.9840 0 0);
+  --md-surface-container: oklch(0.9740 0 0);
+  --md-surface-container-high: oklch(0.9620 0 0);
+  --md-surface-container-highest: oklch(0.9480 0 0);
 
-  --md-outline: oklch(0.5667 0.0163 308.1);
-  --md-outline-variant: oklch(0.8287 0.0178 308.2);
+  --md-outline: oklch(0.7000 0 0);
+  --md-outline-variant: oklch(0.9020 0 0);
 
   --md-inverse-surface: oklch(0.3114 0.0055 301.2);
   --md-inverse-on-surface: oklch(0.9574 0.0085 325.6);
@@ -96,12 +101,15 @@
      colour over the element, rather than swapping the base colour. Two families,
      because the maths differs: solid-fill elements dial their own colour down;
      transparent elements pick the primary up.
+
+     Halved against the MD3 reference: on a neutral ramp a 10% primary wash is
+     a colour change, not a hover. Quieter states keep the accent meaningful.
      ------------------------------------------------------------------------ */
-  --md-state-hover-on-fill: 0.90;   /* filled button at rest -> hover */
-  --md-state-press-on-fill: 0.80;   /* filled button -> pressed */
-  --md-state-hover: 0.10;           /* transparent surface -> hover */
-  --md-state-focus: 0.05;           /* transparent surface -> focus */
-  --md-state-drag: 0.16;
+  --md-state-hover-on-fill: 0.92;   /* filled button at rest -> hover */
+  --md-state-press-on-fill: 0.84;   /* filled button -> pressed */
+  --md-state-hover: 0.05;           /* transparent surface -> hover */
+  --md-state-focus: 0.04;           /* transparent surface -> focus */
+  --md-state-drag: 0.10;
 
   /* === Motion ==============================================================
      `--md-easing` is MD3's emphasised-decelerate curve: quick to commit, slow
@@ -109,40 +117,41 @@
      system rather than a pile of transitions. */
   --md-easing: cubic-bezier(0.2, 0, 0, 1);
   --md-easing-accelerate: cubic-bezier(0.3, 0, 1, 1);
-  --md-duration-short: 200ms;
-  --md-duration-medium: 300ms;
-  --md-duration-long: 400ms;
+  --md-duration-short: 120ms;
+  --md-duration-medium: 180ms;
+  --md-duration-long: 240ms;
 
   /* === Shape ===============================================================
-     MD3's shape scale. Generous by default — the radius is architectural here,
-     not a finishing touch. Density calibration for this app: cards take
-     `md` (16px), dense rows take `sm` (12px), dialogs take `xl` (28px), and
-     the expressive 32-48px sizes are reserved for low-density surfaces
-     (auth, empty states, settings hero). Buttons and chips are always full. */
-  --md-shape-xs: 8px;
-  --md-shape-sm: 12px;
-  --md-shape-md: 16px;
-  --md-shape-lg: 24px;
-  --md-shape-xl: 28px;
-  --md-shape-2xl: 32px;
-  --md-shape-3xl: 48px;
+     Radius is a finishing touch here, not architecture. The scale keeps its
+     seven steps and every consumer keeps its step — a card is still `md`, a
+     dialog still `xl` — but the whole ladder is roughly halved, because a
+     16-28px radius on a dense desktop tool reads soft rather than precise.
+     `full` stays for the things that really are capsules: avatars and the
+     workspace switcher. */
+  --md-shape-xs: 4px;
+  --md-shape-sm: 6px;
+  --md-shape-md: 8px;
+  --md-shape-lg: 10px;
+  --md-shape-xl: 12px;
+  --md-shape-2xl: 14px;
+  --md-shape-3xl: 16px;
   --md-shape-full: 9999px;
 
   /* === Elevation ===========================================================
-     Tinted toward the neutral-variant hue rather than pure black, so shadows
-     sit in the same tonal family as the surfaces they fall on. Deliberately
-     softer than the MD3 reference values: with a real surface ramp doing the
-     depth work, heavy shadows just look muddy. */
-  --elevation-1: 0 1px 2px oklch(0.2249 0.0078 297.2 / 0.06);
+     Neutral black at low alpha, and barely there. The surface ramp no longer
+     carries a hue for shadows to match, and the hairline outline does most of
+     the separating — so these exist for genuinely floating things (menus,
+     dialogs, a dragged card) rather than for every resting card. */
+  --elevation-1: 0 1px 1px oklch(0 0 0 / 0.04);
   --elevation-2:
-    0 1px 2px oklch(0.2249 0.0078 297.2 / 0.06),
-    0 4px 12px oklch(0.2249 0.0078 297.2 / 0.09);
+    0 1px 2px oklch(0 0 0 / 0.06),
+    0 2px 6px oklch(0 0 0 / 0.05);
   --elevation-3:
-    0 4px 10px oklch(0.2249 0.0078 297.2 / 0.09),
-    0 12px 32px oklch(0.2249 0.0078 297.2 / 0.12);
+    0 2px 8px oklch(0 0 0 / 0.08),
+    0 8px 20px oklch(0 0 0 / 0.07);
   --elevation-4:
-    0 8px 20px oklch(0.2249 0.0078 297.2 / 0.12),
-    0 24px 56px oklch(0.2249 0.0078 297.2 / 0.16);
+    0 8px 24px oklch(0 0 0 / 0.10),
+    0 16px 40px oklch(0 0 0 / 0.10);
 
   /* Brand alias. The seed *is* the brand now, so the sidebar accent and the
      MD3 primary are one colour instead of two violets a few degrees apart. */
@@ -151,37 +160,44 @@
   /* === Status and priority =================================================
      These are the app's one *categorical* palette — they identify workflow
      states on the board, in the list, and as series in the analytics bars — so
-     they are chosen by validation, not by eye. The four active states clear
-     all-pairs CVD separation (worst ΔE 14.1 protan/deutan) and the
-     normal-vision floor (worst ΔE 21.1) against the light surface.
+     they are chosen by validation, not by eye. Measured with CIEDE2000 over
+     Viénot-Brettel-Mollon dichromat simulation, all pairs, against the column
+     tint: normal 27.1, protan 17.1, deutan 10.1, tritan 13.4. Contrast against
+     that tint is 3.24 / 5.25 / 6.50, so every one clears 3:1 as a non-text mark.
 
-     In-progress is anchored to the seed, which is what ties the board to the
-     brand. The first attempt gave Todo the MD3 secondary — but a low-chroma
-     purple beside the primary purple failed both the chroma floor and the
-     normal-vision floor, so Todo is re-stepped onto a cyan far enough from both
-     the primary and Done to survive colour-blind simulation.
+     Chroma is near-constant and hue does the identifying, but lightness is a
+     deliberate descending ladder (0.63 -> 0.53 -> 0.45) and that is the part
+     that must not be "tidied" away. A flat-lightness version of this ramp was
+     tried — it looks more systematic and it collapses under simulation: deutan
+     worst-pair falls from 10.1 to 1.8, because lightness is the one channel a
+     dichromat still has. Vary hue for identity; keep the lightness ladder for
+     everyone who cannot use it.
 
      Archived sits outside the set on purpose: it is a muted, inactive state
      rather than a series, and it always ships with an icon and a text label.
 
-     Containers sit at MD3 tone ~94 on the matching hue, so a column header and
-     its fill read as one pair rather than ink beside an unrelated wash. */
-  --status-todo: oklch(0.65 0.130 225);
-  --status-progress: var(--md-primary);
-  --status-done: oklch(0.48 0.110 163);
-  --status-review: oklch(0.66 0.140 77);
+     The `-tint` companions used to be tone-94 washes of the matching hue. They
+     are neutral now: a whole column flooded with its status colour buries the
+     cards it contains. Hue is carried by the icon, which is where it is read. */
+  --status-todo: oklch(0.63 0.130 248);
+  --status-progress: oklch(0.53 0.150 298);
+  --status-done: oklch(0.45 0.130 158);
   --status-archived: var(--md-outline);
 
-  --status-todo-tint: oklch(0.9450 0.0320 225);
-  --status-progress-tint: oklch(0.9380 0.0330 300);
-  --status-done-tint: oklch(0.9440 0.0360 163);
-  --status-review-tint: oklch(0.9460 0.0400 77);
-  --status-archived-tint: oklch(0.9480 0.0090 308);
+  /* Tints are neutral now. A board column filled with its status hue turns the
+     status into wallpaper — three saturated columns competing with the cards
+     inside them. The hue survives where it is actually read: the header icon. */
+  --status-todo-tint: oklch(0.9760 0 0);
+  --status-progress-tint: oklch(0.9760 0 0);
+  --status-done-tint: oklch(0.9760 0 0);
 
-  --priority-urgent: var(--md-error);
-  --priority-high: oklch(0.57 0.145 55);
-  --priority-medium: oklch(0.52 0.115 250);
-  --priority-low: var(--md-outline);
+  /* Same rule as the status ramp: hue identifies, the lightness ladder is what
+     survives simulation. All pairs — normal 22.9, protan 23.5, deutan 24.1,
+     tritan 15.6; contrast 5.61 / 3.24 / 4.33 / 3.40. */
+  --priority-urgent: oklch(0.52 0.170 25);
+  --priority-high: oklch(0.64 0.140 68);
+  --priority-medium: oklch(0.56 0.130 250);
+  --priority-low: oklch(0.62 0 0);
 
   /* === shadcn / legacy aliases =============================================
      Everything below is a pointer, not a value. Feature CSS and the shadcn
@@ -370,48 +386,49 @@ p {
   --ease-md: var(--md-easing);
 }
 
-/* MD3 dark tonal palette, generated from the same #6750A4 seed. Nothing toggles
+/* Dark palette, kept in step with the neutral light ramp above. Nothing toggles
    .dark yet, so this ships unused — but it is authored, not stubbed, so a future
    theme switch is a class and a `color-scheme` change rather than a colour pass.
    Only the roles are restated; every alias above resolves through them. */
 .dark {
-  --md-primary: oklch(0.8349 0.0946 298.0);
-  --md-on-primary: oklch(0.3251 0.1353 291.2);
-  --md-primary-container: oklch(0.4103 0.1337 292.7);
-  --md-on-primary-container: oklch(0.9183 0.0477 302.8);
+  --md-primary: oklch(0.7200 0.1300 277);
+  --md-on-primary: oklch(0.2200 0.0800 277);
+  --md-primary-container: oklch(0.3600 0.1000 277);
+  --md-on-primary-container: oklch(0.9100 0.0400 277);
 
-  --md-secondary: oklch(0.8303 0.0374 303.0);
-  --md-on-secondary: oklch(0.2272 0.0347 293.7);
-  --md-secondary-container: oklch(0.4005 0.0340 298.6);
-  --md-on-secondary-container: oklch(0.9163 0.0365 303.1);
+  --md-secondary: oklch(0.7600 0 0);
+  --md-on-secondary: oklch(0.2000 0 0);
+  --md-secondary-container: oklch(0.3200 0 0);
+  --md-on-secondary-container: oklch(0.9100 0 0);
 
-  --md-tertiary: oklch(0.8367 0.0666 359.4);
-  --md-on-tertiary: oklch(0.2323 0.0543 358.6);
-  --md-tertiary-container: oklch(0.4044 0.0591 359.1);
-  --md-on-tertiary-container: oklch(0.9184 0.0460 357.6);
+  --md-tertiary: oklch(0.7200 0.1300 277);
+  --md-on-tertiary: oklch(0.2200 0.0800 277);
+  --md-tertiary-container: oklch(0.3600 0.1000 277);
+  --md-on-tertiary-container: oklch(0.9100 0.0400 277);
 
-  --md-error: oklch(0.8345 0.0677 22.0);
-  --md-on-error: oklch(0.2539 0.0794 27.6);
-  --md-error-container: oklch(0.4200 0.1473 28.1);
-  --md-on-error-container: oklch(0.9221 0.0301 22.8);
+  --md-error: oklch(0.7400 0.1400 25);
+  --md-on-error: oklch(0.2300 0.0700 25);
+  --md-error-container: oklch(0.3800 0.1200 25);
+  --md-on-error-container: oklch(0.9200 0.0300 25);
 
-  --md-surface: oklch(0.1874 0.0124 300.4);
-  --md-on-surface: oklch(0.9140 0.0137 314.8);
-  --md-surface-variant: oklch(0.3981 0.0174 303.7);
-  --md-on-surface-variant: oklch(0.8287 0.0178 308.2);
+  /* Same principle as light: zero chroma, tight ladder, hairline separation. */
+  --md-surface: oklch(0.1750 0 0);
+  --md-on-surface: oklch(0.9300 0 0);
+  --md-surface-variant: oklch(0.3000 0 0);
+  --md-on-surface-variant: oklch(0.7000 0 0);
 
-  --md-surface-container-lowest: oklch(0.1645 0.0128 300.2);
-  --md-surface-container-low: oklch(0.2265 0.0100 303.7);
-  --md-surface-container: oklch(0.2445 0.0134 298.5);
-  --md-surface-container-high: oklch(0.2859 0.0129 298.6);
-  --md-surface-container-highest: oklch(0.3298 0.0125 298.8);
+  --md-surface-container-lowest: oklch(0.1500 0 0);
+  --md-surface-container-low: oklch(0.1950 0 0);
+  --md-surface-container: oklch(0.2150 0 0);
+  --md-surface-container-high: oklch(0.2450 0 0);
+  --md-surface-container-highest: oklch(0.2750 0 0);
 
-  --md-outline: oklch(0.6566 0.0153 304.0);
-  --md-outline-variant: oklch(0.3981 0.0174 303.7);
+  --md-outline: oklch(0.5200 0 0);
+  --md-outline-variant: oklch(0.3000 0 0);
 
-  --md-inverse-surface: oklch(0.9140 0.0137 314.8);
-  --md-inverse-on-surface: oklch(0.3107 0.0113 308.1);
-  --md-inverse-primary: oklch(0.4955 0.1305 293.7);
+  --md-inverse-surface: oklch(0.9300 0 0);
+  --md-inverse-on-surface: oklch(0.2200 0 0);
+  --md-inverse-primary: oklch(0.5300 0.1500 277);
 
   /* Dark needs its own validated steps rather than a lightened copy: the
      accessible band on a dark surface is L 0.48-0.67, so MD3's pale dark
@@ -422,15 +439,12 @@ p {
   --status-todo: oklch(0.58 0.110 240);
   --status-progress: oklch(0.67 0.190 296);
   --status-done: oklch(0.63 0.130 168);
-  --status-review: oklch(0.62 0.140 70);
 
   /* Containers need more presence against a dark surface than the light-mode
      tints do against a light one, so these sit at tone ~28 rather than ~94. */
-  --status-todo-tint: oklch(0.2780 0.0300 240);
-  --status-progress-tint: oklch(0.2850 0.0400 296);
-  --status-done-tint: oklch(0.2800 0.0330 168);
-  --status-review-tint: oklch(0.2820 0.0340 70);
-  --status-archived-tint: oklch(0.2700 0.0080 306);
+  --status-todo-tint: oklch(0.2050 0 0);
+  --status-progress-tint: oklch(0.2050 0 0);
+  --status-done-tint: oklch(0.2050 0 0);
 
   --priority-high: oklch(0.80 0.130 62);
   --priority-medium: oklch(0.76 0.110 250);
