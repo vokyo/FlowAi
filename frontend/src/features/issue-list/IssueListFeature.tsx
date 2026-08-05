@@ -38,7 +38,7 @@ import {
   type QuickCreateIssueMutationVariables,
 } from '@/domain/project-model'
 import type { IssueViewMode } from '@/routing/route-utils'
-import { formatDate, formatDateOnly, statusForIcon } from '@/ui/display-utils'
+import { formatDateOnly, statusForIcon } from '@/ui/display-utils'
 import {
   BreadcrumbLine,
   EmptyState,
@@ -539,7 +539,6 @@ function IssueRow({
       </span>
       <span className="issue-row-main">
         <strong>{issue.title}</strong>
-        {issue.description ? <small>{issue.description}</small> : null}
         {issue.labels.length > 0 ? (
           <span className="issue-label-row">
             {issue.labels.map((label) => (
@@ -548,11 +547,10 @@ function IssueRow({
           </span>
         ) : null}
       </span>
+      {/* Rows are grouped by workflow state, so the section header above already
+          names the status every row in it carries. Keep this in step with
+          KanbanIssueCardContent, which shows the same four facts. */}
       <span className="issue-row-meta">
-        <span className="issue-comment-count">
-          <CircleDot aria-hidden="true" />
-          {issue.status === 'ARCHIVED' ? 'Archived' : issue.workflowState.name}
-        </span>
         <PriorityBadge priority={issue.priority} />
         <span className="issue-comment-count">
           <UserCircle aria-hidden="true" />
@@ -568,7 +566,6 @@ function IssueRow({
           <MessageSquare aria-hidden="true" />
           {issue.commentCount ?? 0}
         </span>
-        <span>{formatDate(issue.updatedAt)}</span>
       </span>
     </button>
   )
