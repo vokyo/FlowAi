@@ -24,6 +24,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { InlineState } from '@/ui/feature-ui'
 import type { AuthUser, AuthWorkspace } from '@/api/auth-api'
 import type { Project } from '@/api/work-api'
 import type { BoardIssueView } from '@/domain/board-utils'
@@ -455,10 +456,6 @@ function ProjectList({
       ))}
     </div>
   )
-}
-
-function InlineState({ children }: { children: React.ReactNode }) {
-  return <p className="inline-state">{children}</p>
 }
 
 function ErrorState({ error }: { error: Error }) {
