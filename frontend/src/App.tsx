@@ -23,6 +23,9 @@ const ProjectShellPage = lazy(() =>
 )
 const InvitationPage = lazy(() => import('@/pages/InvitationPage').then((module) => ({ default: module.InvitationPage })))
 const SettingsPage = lazy(() => import('@/pages/SettingsPage').then((module) => ({ default: module.SettingsPage })))
+const ProjectSettingsPage = lazy(() =>
+  import('@/pages/ProjectSettingsPage').then((module) => ({ default: module.ProjectSettingsPage })),
+)
 
 function App() {
   return <AppRoutes />
@@ -139,6 +142,14 @@ function AppRoutes() {
       <Route
         path="/app/workspaces/:workspaceId/projects/:projectId/issues/:issueId"
         element={renderProjectShell()}
+      />
+      <Route
+        path="/app/workspaces/:workspaceId/projects/:projectId/settings"
+        element={
+          <RequireAuth sessionVersion={sessionVersion}>
+            <Suspense fallback={<RouteLoading />}><ProjectSettingsPage /></Suspense>
+          </RequireAuth>
+        }
       />
       <Route
         path="/app/settings"

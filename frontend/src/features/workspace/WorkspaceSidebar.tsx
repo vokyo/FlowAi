@@ -10,6 +10,7 @@ import {
   Loader2,
   LogOut,
   Mail,
+  MoreHorizontal,
   PanelRight,
   Plus,
   Settings,
@@ -25,6 +26,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { InlineState } from '@/ui/feature-ui'
+import { projectSettingsPath } from '@/routing/route-utils'
 import type { AuthUser, AuthWorkspace } from '@/api/auth-api'
 import type { Project } from '@/api/work-api'
 import type { BoardIssueView } from '@/domain/board-utils'
@@ -291,9 +293,34 @@ export function WorkspaceSidebar({
               onMobileClose()
               onProjectSelect(projectId)
             }}
+            onProjectSettings={(projectId) => {
+              onMobileClose()
+              if (currentWorkspace) navigate(projectSettingsPath(currentWorkspace.id, projectId))
+            }}
             isLoading={isLoadingProjects}
           />
         ) : null}
+      </nav>
+
+      <nav className="sidebar-section sidebar-footer-section" aria-label="Settings">
+        <div className="sidebar-list">
+          {/* No active state: the settings routes render standalone pages
+              without this sidebar, so it is never on screen at /app/settings. */}
+          <Button
+            variant="ghost"
+            className="sidebar-list-item"
+            type="button"
+            onClick={() => {
+              onMobileClose()
+              navigate('/app/settings')
+            }}
+          >
+            <Settings aria-hidden="true" />
+            <span>
+              <strong>Settings</strong>
+            </span>
+          </Button>
+        </div>
       </nav>
     </aside>
   )
@@ -425,11 +452,13 @@ function ProjectList({
   projects,
   selectedProjectId,
   onProjectSelect,
+  onProjectSettings,
   isLoading,
 }: {
   projects: Project[]
   selectedProjectId: string | null
   onProjectSelect: (projectId: string) => void
+  onProjectSettings: (projectId: string) => void
   isLoading: boolean
 }) {
   // An empty section renders as nothing. The header already carries the count
@@ -442,22 +471,43 @@ function ProjectList({
   return (
     <div className="sidebar-list">
       {projects.map((project) => (
-        <Button
-          variant="ghost"
-          className="sidebar-list-item"
-          data-active={project.id === selectedProjectId}
-          key={project.id}
-          type="button"
-          onClick={() => onProjectSelect(project.id)}
-        >
-          <FolderKanban aria-hidden="true" />
-          {/* Name only, like the view items above. The row wraps rather than
-              truncates, so a description here sets the sidebar's width against
-              whatever the longest one happens to be. */}
-          <span>
-            <strong>{project.name}</strong>
-          </span>
-        </Button>
+        <div className="sidebar-project-row" key={project.id}>
+          <Button
+            variant="ghost"
+            className="sidebar-list-item"
+            data-active={project.id === selectedProjectId}
+            type="button"
+            onClick={() => onProjectSelect(project.id)}
+          >
+            <FolderKanban aria-hidden="true" />
+            {/* Name only, like the view items above. The row wraps rather than
+                truncates, so a description here sets the sidebar's width against
+                whatever the longest one happens to be. */}
+            <span>
+              <strong>{project.name}</strong>
+            </span>
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                className="sidebar-project-menu-trigger"
+                aria-label={`Actions for ${project.name}`}
+                title="Project actions"
+              >
+                <MoreHorizontal aria-hidden="true" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-52">
+              <DropdownMenuItem onSelect={() => onProjectSettings(project.id)}>
+                <Settings aria-hidden="true" />
+                Project settings
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       ))}
     </div>
   )

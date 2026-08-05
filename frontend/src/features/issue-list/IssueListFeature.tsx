@@ -9,6 +9,7 @@ import {
   MessageSquare,
   Plus,
   Search,
+  Settings,
   UserCircle,
   Users,
 } from 'lucide-react'
@@ -98,6 +99,7 @@ export function IssueListFeature({
   onIssueViewModeChange,
   onClearIssueFilters,
   onOpenProjectMembers,
+  onOpenProjectSettings,
   onOpenProjectWorkflow,
   onOpenCreateProject,
   onOpenCreateIssue,
@@ -152,6 +154,7 @@ export function IssueListFeature({
   onIssueViewModeChange: (viewMode: IssueViewMode) => void
   onClearIssueFilters: () => void
   onOpenProjectMembers: () => void
+  onOpenProjectSettings: () => void
   onOpenProjectWorkflow: () => void
   onOpenCreateProject: () => void
   onOpenCreateIssue: (
@@ -248,6 +251,18 @@ export function IssueListFeature({
             >
               <Users aria-hidden="true" />
               {isLoadingProjectMembers ? 'Members' : `${projectMembers.length} members`}
+            </Button>
+          ) : null}
+          {selectedProject ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={onOpenProjectSettings}
+              aria-label={`Settings for ${selectedProject.name}`}
+              title="Project settings"
+            >
+              <Settings aria-hidden="true" />
             </Button>
           ) : null}
           <Button

@@ -319,6 +319,33 @@
   line-height: 1.5;
 }
 
+.settings-hint {
+  margin: 0;
+  color: var(--md-on-surface-variant);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.settings-hint code {
+  border-radius: var(--md-shape-xs);
+  background: var(--md-surface-container-high);
+  padding: 1px 5px;
+  font-size: 11px;
+}
+
+/* The project settings card is titled by its page heading, so its own <h2> is
+   for the accessibility tree only — the section still needs an accessible name. */
+.settings-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .settings-message-error,
 .settings-danger-text {
   color: var(--md-error);

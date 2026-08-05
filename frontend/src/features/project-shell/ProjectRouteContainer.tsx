@@ -22,6 +22,7 @@ import type {
 import {
   issuePath,
   pathWithSearchParams,
+  projectSettingsPath,
   workViewSearchParams,
   type IssueViewMode,
 } from '@/routing/route-utils'
@@ -428,6 +429,11 @@ export function ProjectRouteContainer({
           onIssueViewModeChange={(viewMode) => setSearchParams(workViewSearchParams(searchParams, viewMode, boardIssueView))}
           onClearIssueFilters={clearIssueFilters}
           onOpenProjectMembers={openProjectMembersDialog}
+          onOpenProjectSettings={() => {
+            if (workspaceId && selectedProjectId) {
+              navigate(projectSettingsPath(workspaceId, selectedProjectId))
+            }
+          }}
           onOpenProjectWorkflow={openProjectWorkflowDialog}
           onOpenCreateProject={onOpenCreateProject}
           onOpenCreateIssue={openCreateIssueDialog}
