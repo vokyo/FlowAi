@@ -1,5 +1,6 @@
-import { useRef, type ReactNode } from 'react'
-import { Building2, CheckCircle2, Circle, CircleDot, Flag, X } from 'lucide-react'
+import { useRef, type CSSProperties, type ReactNode } from 'react'
+import { Building2, Flag, X } from 'lucide-react'
+import { LABEL_COLORS } from '@/ui/label-colors'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import type { IssuePriority, IssueStatus, ProjectLabel } from '@/api/work-api'
@@ -67,11 +68,46 @@ export function BreadcrumbLine({ items }: { items: string[] }) {
   ))}</p>
 }
 
+/**
+ * One glyph family rather than three borrowed icons: a ring, plus a wedge whose
+ * angle is how far the state has got. Todo/In progress/Done used to be Circle,
+ * CircleDot and CheckCircle2 — three shapes from three metaphors, so the set
+ * read as unrelated marks instead of a scale.
+ *
+ * Angles are fixed because the categories are: WorkflowStateCategory on the
+ * backend is exactly TODO, IN_PROGRESS and DONE.
+ */
 export function StatusIcon({ status }: { status: IssueStatus }) {
-  if (status === 'DONE') return <CheckCircle2 aria-hidden="true" className="status-icon status-icon-done" />
-  if (status === 'IN_PROGRESS') return <CircleDot aria-hidden="true" className="status-icon status-icon-progress" />
-  if (status === 'ARCHIVED') return <Circle aria-hidden="true" className="status-icon status-icon-muted" />
-  return <Circle aria-hidden="true" className="status-icon" />
+  if (status === 'DONE') {
+    return (
+      <svg className="status-icon status-icon-done" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <circle cx="8" cy="8" r="7" fill="currentColor" />
+        <path
+          d="m5.2 8.1 1.9 1.9 3.7-4.2"
+          stroke="var(--md-surface-container-lowest)"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    )
+  }
+
+  const className = status === 'IN_PROGRESS'
+    ? 'status-icon status-icon-progress'
+    : status === 'ARCHIVED'
+      ? 'status-icon status-icon-muted'
+      : 'status-icon'
+
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="6.25" stroke="currentColor" strokeWidth="1.5" />
+      {/* Half wedge: from 12 o'clock, sweeping clockwise to 6 o'clock. */}
+      {status === 'IN_PROGRESS' ? (
+        <path d="M8 8 L8 4.4 A3.6 3.6 0 0 1 8 11.6 Z" fill="currentColor" />
+      ) : null}
+    </svg>
+  )
 }
 
 export function PriorityBadge({ priority }: { priority?: IssuePriority | null }) {
@@ -84,7 +120,38 @@ export function PriorityBadge({ priority }: { priority?: IssuePriority | null })
 }
 
 export function LabelBadge({ label }: { label: ProjectLabel }) {
-  return <span className="label-badge"><span className="label-swatch" style={{ backgroundColor: label.color }} aria-hidden="true" />{label.name}</span>
+  // The colour goes in via a custom property rather than background-color so the
+  // stylesheet can pull legacy values toward the palette's chroma — see
+  // .label-swatch. Colours written before LABEL_COLORS existed are arbitrary.
+  return <span className="label-badge"><span className="label-swatch" style={{ '--swatch': label.color } as CSSProperties} aria-hidden="true" />{label.name}</span>
+}
+
+/** Radiogroup of the eight palette swatches. Replaces a free colour picker. */
+export function LabelColorPicker({ value, onChange, disabled = false, idPrefix }: {
+  value: string
+  onChange: (color: string) => void
+  disabled?: boolean
+  idPrefix: string
+}) {
+  return (
+    <div className="label-color-picker" role="radiogroup" aria-label="Label color">
+      {LABEL_COLORS.map((color) => (
+        <button
+          key={color.value}
+          id={`${idPrefix}-${color.name}`}
+          className="label-color-option"
+          type="button"
+          role="radio"
+          aria-checked={value.toLowerCase() === color.value}
+          aria-label={color.name}
+          title={color.name}
+          disabled={disabled}
+          style={{ '--swatch': color.value } as CSSProperties}
+          onClick={() => onChange(color.value)}
+        />
+      ))}
+    </div>
+  )
 }
 
 export function InlineState({ children }: { children: ReactNode }) {

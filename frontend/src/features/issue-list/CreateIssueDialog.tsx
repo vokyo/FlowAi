@@ -27,6 +27,7 @@ import {
   InlineNotice,
   InlineState,
   LabelBadge,
+  LabelColorPicker,
   ModalShell,
   StatusIcon,
 } from '@/ui/feature-ui'
@@ -89,6 +90,7 @@ export function CreateIssueDialog({
     handleSubmit: handleLabelSubmit,
     reset: resetLabelForm,
     control: labelControl,
+    setValue: setLabelValue,
     formState: { errors: labelErrors },
   } = useForm<CreateProjectLabelFormValues>({
     resolver: zodResolver(createProjectLabelFormSchema),
@@ -101,6 +103,7 @@ export function CreateIssueDialog({
   const issueWorkflowStateId = useWatch({ control, name: 'workflowStateId' }) ?? ''
   const issueLabelIds = useWatch({ control, name: 'labelIds' }) ?? []
   const newLabelName = useWatch({ control: labelControl, name: 'name' }) ?? ''
+  const newLabelColor = useWatch({ control: labelControl, name: 'color' }) ?? DEFAULT_LABEL_COLOR
   const selectedWorkflowState = projectWorkflowStates.find(
     (workflowState) => workflowState.id === issueWorkflowStateId,
   )
@@ -295,14 +298,15 @@ export function CreateIssueDialog({
                 {...registerLabel('name')}
               />
             </label>
-            <label className="app-field app-field-color">
-              Color
-              <input
-                type="color"
+            <div className="app-field app-field-color">
+              <span>Color</span>
+              <LabelColorPicker
+                idPrefix="create-issue-label"
+                value={newLabelColor}
                 disabled={!selectedProject || isCreatingLabel}
-                {...registerLabel('color')}
+                onChange={(color) => setLabelValue('color', color, { shouldValidate: true })}
               />
-            </label>
+            </div>
             <Button
               type="button"
               variant="outline"

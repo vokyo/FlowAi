@@ -405,17 +405,36 @@
   accent-color: var(--md-primary);
 }
 
+/* Name and the submit button share the first row; the palette spans the second,
+   because eight swatches will not fit the 72px a colour well used to need. */
 .issue-modal-label-create {
   display: grid;
-  grid-template-columns: minmax(160px, 1fr) 72px auto;
+  grid-template-columns: minmax(160px, 1fr) auto;
   gap: 10px;
   align-items: end;
   min-width: 0;
 }
 
-.app-field-color input {
-  min-width: 0;
-  padding: 4px;
+.issue-modal-label-create > .app-field:not(.app-field-color) {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.issue-modal-label-create > button {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.app-field-color {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  gap: 6px;
+}
+
+.app-field-color > span {
+  color: var(--md-on-surface-variant);
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .issue-modal-footer {
