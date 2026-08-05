@@ -432,8 +432,11 @@ function ProjectList({
   onProjectSelect: (projectId: string) => void
   isLoading: boolean
 }) {
+  // An empty section renders as nothing. The header already carries the count
+  // and the "+" button, so a placeholder line only adds noise to the state every
+  // new workspace starts in.
   if (!isLoading && projects.length === 0) {
-    return <InlineState>No projects yet.</InlineState>
+    return null
   }
 
   return (

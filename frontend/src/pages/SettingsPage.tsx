@@ -28,6 +28,7 @@ import {
   type WorkflowStateCategory,
 } from '@/api/work-api'
 import { removeWorkspaceMember, updateWorkspaceMember, type WorkspaceRole } from '@/api/workspace-api'
+import { useProjectMemberQueries } from '@/features/project-members/useProjectMemberQueries'
 
 const categories: WorkflowStateCategory[] = ['TODO', 'IN_PROGRESS', 'DONE']
 
@@ -120,6 +121,7 @@ export function SettingsPage({ onSessionChanged }: { onSessionChanged: () => voi
                   key={selectedProject.id}
                   project={selectedProject}
                   workspaceId={workspace.id}
+                  currentUserId={user.id}
                   onProjectChanged={async () => {
                     await queryClient.invalidateQueries({ queryKey: ['projects'] })
                   }}
@@ -230,13 +232,24 @@ function WorkspaceMemberSettings({ currentUserId, currentRole, members, isLoadin
   )
 }
 
-function ProjectSettings({ project, workspaceId, onProjectChanged, onProjectRemoved }: {
+function ProjectSettings({ project, workspaceId, currentUserId, onProjectChanged, onProjectRemoved }: {
   project: import('@/api/work-api').Project
   workspaceId: string
+  currentUserId: string
   onProjectChanged: () => Promise<void>
   onProjectRemoved: () => Promise<void>
 }) {
   const queryClient = useQueryClient()
+  // Mirrors the backend rule: every write below except creating and renaming a
+  // label goes through requireOwnedProject*, so a member who is not the project
+  // owner would only ever collect a 403 from these controls.
+  const { isProjectOwner } = useProjectMemberQueries({
+    workspaceId,
+    projectId: project.id,
+    currentUserId,
+    enabled: true,
+    loadWorkspaceMembers: false,
+  })
   const [name, setName] = useState(project.name)
   const [description, setDescription] = useState(project.description ?? '')
   const labelsQuery = useQuery({
@@ -264,25 +277,32 @@ function ProjectSettings({ project, workspaceId, onProjectChanged, onProjectRemo
 
   return (
     <div className="project-settings-sections">
+      {!isProjectOwner ? (
+        <SettingsInlineState>You are a member of this project. Only its owner can rename, archive, or delete it, or change its workflow states.</SettingsInlineState>
+      ) : null}
       <form className="settings-form" onSubmit={(event) => { event.preventDefault(); updateMutation.mutate() }}>
-        <label className="settings-field"><span>Name</span><input required maxLength={160} value={name} onChange={(event) => setName(event.target.value)} /></label>
-        <label className="settings-field"><span>Description</span><textarea maxLength={5000} rows={3} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
+        <label className="settings-field"><span>Name</span><input required maxLength={160} disabled={!isProjectOwner} value={name} onChange={(event) => setName(event.target.value)} /></label>
+        <label className="settings-field"><span>Description</span><textarea maxLength={5000} rows={3} disabled={!isProjectOwner} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
         <MutationMessage mutation={updateMutation} success="Project saved." />
-        <Button type="submit" disabled={updateMutation.isPending || !name.trim()}><Save aria-hidden="true" /> Save project</Button>
+        {isProjectOwner ? <Button type="submit" disabled={updateMutation.isPending || !name.trim()}><Save aria-hidden="true" /> Save project</Button> : null}
       </form>
-      <LabelSettings projectId={project.id} labels={labelsQuery.data ?? []} isLoading={labelsQuery.isLoading} onChanged={invalidateLabels} />
-      <WorkflowSettings projectId={project.id} states={statesQuery.data ?? []} isLoading={statesQuery.isLoading} onChanged={invalidateStates} />
-      <div className="settings-danger-zone">
-        <h3>Danger zone</h3>
-        <p>Archiving hides this project from the workspace. Deleting permanently removes its issues, comments, labels, and activity.</p>
-        <div>{project.archivedAt ? <Button variant="outline" disabled={restoreMutation.isPending} onClick={() => restoreMutation.mutate()}>Restore project</Button> : <Button variant="outline" disabled={archiveMutation.isPending} onClick={() => { if (window.confirm(`Archive ${project.name}?`)) archiveMutation.mutate() }}>Archive project</Button>}<Button variant="destructive" disabled={deleteMutation.isPending} onClick={() => { if (window.confirm(`Permanently delete ${project.name}? This cannot be undone.`)) deleteMutation.mutate() }}><Trash2 aria-hidden="true" /> Delete project</Button></div>
-        <MutationMessage mutation={archiveMutation} /><MutationMessage mutation={restoreMutation} /><MutationMessage mutation={deleteMutation} />
-      </div>
+      <LabelSettings projectId={project.id} labels={labelsQuery.data ?? []} isLoading={labelsQuery.isLoading} canDeleteLabels={isProjectOwner} onChanged={invalidateLabels} />
+      <WorkflowSettings projectId={project.id} states={statesQuery.data ?? []} isLoading={statesQuery.isLoading} canManage={isProjectOwner} onChanged={invalidateStates} />
+      {isProjectOwner ? (
+        <div className="settings-danger-zone">
+          <h3>Danger zone</h3>
+          <p>Archiving hides this project from the workspace. Deleting permanently removes its issues, comments, labels, and activity.</p>
+          <div>{project.archivedAt ? <Button variant="outline" disabled={restoreMutation.isPending} onClick={() => restoreMutation.mutate()}>Restore project</Button> : <Button variant="outline" disabled={archiveMutation.isPending} onClick={() => { if (window.confirm(`Archive ${project.name}?`)) archiveMutation.mutate() }}>Archive project</Button>}<Button variant="destructive" disabled={deleteMutation.isPending} onClick={() => { if (window.confirm(`Permanently delete ${project.name}? This cannot be undone.`)) deleteMutation.mutate() }}><Trash2 aria-hidden="true" /> Delete project</Button></div>
+          <MutationMessage mutation={archiveMutation} /><MutationMessage mutation={restoreMutation} /><MutationMessage mutation={deleteMutation} />
+        </div>
+      ) : null}
     </div>
   )
 }
 
-function LabelSettings({ projectId, labels, isLoading, onChanged }: { projectId: string; labels: ProjectLabel[]; isLoading: boolean; onChanged: () => Promise<unknown> }) {
+// Creating and renaming a label is open to any active project member; only
+// deleting one is owner-gated, so this section stays usable for members.
+function LabelSettings({ projectId, labels, isLoading, canDeleteLabels, onChanged }: { projectId: string; labels: ProjectLabel[]; isLoading: boolean; canDeleteLabels: boolean; onChanged: () => Promise<unknown> }) {
   const [newName, setNewName] = useState('')
   const [newColor, setNewColor] = useState('#64748b')
   const createMutation = useMutation({ mutationFn: () => createProjectLabel(projectId, { name: newName.trim(), color: newColor }), onSuccess: async () => { setNewName(''); await onChanged() } })
@@ -291,34 +311,36 @@ function LabelSettings({ projectId, labels, isLoading, onChanged }: { projectId:
   return (
     <section className="settings-subsection"><div className="settings-card-heading"><Tag aria-hidden="true" /><div><h3>Labels</h3><p>Edit or remove project labels.</p></div></div>
       {isLoading ? <SettingsInlineState>Loading labels…</SettingsInlineState> : null}
-      <div className="settings-list">{labels.map((label) => <EditableLabel key={label.id} label={label} isPending={updateMutation.isPending || deleteMutation.isPending} onSave={(name, color) => updateMutation.mutate({ id: label.id, name, color })} onDelete={() => deleteMutation.mutate(label.id)} />)}</div>
+      <div className="settings-list">{labels.map((label) => <EditableLabel key={label.id} label={label} isPending={updateMutation.isPending || deleteMutation.isPending} canDelete={canDeleteLabels} onSave={(name, color) => updateMutation.mutate({ id: label.id, name, color })} onDelete={() => deleteMutation.mutate(label.id)} />)}</div>
       <form className="settings-inline-form" onSubmit={(event) => { event.preventDefault(); createMutation.mutate() }}><input aria-label="New label color" type="color" value={newColor} onChange={(event) => setNewColor(event.target.value)} /><input aria-label="New label name" placeholder="New label" maxLength={60} required value={newName} onChange={(event) => setNewName(event.target.value)} /><Button size="sm" disabled={createMutation.isPending || !newName.trim()}>Add label</Button></form>
       <MutationMessage mutation={createMutation} /><MutationMessage mutation={updateMutation} /><MutationMessage mutation={deleteMutation} />
     </section>
   )
 }
 
-function EditableLabel({ label, isPending, onSave, onDelete }: { label: ProjectLabel; isPending: boolean; onSave: (name: string, color: string) => void; onDelete: () => void }) {
+function EditableLabel({ label, isPending, canDelete, onSave, onDelete }: { label: ProjectLabel; isPending: boolean; canDelete: boolean; onSave: (name: string, color: string) => void; onDelete: () => void }) {
   const [name, setName] = useState(label.name); const [color, setColor] = useState(label.color)
-  return <div className="settings-list-row settings-edit-row"><input aria-label={`Color for ${label.name}`} type="color" value={color} onChange={(event) => setColor(event.target.value)} /><input aria-label={`Name for ${label.name}`} value={name} maxLength={60} onChange={(event) => setName(event.target.value)} /><Button size="icon-xs" variant="ghost" disabled={isPending || !name.trim()} aria-label={`Save ${label.name}`} onClick={() => onSave(name.trim(), color)}><Save aria-hidden="true" /></Button><Button size="icon-xs" variant="ghost" disabled={isPending} aria-label={`Delete ${label.name}`} onClick={() => { if (window.confirm(`Delete label ${label.name}? It will be removed from every issue.`)) onDelete() }}><Trash2 aria-hidden="true" /></Button></div>
+  return <div className="settings-list-row settings-edit-row"><input aria-label={`Color for ${label.name}`} type="color" value={color} onChange={(event) => setColor(event.target.value)} /><input aria-label={`Name for ${label.name}`} value={name} maxLength={60} onChange={(event) => setName(event.target.value)} /><Button size="icon-xs" variant="ghost" disabled={isPending || !name.trim()} aria-label={`Save ${label.name}`} onClick={() => onSave(name.trim(), color)}><Save aria-hidden="true" /></Button>{canDelete ? <Button size="icon-xs" variant="ghost" disabled={isPending} aria-label={`Delete ${label.name}`} onClick={() => { if (window.confirm(`Delete label ${label.name}? It will be removed from every issue.`)) onDelete() }}><Trash2 aria-hidden="true" /></Button> : null}</div>
 }
 
-function WorkflowSettings({ projectId, states, isLoading, onChanged }: { projectId: string; states: ProjectWorkflowState[]; isLoading: boolean; onChanged: () => Promise<unknown> }) {
+// Unlike labels, every workflow-state write is owner-gated, so a member sees
+// the states read-only rather than a form that can only fail.
+function WorkflowSettings({ projectId, states, isLoading, canManage, onChanged }: { projectId: string; states: ProjectWorkflowState[]; isLoading: boolean; canManage: boolean; onChanged: () => Promise<unknown> }) {
   const [newName, setNewName] = useState(''); const [newCategory, setNewCategory] = useState<WorkflowStateCategory>('TODO')
   const createMutation = useMutation({ mutationFn: () => createProjectWorkflowState(projectId, { name: newName.trim(), category: newCategory }), onSuccess: async () => { setNewName(''); await onChanged() } })
   const updateMutation = useMutation({ mutationFn: ({ id, name, category }: { id: string; name: string; category: WorkflowStateCategory }) => updateProjectWorkflowState(projectId, id, { name, category }), onSuccess: onChanged })
   const deleteMutation = useMutation({ mutationFn: ({ id, replacementId }: { id: string; replacementId: string }) => deleteProjectWorkflowState(projectId, id, replacementId), onSuccess: onChanged })
   return <section className="settings-subsection"><div className="settings-card-heading"><Workflow aria-hidden="true" /><div><h3>Workflow states</h3><p>Deleting a state requires moving its issues to another state.</p></div></div>
     {isLoading ? <SettingsInlineState>Loading workflow states…</SettingsInlineState> : null}
-    <div className="settings-list">{states.map((state) => <EditableWorkflowState key={state.id} state={state} states={states} isPending={updateMutation.isPending || deleteMutation.isPending} onSave={(name, category) => updateMutation.mutate({ id: state.id, name, category })} onDelete={(replacementId) => deleteMutation.mutate({ id: state.id, replacementId })} />)}</div>
-    <form className="settings-inline-form" onSubmit={(event) => { event.preventDefault(); createMutation.mutate() }}><input aria-label="New workflow state name" placeholder="New state" maxLength={60} required value={newName} onChange={(event) => setNewName(event.target.value)} /><select aria-label="New workflow category" value={newCategory} onChange={(event) => setNewCategory(event.target.value)}>{categories.map((category) => <option key={category} value={category}>{category.replace('_', ' ')}</option>)}</select><Button size="sm" disabled={createMutation.isPending || !newName.trim()}>Add state</Button></form>
+    <div className="settings-list">{states.map((state) => <EditableWorkflowState key={state.id} state={state} states={states} isPending={updateMutation.isPending || deleteMutation.isPending} canManage={canManage} onSave={(name, category) => updateMutation.mutate({ id: state.id, name, category })} onDelete={(replacementId) => deleteMutation.mutate({ id: state.id, replacementId })} />)}</div>
+    {canManage ? <form className="settings-inline-form" onSubmit={(event) => { event.preventDefault(); createMutation.mutate() }}><input aria-label="New workflow state name" placeholder="New state" maxLength={60} required value={newName} onChange={(event) => setNewName(event.target.value)} /><select aria-label="New workflow category" value={newCategory} onChange={(event) => setNewCategory(event.target.value)}>{categories.map((category) => <option key={category} value={category}>{category.replace('_', ' ')}</option>)}</select><Button size="sm" disabled={createMutation.isPending || !newName.trim()}>Add state</Button></form> : null}
     <MutationMessage mutation={createMutation} /><MutationMessage mutation={updateMutation} /><MutationMessage mutation={deleteMutation} />
   </section>
 }
 
-function EditableWorkflowState({ state, states, isPending, onSave, onDelete }: { state: ProjectWorkflowState; states: ProjectWorkflowState[]; isPending: boolean; onSave: (name: string, category: WorkflowStateCategory) => void; onDelete: (replacementId: string) => void }) {
+function EditableWorkflowState({ state, states, isPending, canManage, onSave, onDelete }: { state: ProjectWorkflowState; states: ProjectWorkflowState[]; isPending: boolean; canManage: boolean; onSave: (name: string, category: WorkflowStateCategory) => void; onDelete: (replacementId: string) => void }) {
   const [name, setName] = useState(state.name); const [category, setCategory] = useState(state.category); const replacements = states.filter((item) => item.id !== state.id); const [replacementId, setReplacementId] = useState(replacements[0]?.id ?? '')
-  return <div className="settings-workflow-row"><div className="settings-edit-row"><input aria-label={`Name for ${state.name}`} value={name} maxLength={60} onChange={(event) => setName(event.target.value)} /><select aria-label={`Category for ${state.name}`} value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option key={item} value={item}>{item.replace('_', ' ')}</option>)}</select><Button size="icon-xs" variant="ghost" disabled={isPending || !name.trim()} aria-label={`Save ${state.name}`} onClick={() => onSave(name.trim(), category)}><Save aria-hidden="true" /></Button></div><div className="settings-migration-action"><span>Move issues to</span><select aria-label={`Replacement for ${state.name}`} value={replacementId} disabled={replacements.length === 0} onChange={(event) => setReplacementId(event.target.value)}>{replacements.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><Button size="icon-xs" variant="ghost" disabled={isPending || !replacementId} aria-label={`Delete ${state.name}`} onClick={() => { if (window.confirm(`Delete ${state.name} and move its issues?`)) onDelete(replacementId) }}><Trash2 aria-hidden="true" /></Button></div></div>
+  return <div className="settings-workflow-row"><div className="settings-edit-row"><input aria-label={`Name for ${state.name}`} value={name} maxLength={60} disabled={!canManage} onChange={(event) => setName(event.target.value)} /><select aria-label={`Category for ${state.name}`} value={category} disabled={!canManage} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option key={item} value={item}>{item.replace('_', ' ')}</option>)}</select>{canManage ? <Button size="icon-xs" variant="ghost" disabled={isPending || !name.trim()} aria-label={`Save ${state.name}`} onClick={() => onSave(name.trim(), category)}><Save aria-hidden="true" /></Button> : null}</div>{canManage ? <div className="settings-migration-action"><span>Move issues to</span><select aria-label={`Replacement for ${state.name}`} value={replacementId} disabled={replacements.length === 0} onChange={(event) => setReplacementId(event.target.value)}>{replacements.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><Button size="icon-xs" variant="ghost" disabled={isPending || !replacementId} aria-label={`Delete ${state.name}`} onClick={() => { if (window.confirm(`Delete ${state.name} and move its issues?`)) onDelete(replacementId) }}><Trash2 aria-hidden="true" /></Button></div> : null}</div>
 }
 
 function MutationMessage({ mutation, success }: { mutation: { error: Error | null; isSuccess: boolean; isPending: boolean }; success?: string }) {

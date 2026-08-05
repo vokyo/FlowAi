@@ -47,6 +47,10 @@ export function useProjectMemberQueries({
   const currentProjectMember = projectMembers.find(
     (member) => member.userId === currentUserId && member.status === 'ACTIVE',
   )
+  // Every owner-gated project mutation checks this same role, so callers that
+  // need to reflect the backend's rule read the fact rather than one capability
+  // derived from it. Absent while members load, which fails closed.
+  const isProjectOwner = currentProjectMember?.role === 'OWNER'
   const activeProjectMemberUserIds = useMemo(
     () => new Set(activeProjectMembers.map((member) => member.userId)),
     [activeProjectMembers],
@@ -63,7 +67,8 @@ export function useProjectMemberQueries({
     projectMembers,
     workspaceMembers,
     activeProjectMembers,
-    canManageProjectMembers: currentProjectMember?.role === 'OWNER',
+    isProjectOwner,
+    canManageProjectMembers: isProjectOwner,
     addableWorkspaceMembers,
   }
 }
