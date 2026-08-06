@@ -344,12 +344,20 @@ test('manages profile and project configuration from settings', async ({ page, r
   await page.getByRole('button', { name: 'Save profile' }).click()
   await expect(page.getByText('Profile saved.')).toBeVisible()
 
-  await expect(page.locator('.settings-card-wide > label.settings-field select')).toHaveValue(project.id)
+  // Project settings are their own route now, so /app/settings only signposts
+  // them — there is no picker here to choose a project from.
+  await expect(page.locator('.settings-card-wide select')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Open settings for Settings project' }).click()
+  await expect(page).toHaveURL(new RegExp(`/projects/${project.id}/settings$`))
+  await expect(page.getByRole('heading', { name: 'Settings project', level: 1 })).toBeVisible()
+
   await page.getByLabel('Name', { exact: true }).fill('Renamed settings project')
   await page.getByLabel('Description').fill('Managed from the settings route')
   await page.getByRole('button', { name: 'Save project' }).click()
   await expect(page.getByText('Project saved.')).toBeVisible()
 
+  // Label colour comes from a fixed palette rather than a free colour input.
+  await expect(page.getByRole('radiogroup', { name: 'Label color' }).first()).toBeVisible()
   await page.getByLabel('New label name').fill('E2E label')
   await page.getByRole('button', { name: 'Add label' }).click()
   await expect(page.getByLabel('Name for E2E label')).toHaveValue('E2E label')
@@ -358,7 +366,7 @@ test('manages profile and project configuration from settings', async ({ page, r
   await page.getByRole('button', { name: 'Add state' }).click()
   await expect(page.getByLabel('Name for Ready to ship')).toHaveValue('Ready to ship')
 
-  await page.getByRole('button', { name: 'Back to workspace' }).click()
+  await page.getByRole('button', { name: /^Back to / }).click()
   await expect(page.getByRole('heading', { name: 'Renamed settings project' })).toBeVisible()
 })
 
