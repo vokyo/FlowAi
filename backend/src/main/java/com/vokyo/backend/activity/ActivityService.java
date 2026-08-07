@@ -14,6 +14,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -48,7 +49,17 @@ public class ActivityService {
 
     @Transactional
     public void recordIssueCreated(Issue issue, User actor) {
-        activityEventRepository.save(new ActivityEvent(
+        recordIssueCreated(issue, actor, null);
+    }
+
+    /**
+     * @param occurredAt when the issue was opened, or {@code null} to stamp the
+     *                   event with the wall clock. Backdated issues pass the
+     *                   instant they carry so the timeline matches the issue.
+     */
+    @Transactional
+    public void recordIssueCreated(Issue issue, User actor, Instant occurredAt) {
+        ActivityEvent event = activityEventRepository.save(new ActivityEvent(
                 issue.getWorkspace(),
                 issue.getProject(),
                 issue,
@@ -59,11 +70,21 @@ public class ActivityService {
                         "issueTitle", issue.getTitle()
                 )
         ));
+        backdate(event, occurredAt);
     }
 
     @Transactional
     public void recordCommentCreated(IssueComment comment, User actor) {
-        activityEventRepository.save(new ActivityEvent(
+        recordCommentCreated(comment, actor, null);
+    }
+
+    /**
+     * @param occurredAt when the comment was written, or {@code null} to stamp the
+     *                   event with the wall clock.
+     */
+    @Transactional
+    public void recordCommentCreated(IssueComment comment, User actor, Instant occurredAt) {
+        ActivityEvent event = activityEventRepository.save(new ActivityEvent(
                 comment.getWorkspace(),
                 comment.getProject(),
                 comment.getIssue(),
@@ -74,6 +95,13 @@ public class ActivityService {
                         "issueId", comment.getIssue().getId()
                 )
         ));
+        backdate(event, occurredAt);
+    }
+
+    private void backdate(ActivityEvent event, Instant occurredAt) {
+        if (occurredAt != null) {
+            event.backdateTo(occurredAt);
+        }
     }
 
     @Transactional(readOnly = true)
