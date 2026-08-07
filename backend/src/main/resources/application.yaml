@@ -46,6 +46,14 @@ app:
       enabled: ${AI_RATE_LIMIT_ENABLED:true}
       capacity: ${AI_RATE_LIMIT_CAPACITY:10}
       window: ${AI_RATE_LIMIT_WINDOW:1m}
+  # Seeds a worked-in demo workspace on startup. Off unless the deployment asks
+  # for it, so developer machines and real deployments are untouched. Moving the
+  # demo to another platform is a matter of setting DEMO_SEED_ENABLED there.
+  demo:
+    enabled: ${DEMO_SEED_ENABLED:false}
+    email: ${DEMO_SEED_EMAIL:demo@flowai.dev}
+    password: ${DEMO_SEED_PASSWORD:demo1234}
+    workspace-name: ${DEMO_SEED_WORKSPACE_NAME:Northwind Labs}
 
 
 management:
