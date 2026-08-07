@@ -12,10 +12,13 @@ The repository is a production-shaped portfolio MVP: it is designed to be runnab
 
 The deployment above runs the same containers as `docker compose up`: an Nginx image that serves the React build and proxies `/api` to the Spring Boot backend, plus managed PostgreSQL.
 
-- There is no seeded demo account. Register any email and password; registration creates a fresh workspace that is isolated from other visitors.
+**Sign in as `demo@flowai.dev` / `demo1234`** to land in a workspace that has been worked in: two projects, four members, 74 issues spread across every column, eight weeks of history, and comment threads. Registering your own email still works and creates a fresh workspace isolated from the demo one.
+
+- The demo workspace is written on startup by a seeder that is off by default and enabled with a single environment variable. It checks for the demo account first, so restarts and redeploys never duplicate it, and a database reset recreates it from scratch. See [Demo Data](#demo-data).
+- The three seeded teammates share the same password, so you can sign in as `maya@flowai.dev`, `daniel@flowai.dev`, or `priya@flowai.dev` and see the same workspace from another seat.
 - The instance runs on a small hosting plan, so the first request after an idle period can be slow while the container starts.
 - Treat it as a demo: do not store real data, and expect the database to be reset from time to time.
-- AI Copilot actions require a provider key on the server. `GET /api/ai/status` reports per-feature availability, and the UI disables the Copilot buttons instead of failing on submit when AI is off.
+- AI Copilot actions require a provider key on the server. `GET /api/ai/status` reports per-feature availability, and the UI disables the Copilot buttons instead of failing on submit when AI is off. The live demo runs with AI off and ships a **pre-generated** Copilot draft instead, so the review-and-apply flow is still explorable — see [Demo Data](#demo-data) for the link that opens it.
 
 ## Highlights
 
@@ -65,7 +68,6 @@ The deployment above runs the same containers as `docker compose up`: an Nginx i
 
 Not currently included:
 
-- A seeded demo account or sample dataset on the live instance.
 - The LangGraph agent service or MCP exposure.
 - A production operations or SLA commitment.
 
@@ -317,7 +319,7 @@ npm run test:e2e
 
 Playwright starts an isolated Spring Boot test application on port `18080` against a temporary Testcontainers PostgreSQL database, plus Vite on port `4173`. It does not reuse the development database or the normal `5173`/`8080` services.
 
-CI runs frontend lint/test/build, backend unit tests, Testcontainers integration tests, a fresh-database Flyway check, Playwright workflows, and a Docker Compose stack check that verifies `/health` plus same-origin registration over both plain HTTP and a TLS-terminated `X-Forwarded-Proto: https` request.
+CI runs frontend lint/test/build, backend unit tests, Testcontainers integration tests, a fresh-database Flyway check, a fresh-database demo seeder check, Playwright workflows, and a Docker Compose stack check that verifies `/health` plus same-origin registration over both plain HTTP and a TLS-terminated `X-Forwarded-Proto: https` request.
 
 ## Deployment Notes
 
@@ -327,8 +329,43 @@ The live instance runs the two images built from this repository on a container 
 - `BACKEND_UPSTREAM` pointing at the platform's private backend hostname. Nginx re-resolves it every 10 seconds so a backend redeploy does not leave the proxy holding a stale IP.
 - `REFRESH_COOKIE_SECURE=true`, since the platform terminates TLS. Nginx forwards the original scheme through `X-Forwarded-Proto`, and the backend reads it with `forward-headers-strategy: framework`, so redirect and cookie decisions see `https`.
 - `JWT_SECRET`, datasource credentials, and — only if the Copilot should be live — `AI_ENABLED`, `SPRING_AI_MODEL_CHAT`, and `OPENAI_API_KEY`.
+- `DEMO_SEED_ENABLED=true` on a public demo instance, which populates the workspace described under [Demo Data](#demo-data). Leave it unset anywhere real.
 
 Flyway runs on backend startup, so a deploy migrates the database before serving traffic.
+
+## Demo Data
+
+A visitor who lands in an empty workspace cannot see any of what this README claims. The backend therefore ships a seeder that writes one worked-in workspace on startup. It is off by default; the live deployment turns it on with one environment variable, and moving the demo to another platform means setting that variable there.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DEMO_SEED_ENABLED` | `false` | Turns the seeder on. Nothing is registered in the application context while it is off. |
+| `DEMO_SEED_EMAIL` | `demo@flowai.dev` | Demo account, and the marker the idempotency check reads. |
+| `DEMO_SEED_PASSWORD` | `demo1234` | Password for the demo account and the seeded teammates. |
+| `DEMO_SEED_WORKSPACE_NAME` | `Northwind Labs` | Name of the seeded workspace. |
+
+What it writes: one workspace, four members across three roles, two projects (five and four workflow states), 74 issues with cards in every column, ten labels, a spread of priorities and assignees, 16 comments over five issues, and one saved AI Copilot draft. Issue creation and completion times are spread across the past eight weeks, so the analytics completion trend has shape instead of collapsing onto today: completions cluster onto shared days carrying one to four each, with empty days between them and none on a weekend. The Web Platform project holds 56 issues, above the 50-issue page size, so the issue list actually pages.
+
+How it behaves:
+
+- **Idempotent.** The first thing it does is check whether the demo account exists; if it does it returns without writing. Restarts, redeploys and manual re-runs are no-ops.
+- **Atomic.** The whole dataset is written in one transaction. A failure part way through rolls back rather than leaving the demo account behind, which would make every later run skip a workspace that was never finished.
+- **Not a migration.** It is an `ApplicationRunner`, not Flyway, so a database reset recreates the data and schema history stays free of demo rows.
+- **Through the service layer.** Registration hands back an access token, the seeder decodes it into the same `Jwt` the resource server hands a controller, and every write goes through the ordinary services. Tenant scoping, validation, project membership, board placement and activity records all apply, so seeded rows are indistinguishable from rows a user created. No SQL, no direct repository writes.
+
+### The seeded Copilot draft
+
+The live demo runs with `AI_ENABLED` off on purpose: an open demo with a live provider key lets any visitor spend real money, and rate limiting is per user and per workspace, so everyone sharing the demo account collides on one bucket. Seeding a draft that was never generated costs nothing and still shows the editable review and the Apply flow the project is built around — Apply only ever reads the stored draft, so it works end to end with the provider off.
+
+Two consequences worth knowing:
+
+- With AI off the Copilot button is disabled, so the draft is reached by URL. The seeder logs the exact link on startup:
+  `/app/workspaces/{workspaceId}/projects/{projectId}/issues/{issueId}?copilot=breakdown&aiSuggestionType=breakdown&aiSuggestion={suggestionId}`
+- A draft expires after `AI_SUGGESTION_TTL` (default `7d`) and an expired draft cannot be applied. A long-lived demo should set `AI_SUGGESTION_TTL` to something like `3650d`, or re-seed on a reset.
+
+### Keeping it honest
+
+`DemoSeedIntegrationTests` runs in CI beside the Flyway check: it starts a clean PostgreSQL 17 container, migrates it, runs the seeder, and asserts the workspace, the issue count, that a second run changes nothing, that the list pages to a second page, that assignee, label, priority and text filters all return results, that every board column holds issues, that the completion trend has many points rather than one, and that the saved draft is still an applicable `DRAFT`.
 
 ## Repository Layout
 
