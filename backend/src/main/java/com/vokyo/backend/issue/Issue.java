@@ -13,6 +13,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.LinkedHashSet;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -251,6 +252,36 @@ public class Issue {
 
     public void moveOnBoard(long boardPosition) {
         this.boardPosition = boardPosition;
+    }
+
+    /**
+     * Restates when this issue was opened and finished, for issues whose history
+     * predates the row. Imports and seeded datasets need it: {@link #prePersist()}
+     * stamps every new issue with the wall clock, which would collapse an analytics
+     * completion trend onto a single day.
+     *
+     * <p>Only the two instants the trend and the list cursor read are restated.
+     * {@code updatedAt} keeps tracking the real last write.
+     */
+    public void backdateTo(Instant createdAt, Instant completedAt) {
+        Objects.requireNonNull(createdAt, "createdAt is required");
+        if (createdAt.isAfter(Instant.now())) {
+            throw new IllegalArgumentException("createdAt cannot be in the future");
+        }
+
+        boolean done = isDone(this.workflowState) && this.archivedAt == null;
+        if (done && completedAt == null) {
+            throw new IllegalStateException("A completed issue requires a completion time");
+        }
+        if (!done && completedAt != null) {
+            throw new IllegalStateException("Only a completed issue can carry a completion time");
+        }
+        if (completedAt != null && completedAt.isBefore(createdAt)) {
+            throw new IllegalArgumentException("completedAt cannot precede createdAt");
+        }
+
+        this.createdAt = createdAt;
+        this.completedAt = completedAt;
     }
 
     private IssueStatus statusFromWorkflowState(ProjectWorkflowState workflowState) {
