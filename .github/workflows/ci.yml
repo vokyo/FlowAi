@@ -87,6 +87,32 @@ jobs:
           ./mvnw --batch-mode -Pintegration -DskipUnitTests=true
           -Dit.test=FlywayEmptyDatabaseIntegrationTests verify
 
+  demo-seeder:
+    name: Demo seeder on a freshly migrated database
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - run: chmod +x mvnw
+      # Migrates a clean PostgreSQL 17 container, runs the seeder against it, and
+      # checks the workspace, the issue count, pagination, the filters, the
+      # completion trend, and the saved Copilot draft. Keeps the demo dataset from
+      # rotting silently as the schema moves.
+      - name: Seed and verify a fresh PostgreSQL 17 database
+        run: >-
+          ./mvnw --batch-mode -Pintegration -DskipUnitTests=true
+          -Dit.test=DemoSeedIntegrationTests verify
+
   e2e:
     name: Browser end-to-end tests
     runs-on: ubuntu-latest
