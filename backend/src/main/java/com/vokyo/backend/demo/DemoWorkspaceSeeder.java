@@ -21,8 +21,8 @@ import com.vokyo.backend.issue.Issue;
 import com.vokyo.backend.issue.IssueCommandService;
 import com.vokyo.backend.issue.IssueCreationCommand;
 import com.vokyo.backend.issue.IssueCreationService;
-import com.vokyo.backend.issue.IssueTimeline;
 import com.vokyo.backend.issue.dto.CreateCommentRequest;
+import com.vokyo.backend.issue.dto.IssueCommentResponse;
 import com.vokyo.backend.project.Project;
 import com.vokyo.backend.project.ProjectAccessService;
 import com.vokyo.backend.project.ProjectCommandService;
@@ -43,6 +43,7 @@ import com.vokyo.backend.workspace.WorkspaceAccessService;
 import com.vokyo.backend.workspace.WorkspaceInvitationService;
 import com.vokyo.backend.workspace.dto.CreateWorkspaceInvitationRequest;
 import com.vokyo.backend.workspace.dto.WorkspaceInvitationCreatedResponse;
+import jakarta.persistence.EntityManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -95,6 +96,7 @@ public class DemoWorkspaceSeeder {
     private final IssueCommandService issueCommandService;
     private final AiSuggestionService aiSuggestionService;
     private final ObjectMapper objectMapper;
+    private final EntityManager entityManager;
 
     public DemoWorkspaceSeeder(
             AuthService authService,
@@ -108,7 +110,8 @@ public class DemoWorkspaceSeeder {
             IssueCreationService issueCreationService,
             IssueCommandService issueCommandService,
             AiSuggestionService aiSuggestionService,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            EntityManager entityManager
     ) {
         this.authService = authService;
         this.jwtService = jwtService;
@@ -122,6 +125,7 @@ public class DemoWorkspaceSeeder {
         this.issueCommandService = issueCommandService;
         this.aiSuggestionService = aiSuggestionService;
         this.objectMapper = objectMapper;
+        this.entityManager = entityManager;
     }
 
     public DemoSeedSummary seed(DemoSeedProperties properties) {
@@ -133,6 +137,7 @@ public class DemoWorkspaceSeeder {
 
         Map<String, Issue> issuesByTitle = new LinkedHashMap<>();
         List<ProjectResponse> projects = new ArrayList<>();
+        Backdating backdating = new Backdating();
         int issueCount = 0;
 
         for (DemoProject spec : DemoDataset.projects()) {
@@ -146,11 +151,14 @@ public class DemoWorkspaceSeeder {
             List<ProjectWorkflowStateResponse> states = configureWorkflow(owner, project.id(), spec);
             Map<String, UUID> labels = createLabels(owner, project.id(), spec.labels());
 
-            issueCount += createIssues(seats, project.id(), spec, states, labels, now, issuesByTitle);
+            issueCount += createIssues(
+                    seats, project.id(), spec, states, labels, now, issuesByTitle, backdating
+            );
         }
 
-        int commentCount = createComments(seats, issuesByTitle, now);
+        int commentCount = createComments(seats, issuesByTitle, now, backdating);
         seedSavedCopilotDraft(owner, issuesByTitle);
+        backdating.apply();
 
         return new DemoSeedSummary(seats.size(), projects.size(), issueCount, commentCount);
     }
@@ -290,7 +298,8 @@ public class DemoWorkspaceSeeder {
             List<ProjectWorkflowStateResponse> states,
             Map<String, UUID> labels,
             Instant now,
-            Map<String, Issue> issuesByTitle
+            Map<String, Issue> issuesByTitle,
+            Backdating backdating
     ) {
         for (DemoIssue issueSpec : spec.issues()) {
             Seat author = authorFor(seats, issueSpec.assignee());
@@ -313,10 +322,14 @@ public class DemoWorkspaceSeeder {
                             null,
                             issueSpec.priority(),
                             dueDate(issueSpec.dueInDays())
-                    ),
-                    timelineFor(issueSpec, now)
+                    )
             );
             issuesByTitle.put(issueSpec.title(), issue);
+            backdating.issue(
+                    issue.getId(),
+                    createdInstant(issueSpec, now),
+                    completedInstant(issueSpec, now)
+            );
         }
 
         return spec.issues().size();
@@ -332,13 +345,14 @@ public class DemoWorkspaceSeeder {
         return seat == null ? seats.get(DemoDataset.DEMO) : seat;
     }
 
-    private IssueTimeline timelineFor(DemoIssue spec, Instant now) {
-        Instant createdAt = daysBefore(now, spec.createdDaysAgo())
-                .minus(ISSUE_HOUR_OFFSET, ChronoUnit.HOURS);
-        Instant completedAt = spec.completedDaysAgo() == null
+    private Instant createdInstant(DemoIssue spec, Instant now) {
+        return daysBefore(now, spec.createdDaysAgo()).minus(ISSUE_HOUR_OFFSET, ChronoUnit.HOURS);
+    }
+
+    private Instant completedInstant(DemoIssue spec, Instant now) {
+        return spec.completedDaysAgo() == null
                 ? null
                 : onPrecedingWorkday(daysBefore(now, spec.completedDaysAgo()));
-        return IssueTimeline.backdated(createdAt, completedAt);
     }
 
     /**
@@ -381,7 +395,8 @@ public class DemoWorkspaceSeeder {
     private int createComments(
             Map<String, Seat> seats,
             Map<String, Issue> issuesByTitle,
-            Instant now
+            Instant now,
+            Backdating backdating
     ) {
         int count = 0;
         for (DemoComment comment : DemoDataset.comments()) {
@@ -393,12 +408,12 @@ public class DemoWorkspaceSeeder {
             }
 
             Seat author = authorFor(seats, comment.author());
-            issueCommandService.createComment(
+            IssueCommentResponse created = issueCommandService.createComment(
                     author.jwt(),
                     issue.getId(),
-                    new CreateCommentRequest(comment.body()),
-                    daysBefore(now, comment.daysAgo())
+                    new CreateCommentRequest(comment.body())
             );
+            backdating.comment(created.id(), daysBefore(now, comment.daysAgo()));
             count++;
         }
         return count;
@@ -510,6 +525,96 @@ public class DemoWorkspaceSeeder {
 
         UUID userId() {
             return context.user().getId();
+        }
+    }
+
+    /**
+     * Restates when the seeded rows happened, once every service call is done.
+     *
+     * <p>This is the one place the seeder leaves the service layer, and it is a
+     * deliberate trade. The entities stamp {@code created_at} and
+     * {@code completed_at} from the wall clock in {@code @PrePersist}, with no
+     * seam to pass another instant through. The alternatives were to widen the
+     * issue and activity services with a timestamp parameter that only this class
+     * would ever pass, or to accept a completion trend that collapses onto the
+     * seeding day. Neither is worth it for a demo dataset, so the write goes
+     * straight to the columns instead.
+     *
+     * <p>What that costs, stated plainly: these statements name columns that
+     * Hibernate would otherwise keep in step with the entities, so a rename in a
+     * future migration compiles clean and fails at runtime. {@code
+     * DemoSeedIntegrationTests} is what catches that — it asserts the spread and
+     * the completion count against a freshly migrated database, so a drifted
+     * column turns into a red build rather than a flat chart in production.
+     *
+     * <p>Everything else — tenant scoping, validation, board placement, activity
+     * records, the labels join — still comes from the services. Only these three
+     * timestamp columns are written directly, and the rows are otherwise exactly
+     * what a real user's requests would have produced.
+     */
+    private final class Backdating {
+
+        private final Map<UUID, Instant[]> issues = new LinkedHashMap<>();
+        private final Map<UUID, Instant> comments = new LinkedHashMap<>();
+
+        void issue(UUID issueId, Instant createdAt, Instant completedAt) {
+            issues.put(issueId, new Instant[]{createdAt, completedAt});
+        }
+
+        void comment(UUID commentId, Instant createdAt) {
+            comments.put(commentId, createdAt);
+        }
+
+        /**
+         * Runs after every service call, so nothing downstream re-stamps a row we
+         * have already moved. The activity entries follow the thing they describe,
+         * or the issue timeline would read as one burst on the seeding day.
+         */
+        void apply() {
+            entityManager.flush();
+
+            issues.forEach((issueId, timestamps) -> {
+                entityManager.createNativeQuery("""
+                                update issues
+                                set created_at = :createdAt, completed_at = :completedAt
+                                where id = :issueId
+                                """)
+                        .setParameter("createdAt", timestamps[0])
+                        .setParameter("completedAt", timestamps[1])
+                        .setParameter("issueId", issueId)
+                        .executeUpdate();
+                entityManager.createNativeQuery("""
+                                update activity_events
+                                set created_at = :createdAt
+                                where issue_id = :issueId and event_type = 'ISSUE_CREATED'
+                                """)
+                        .setParameter("createdAt", timestamps[0])
+                        .setParameter("issueId", issueId)
+                        .executeUpdate();
+            });
+
+            comments.forEach((commentId, createdAt) -> {
+                entityManager.createNativeQuery("""
+                                update issue_comments
+                                set created_at = :createdAt
+                                where id = :commentId
+                                """)
+                        .setParameter("createdAt", createdAt)
+                        .setParameter("commentId", commentId)
+                        .executeUpdate();
+                entityManager.createNativeQuery("""
+                                update activity_events
+                                set created_at = :createdAt
+                                where event_type = 'COMMENT_CREATED'
+                                  and metadata ->> 'commentId' = :commentId
+                                """)
+                        .setParameter("createdAt", createdAt)
+                        .setParameter("commentId", commentId.toString())
+                        .executeUpdate();
+            });
+
+            // The rows on disk no longer match what the session holds.
+            entityManager.clear();
         }
     }
 }
