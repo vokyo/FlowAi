@@ -12,9 +12,10 @@ The repository is a production-shaped portfolio MVP: it is designed to be runnab
 
 The deployment above runs the same containers as `docker compose up`: an Nginx image that serves the React build and proxies `/api` to the Spring Boot backend, plus managed PostgreSQL.
 
-**Sign in as `demo@flowai.dev` / `demo1234`** to land in a workspace that has been worked in: two projects, four members, 74 issues spread across every column, eight weeks of history, and comment threads. Registering your own email still works and creates a fresh workspace isolated from the demo one.
+**Press "Explore the demo workspace" on the sign-in page** to land in a workspace that has been worked in: two projects, four members, 74 issues spread across every column, eight weeks of history, and comment threads. No typing, no sign-up. The account behind the button is `demo@flowai.dev` / `demo1234` if you would rather sign in by hand, and registering your own email still works and creates a fresh workspace isolated from the demo one.
 
 - The demo workspace is written on startup by a seeder that is off by default and enabled with a single environment variable. It checks for the demo account first, so restarts and redeploys never duplicate it, and a database reset recreates it from scratch. See [Demo Data](#demo-data).
+- The button appears only where that variable is set: the sign-in page asks `GET /api/demo/status`, and a deployment that never enabled seeding reports `enabled: false` and shows an ordinary sign-in form. There is no second switch and no demo account baked into the frontend build.
 - The three seeded teammates share the same password, so you can sign in as `maya@flowai.dev`, `daniel@flowai.dev`, or `priya@flowai.dev` and see the same workspace from another seat.
 - The instance runs on a small hosting plan, so the first request after an idle period can be slow while the container starts.
 - Treat it as a demo: do not store real data, and expect the database to be reset from time to time.
@@ -351,7 +352,8 @@ How it behaves:
 - **Idempotent.** The first thing it does is check whether the demo account exists; if it does it returns without writing. Restarts, redeploys and manual re-runs are no-ops.
 - **Atomic.** The whole dataset is written in one transaction. A failure part way through rolls back rather than leaving the demo account behind, which would make every later run skip a workspace that was never finished.
 - **Not a migration.** It is an `ApplicationRunner`, not Flyway, so a database reset recreates the data and schema history stays free of demo rows.
-- **Through the service layer.** Registration hands back an access token, the seeder decodes it into the same `Jwt` the resource server hands a controller, and every write goes through the ordinary services. Tenant scoping, validation, project membership, board placement and activity records all apply, so seeded rows are indistinguishable from rows a user created. No SQL, no direct repository writes.
+- **Through the service layer.** Registration hands back an access token, the seeder decodes it into the same `Jwt` the resource server hands a controller, and every write goes through the ordinary services. Tenant scoping, validation, project membership, board placement and activity records all apply, so seeded rows are indistinguishable from rows a user created.
+- **With one deliberate exception.** The entities stamp `created_at` and `completed_at` from the wall clock in `@PrePersist`, with no seam to pass another instant through, and an eight-week history is the whole point of the dataset. Rather than widen the issue and activity services with a timestamp parameter only the seeder would ever pass, the seeder restates those three columns directly once every service call is done. That is the only SQL it issues, and the only place it leaves the service layer. The cost is real — a column renamed in a future migration compiles clean and fails at runtime — which is what the CI check below exists to catch.
 
 ### The seeded Copilot draft
 
