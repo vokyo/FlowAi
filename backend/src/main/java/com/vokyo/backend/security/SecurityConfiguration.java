@@ -35,6 +35,8 @@ public class SecurityConfiguration {
                         .requestMatchers(EndpointRequest.to(HealthEndpoint.class)).permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/workspace-invitations/*").permitAll()
+                        // The sign-in page reads this before anyone has a token.
+                        .requestMatchers(HttpMethod.GET, "/api/demo/status").permitAll()
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(exceptions -> exceptions
