@@ -23,7 +23,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.List;
@@ -95,21 +94,6 @@ public class IssueCommandService {
 
     @Transactional
     public IssueCommentResponse createComment(Jwt jwt, UUID issueId, CreateCommentRequest request) {
-        return createComment(jwt, issueId, request, null);
-    }
-
-    /**
-     * @param occurredAt when the comment was written, or {@code null} for now.
-     *                   Comments on a backdated issue pass the instant they belong
-     *                   to, so the thread and its activity entries stay in order.
-     */
-    @Transactional
-    public IssueCommentResponse createComment(
-            Jwt jwt,
-            UUID issueId,
-            CreateCommentRequest request,
-            Instant occurredAt
-    ) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Issue issue = requireIssue(issueId, context.workspace().getId());
         projectAccessService.requireIssueProjectAccess(issue, context);
@@ -120,11 +104,8 @@ public class IssueCommandService {
                 context.user(),
                 request.body().trim()
         ));
-        if (occurredAt != null) {
-            comment.backdateTo(occurredAt);
-        }
 
-        activityService.recordCommentCreated(comment, context.user(), occurredAt);
+        activityService.recordCommentCreated(comment, context.user());
         return issueMapper.toCommentResponse(comment);
     }
 

@@ -54,23 +54,6 @@ public class IssueCreationService {
             Project project,
             IssueCreationCommand command
     ) {
-        return create(context, project, command, IssueTimeline.systemTime());
-    }
-
-    /**
-     * Creates an issue whose opening and completion times are given rather than
-     * taken from the clock, for history that predates the row. Every check the
-     * normal path runs — tenant scoping, assignee and label membership, workflow
-     * state resolution, board placement, the activity record — runs here too; only
-     * the two timestamps differ, and the activity record follows them.
-     */
-    @Transactional
-    public Issue create(
-            CurrentWorkspaceContext context,
-            Project project,
-            IssueCreationCommand command,
-            IssueTimeline timeline
-    ) {
         String title = requireTitle(command.title());
         String description = normalizeDescription(command.description());
         if (command.status() == IssueStatus.ARCHIVED) {
@@ -98,10 +81,7 @@ public class IssueCreationService {
                 nextBoardPosition(project, workflowState)
         ));
         issue.replaceLabels(labels);
-        if (timeline.isBackdated()) {
-            issue.backdateTo(timeline.createdAt(), timeline.completedAt());
-        }
-        activityService.recordIssueCreated(issue, context.user(), timeline.createdAt());
+        activityService.recordIssueCreated(issue, context.user());
         return issue;
     }
 

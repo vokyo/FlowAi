@@ -6,7 +6,6 @@ import com.vokyo.backend.workspace.Workspace;
 import jakarta.persistence.*;
 
 import java.time.Instant;
-import java.util.Objects;
 import java.util.UUID;
 
 @Entity
@@ -99,19 +98,5 @@ public class IssueComment {
 
     public void editBody(String body) {
         this.body = body;
-    }
-
-    /**
-     * Restates when this comment was written, for comments whose history predates
-     * the row. Without it every comment on an imported or seeded issue reads as
-     * posted the moment the row was written.
-     */
-    public void backdateTo(Instant createdAt) {
-        Objects.requireNonNull(createdAt, "createdAt is required");
-        if (createdAt.isAfter(Instant.now())) {
-            throw new IllegalArgumentException("createdAt cannot be in the future");
-        }
-
-        this.createdAt = createdAt;
     }
 }

@@ -11,7 +11,6 @@ import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Objects;
 import java.util.UUID;
 
 @Entity
@@ -107,19 +106,5 @@ public class ActivityEvent {
 
     public Instant getCreatedAt() {
         return createdAt;
-    }
-
-    /**
-     * Restates when this event happened, for history that predates the row. An
-     * imported or seeded issue otherwise carries a timeline whose entries all
-     * land at the moment of the write.
-     */
-    public void backdateTo(Instant createdAt) {
-        Objects.requireNonNull(createdAt, "createdAt is required");
-        if (createdAt.isAfter(Instant.now())) {
-            throw new IllegalArgumentException("createdAt cannot be in the future");
-        }
-
-        this.createdAt = createdAt;
     }
 }
