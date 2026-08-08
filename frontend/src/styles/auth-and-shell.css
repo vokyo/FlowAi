@@ -158,6 +158,43 @@
   animation: flowai-spin 0.9s linear infinite;
 }
 
+/* Shown only where the deployment reports a seeded demo workspace. */
+.auth-demo {
+  margin-top: 24px;
+}
+
+.auth-demo-enter {
+  width: 100%;
+}
+
+.auth-demo-note {
+  margin: 12px 0 0;
+  color: var(--md-on-surface-variant);
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.auth-demo-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 24px 0 0;
+  color: var(--md-on-surface-variant);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.auth-demo-divider::before,
+.auth-demo-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--md-outline-variant);
+}
+
 /* Error container role, not a red-on-white alert. */
 .auth-error,
 .app-error {
