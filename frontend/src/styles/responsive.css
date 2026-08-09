@@ -14,9 +14,12 @@
 
   /* MD3 modal navigation drawer: shaped on the trailing edge, riding on
      elevation rather than a border, and entering on the standard easing. */
+  /* Below the 50 that Radix portals (dropdowns, dialogs) render at: their
+     content is appended to <body>, so a drawer stacked above them would swallow
+     every menu opened from inside it. */
   .app-sidebar {
     position: fixed;
-    z-index: 70;
+    z-index: 40;
     top: 0;
     bottom: 0;
     left: 0;
@@ -36,7 +39,7 @@
   /* Small FAB, per MD3 — a floating control needs to read as floating. */
   .mobile-sidebar-trigger {
     position: fixed;
-    z-index: 60;
+    z-index: 30;
     top: 12px;
     left: 12px;
     display: inline-flex;
@@ -48,7 +51,7 @@
 
   .mobile-sidebar-backdrop {
     position: fixed;
-    z-index: 65;
+    z-index: 35;
     inset: 0;
     display: block;
     border: 0;
