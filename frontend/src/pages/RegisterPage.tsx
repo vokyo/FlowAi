@@ -8,6 +8,7 @@ import { ArrowRight, Loader2 } from 'lucide-react'
 import { ApiError } from '@/api/client'
 import { register, registerWithInvitation } from '@/api/auth-api'
 import { safeAuthReturnTo } from '@/auth/auth-navigation'
+import { AUTH_FORM_LIMITS } from '@/auth/auth-form-limits'
 import { setAccessToken } from '@/auth/access-token'
 import { Button } from '@/components/ui/button'
 import { getWorkspaceInvitationPreview } from '@/api/workspace-api'
@@ -18,14 +19,27 @@ type RegisterPageProps = {
 }
 
 const registerFormSchema = z.object({
-  displayName: z.string().refine((value) => value.trim().length > 0, {
-    message: 'Name is required.',
-  }),
-  email: z.string().min(1, 'Email is required.').email('Enter a valid email address.'),
-  password: z.string().min(8, 'Password must be at least 8 characters.'),
-  workspaceName: z.string().refine((value) => value.trim().length > 0, {
-    message: 'Workspace is required.',
-  }),
+  displayName: z
+    .string()
+    .refine((value) => value.trim().length > 0, {
+      message: 'Name is required.',
+    })
+    .max(AUTH_FORM_LIMITS.displayName, 'Name is too long.'),
+  email: z
+    .string()
+    .min(1, 'Email is required.')
+    .email('Enter a valid email address.')
+    .max(AUTH_FORM_LIMITS.email, 'Email is too long.'),
+  password: z
+    .string()
+    .min(8, 'Password must be at least 8 characters.')
+    .max(AUTH_FORM_LIMITS.password, 'Password must be 72 characters or fewer.'),
+  workspaceName: z
+    .string()
+    .refine((value) => value.trim().length > 0, {
+      message: 'Workspace is required.',
+    })
+    .max(AUTH_FORM_LIMITS.workspaceName, 'Workspace name is too long.'),
 })
 
 type RegisterFormValues = z.infer<typeof registerFormSchema>

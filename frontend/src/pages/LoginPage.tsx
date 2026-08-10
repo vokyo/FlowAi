@@ -9,6 +9,7 @@ import { ApiError } from '@/api/client'
 import { login } from '@/api/auth-api'
 import { getDemoStatus } from '@/api/demo-api'
 import { setAccessToken } from '@/auth/access-token'
+import { AUTH_FORM_LIMITS } from '@/auth/auth-form-limits'
 import { invitationTokenFromReturnTo, safeAuthReturnTo } from '@/auth/auth-navigation'
 import { Button } from '@/components/ui/button'
 
@@ -18,8 +19,15 @@ type LoginPageProps = {
 }
 
 const loginFormSchema = z.object({
-  email: z.string().min(1, 'Email is required.').email('Enter a valid email address.'),
-  password: z.string().min(1, 'Password is required.'),
+  email: z
+    .string()
+    .min(1, 'Email is required.')
+    .email('Enter a valid email address.')
+    .max(AUTH_FORM_LIMITS.email, 'Email is too long.'),
+  password: z
+    .string()
+    .min(1, 'Password is required.')
+    .max(AUTH_FORM_LIMITS.password, 'Password must be 72 characters or fewer.'),
 })
 
 type LoginFormValues = z.infer<typeof loginFormSchema>
