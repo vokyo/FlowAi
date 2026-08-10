@@ -46,6 +46,7 @@ app:
       secret: ${JWT_SECRET}
       access-token-ttl: ${JWT_ACCESS_TOKEN_TTL:15m}
       refresh-token-ttl: ${JWT_REFRESH_TOKEN_TTL:7d}
+      refresh-reuse-grace: ${JWT_REFRESH_REUSE_GRACE:10s}
   ai:
     enabled: ${AI_ENABLED:false}
     suggestion-ttl: ${AI_SUGGESTION_TTL:7d}

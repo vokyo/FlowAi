@@ -25,7 +25,7 @@ The deployment above runs the same containers as `docker compose up`: an Nginx i
 
 ### Workspace and project management
 
-- Registration, login, logout, short-lived access tokens, and refresh-token rotation.
+- Registration, login, logout, short-lived access tokens, and refresh-token rotation with replay detection.
 - Multiple workspaces with switching, role-aware invitations, membership administration, and account settings.
 - Invitation links that support both signing in and registering a new account into an existing workspace.
 - Project membership, configurable workflow states, labels, archiving, and restoration.
@@ -52,6 +52,7 @@ The deployment above runs the same containers as `docker compose up`: an Nginx i
 - Flyway-managed PostgreSQL schema and database-level tenant referential constraints.
 - Consistent API errors and end-to-end `X-Trace-Id` propagation.
 - Stateless Spring Security, BCrypt password hashing, role-aware access checks, and Bucket4j rate limiting.
+- Rotated refresh tokens whose replay revokes the membership's sessions instead of only failing the request.
 - Docker Compose stack with a non-root backend image and same-origin Nginx reverse proxy.
 - Unit, integration, migration, component, and Playwright end-to-end tests in GitHub Actions.
 
@@ -228,6 +229,7 @@ Forwarded by `docker-compose.yml`:
 | `JWT_SECRET` | Required | HS256 signing secret; use at least 32 random bytes |
 | `JWT_ACCESS_TOKEN_TTL` | `15m` | Access-token lifetime |
 | `JWT_REFRESH_TOKEN_TTL` | `7d` | Refresh-token lifetime |
+| `JWT_REFRESH_REUSE_GRACE` | `10s` | How long a just-rotated refresh token may be replayed before it counts as reuse |
 | `REFRESH_COOKIE_SECURE` | `true` in the prod profile | Keep `true` behind HTTPS; use `false` only for local HTTP |
 | `WORKSPACE_INVITATION_TTL` | `7d` | Invitation link lifetime |
 | `APP_PORT` | `8080` | Host port for the containerized application |
@@ -386,5 +388,6 @@ FlowAI/
 - Every authenticated request resolves its current workspace from a server-validated membership claim.
 - Project resources require an active project membership; inaccessible resources are not exposed across tenants.
 - Cross-tenant relationships are constrained in PostgreSQL as well as in service-layer checks.
+- Rotation gives a stolen refresh token away: the token is accepted once, so a second presentation means two holders. That replay revokes every session for the membership, which also signs the user's other devices out — the blunt response is chosen over carrying chain identity in the schema. Replays within `JWT_REFRESH_REUSE_GRACE` are treated as concurrent tabs rather than theft.
 - AI prompts use bounded server-owned context, and generated content cannot write to domain tables until validation and explicit user confirmation succeed.
 - Apply operations are transactional and idempotent so a safe retry does not duplicate created issues.

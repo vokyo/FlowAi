@@ -21,7 +21,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.ResultActions;
+
+import java.sql.Timestamp;
+import java.time.Duration;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -51,6 +56,9 @@ class AuthFlowIntegrationTests extends AbstractMockMvcIntegrationTest {
 
     @Autowired
     private JwtService jwtService;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Test
     void registerCreatesDefaultWorkspaceAndOwnerMembership() throws Exception {
@@ -214,6 +222,56 @@ class AuthFlowIntegrationTests extends AbstractMockMvcIntegrationTest {
     }
 
     @Test
+    void replayingARotatedRefreshTokenRevokesEverySessionForThatMembership() throws Exception {
+        String email = "reuse+" + uniqueId() + "@example.com";
+        AuthSessionResponse registered = register(email, "password123", "Reuse User", "Reuse Workspace");
+        String stolenRefreshToken = registered.refreshToken();
+
+        // Whoever copied the cookie gets there first and rotates it into a token of
+        // their own, leaving the real user holding one the server has already retired.
+        String attackerRefreshToken = refreshToken(
+                postJson("/api/auth/refresh", "{}", null, stolenRefreshToken)
+                        .andExpect(status().isOk())
+        );
+        String secondDeviceRefreshToken = login(email, "password123");
+
+        // Far enough past the rotation that concurrent tabs cannot explain the replay.
+        backdateRevocation(stolenRefreshToken, Duration.ofHours(1));
+
+        postJson("/api/auth/refresh", "{}", null, stolenRefreshToken)
+                .andExpect(status().isUnauthorized());
+
+        // The rejection alone would leave the attacker's rotated token alive, so the
+        // whole membership is signed out — the second device included.
+        assertThat(persistedRefreshToken(attackerRefreshToken).isRevoked()).isTrue();
+        assertThat(persistedRefreshToken(secondDeviceRefreshToken).isRevoked()).isTrue();
+        postJson("/api/auth/refresh", "{}", null, attackerRefreshToken)
+                .andExpect(status().isUnauthorized());
+        postJson("/api/auth/refresh", "{}", null, secondDeviceRefreshToken)
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void replayInsideTheGraceWindowRejectsWithoutRevokingTheRotatedSession() throws Exception {
+        String email = "grace+" + uniqueId() + "@example.com";
+        AuthSessionResponse registered = register(email, "password123", "Grace User", "Grace Workspace");
+
+        String rotatedRefreshToken = refreshToken(
+                postJson("/api/auth/refresh", "{}", null, registered.refreshToken())
+                        .andExpect(status().isOk())
+        );
+
+        // Tabs restoring together all send the pre-rotation cookie. The losers are
+        // rejected, but that is concurrency rather than theft, so nothing is revoked.
+        postJson("/api/auth/refresh", "{}", null, registered.refreshToken())
+                .andExpect(status().isUnauthorized());
+
+        assertThat(persistedRefreshToken(rotatedRefreshToken).isActive()).isTrue();
+        postJson("/api/auth/refresh", "{}", null, rotatedRefreshToken)
+                .andExpect(status().isOk());
+    }
+
+    @Test
     void cookieAuthenticatedWritesAcceptSameOriginAndRejectCrossSiteRequests() throws Exception {
         AuthSessionResponse registered = register(
                 "origin+" + uniqueId() + "@example.com",
@@ -330,6 +388,39 @@ class AuthFlowIntegrationTests extends AbstractMockMvcIntegrationTest {
                 refreshToken(registerActions),
                 registerActions.andReturn().getResponse().getHeader(HttpHeaders.SET_COOKIE)
         );
+    }
+
+    private String login(String email, String password) throws Exception {
+        return refreshToken(postJson(
+                "/api/auth/login",
+                """
+                {
+                  "email": "%s",
+                  "password": "%s"
+                }
+                """.formatted(email, password),
+                null
+        ).andExpect(status().isOk()));
+    }
+
+    private RefreshToken persistedRefreshToken(String plainRefreshToken) {
+        return refreshTokenRepository
+                .findByTokenHash(refreshTokenService.hashToken(plainRefreshToken))
+                .orElseThrow();
+    }
+
+    /**
+     * Ages a revocation so the replay lands outside the grace window. Cheaper and far
+     * steadier than sleeping through it, and it keeps the shipped grace in the test
+     * profile rather than tuning the window until the assertion passes.
+     */
+    private void backdateRevocation(String plainRefreshToken, Duration age) {
+        int updated = jdbcTemplate.update(
+                "update refresh_tokens set revoked_at = ? where token_hash = ?",
+                Timestamp.from(Instant.now().minus(age)),
+                refreshTokenService.hashToken(plainRefreshToken)
+        );
+        assertThat(updated).isEqualTo(1);
     }
 
     private record AuthSessionResponse(

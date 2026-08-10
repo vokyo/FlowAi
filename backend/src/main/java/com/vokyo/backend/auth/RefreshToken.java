@@ -91,6 +91,15 @@ public class RefreshToken {
         return revokedAt != null;
     }
 
+    /**
+     * Whether this token was rotated away before {@code threshold}. A token revoked
+     * more recently than that was superseded moments ago, which is what concurrent
+     * refreshes from the same session look like.
+     */
+    public boolean wasRevokedBefore(Instant threshold) {
+        return revokedAt != null && revokedAt.isBefore(threshold);
+    }
+
     public boolean isActive() {
         return !isExpired() && !isRevoked();
     }

@@ -10,6 +10,8 @@
 /tmp/
 /artifacts/
 /.claude/
+# Local design workbench: renders the token sets side by side, not shipped
+/frontend/token-compare.html
 
 # Local-only notes; README.md is the published documentation
 /docs/
