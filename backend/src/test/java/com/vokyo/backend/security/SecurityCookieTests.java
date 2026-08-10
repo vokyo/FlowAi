@@ -25,7 +25,12 @@ class SecurityCookieTests {
     void refreshCookieIsHttpOnlyStrictAndUsesConfiguredSecurity() {
         RefreshTokenCookieService service = new RefreshTokenCookieService(
                 new RefreshTokenCookieProperties(true),
-                new JwtProperties("01234567890123456789012345678901", Duration.ofMinutes(15), Duration.ofDays(7))
+                new JwtProperties(
+                        "01234567890123456789012345678901",
+                        Duration.ofMinutes(15),
+                        Duration.ofDays(7),
+                        Duration.ofSeconds(10)
+                )
         );
         MockHttpServletResponse response = new MockHttpServletResponse();
 
@@ -45,7 +50,12 @@ class SecurityCookieTests {
     void clearCookieExpiresTheSameCookie() {
         RefreshTokenCookieService service = new RefreshTokenCookieService(
                 new RefreshTokenCookieProperties(false),
-                new JwtProperties("01234567890123456789012345678901", Duration.ofMinutes(15), Duration.ofDays(7))
+                new JwtProperties(
+                        "01234567890123456789012345678901",
+                        Duration.ofMinutes(15),
+                        Duration.ofDays(7),
+                        Duration.ofSeconds(10)
+                )
         );
         MockHttpServletResponse response = new MockHttpServletResponse();
 

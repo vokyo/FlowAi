@@ -24,11 +24,17 @@ public class RefreshTokenService {
 
     private final RefreshTokenRepository refreshTokenRepository;
     private final JwtProperties jwtProperties;
+    private final RefreshTokenReuseHandler reuseHandler;
     private final SecureRandom secureRandom = new SecureRandom();
 
-    public RefreshTokenService(RefreshTokenRepository refreshTokenRepository, JwtProperties jwtProperties) {
+    public RefreshTokenService(
+            RefreshTokenRepository refreshTokenRepository,
+            JwtProperties jwtProperties,
+            RefreshTokenReuseHandler reuseHandler
+    ) {
         this.refreshTokenRepository = refreshTokenRepository;
         this.jwtProperties = jwtProperties;
+        this.reuseHandler = reuseHandler;
     }
 
     @Transactional
@@ -49,11 +55,23 @@ public class RefreshTokenService {
         RefreshToken refreshToken = refreshTokenRepository.findByTokenHashForUpdate(tokenHash)
                 .orElseThrow(() -> unauthorized("Invalid refresh token"));
 
-        if (!refreshToken.isActive()) {
-            throw unauthorized("Invalid refresh token");
+        if (refreshToken.isActive()) {
+            return refreshToken;
         }
 
-        return refreshToken;
+        /*
+         * The caller sees one 401 either way, but the two ways of getting here are not
+         * the same event. A token that is simply unknown or expired carries no
+         * information. A token that was rotated away and then came back means someone
+         * used it twice, which rotation is supposed to make impossible — so the chain
+         * is treated as compromised rather than merely rejected. The grace window
+         * keeps tabs that refreshed concurrently out of that verdict.
+         */
+        if (refreshToken.wasRevokedBefore(Instant.now().minus(jwtProperties.refreshReuseGrace()))) {
+            reuseHandler.onReuseDetected(refreshToken);
+        }
+
+        throw unauthorized("Invalid refresh token");
     }
 
     public String hashToken(String plainToken) {

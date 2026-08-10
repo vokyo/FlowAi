@@ -34,6 +34,10 @@ app:
       secret: ${JWT_SECRET:dev-secret-must-be-long-enough-for-hmac-sha256}
       access-token-ttl: 15m
       refresh-token-ttl: 7d
+      # A superseded refresh token replayed this soon after rotation is concurrency,
+      # not theft: restoring several tabs sends the same cookie from each of them.
+      # Past this window a replay revokes every session for the membership.
+      refresh-reuse-grace: ${JWT_REFRESH_REUSE_GRACE:10s}
   ai:
     enabled: ${AI_ENABLED:false}
     suggestion-ttl: ${AI_SUGGESTION_TTL:7d}
