@@ -142,9 +142,6 @@ export function WorkspaceInvitationsDialog({
           <span>{invitations.length}</span>
         </div>
         {isLoading ? <InlineState>Loading invitations.</InlineState> : null}
-        {!isLoading && invitations.length === 0 ? (
-          <InlineState>No invitations yet.</InlineState>
-        ) : null}
         {invitations.map((invitation) => {
           const canManageRole = canManageInvitationRole(currentWorkspace?.role, invitation.role)
           const canReissue = invitation.status === 'PENDING' || invitation.status === 'EXPIRED'
