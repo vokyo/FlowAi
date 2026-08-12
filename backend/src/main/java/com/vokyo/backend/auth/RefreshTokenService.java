@@ -59,14 +59,6 @@ public class RefreshTokenService {
             return refreshToken;
         }
 
-        /*
-         * The caller sees one 401 either way, but the two ways of getting here are not
-         * the same event. A token that is simply unknown or expired carries no
-         * information. A token that was rotated away and then came back means someone
-         * used it twice, which rotation is supposed to make impossible — so the chain
-         * is treated as compromised rather than merely rejected. The grace window
-         * keeps tabs that refreshed concurrently out of that verdict.
-         */
         if (refreshToken.wasRevokedBefore(Instant.now().minus(jwtProperties.refreshReuseGrace()))) {
             reuseHandler.onReuseDetected(refreshToken);
         }

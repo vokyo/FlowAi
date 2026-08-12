@@ -105,10 +105,6 @@ public class AiSuggestion {
     @Column(name = "dismissed_at")
     private Instant dismissedAt;
 
-    /*
-     * JPA/Hibernate 需要无参数构造函数。
-     * protected 可以防止业务代码创建不完整 Entity。
-     */
     protected AiSuggestion() {
     }
 
@@ -265,9 +261,6 @@ public class AiSuggestion {
                 "createdIssueIds is required"
         );
 
-        /*
-         * 相同 idempotency key 的重复请求视为同一次 Apply。
-         */
         if (status == AiSuggestionStatus.APPLIED
                 && idempotencyKey.equals(applyIdempotencyKey)) {
             return;

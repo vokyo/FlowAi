@@ -152,9 +152,6 @@ public class AiSuggestionService {
 
         Instant now = clock.instant();
 
-        /*
-         * 相同幂等键重复调用时，可以返回之前的 Apply 结果。
-         */
         if (suggestion.wasAppliedWith(idempotencyKey)) {
             return suggestion;
         }
