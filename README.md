@@ -242,7 +242,7 @@ Backend properties (set them on the backend process or add them to the Compose s
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `SPRING_DATASOURCE_URL` / `_USERNAME` / `_PASSWORD` | Local PostgreSQL | Datasource for a non-Compose run |
-| `RATE_LIMIT_ENABLED` | `true` | Master switch for the shared Bucket4j limiter used by auth and AI |
+| `RATE_LIMIT_ENABLED` | `true` | Master switch for the in-process Bucket4j limiter that auth and AI both use (per instance, see [Design Boundaries](#design-boundaries)) |
 | `AI_ENABLED` | `false` | Enables AI application workflows |
 | `AI_MODEL` | `gpt-4o-mini` | Chat model name |
 | `AI_REQUEST_TIMEOUT` | `30s` | Per-request AI timeout |
@@ -391,3 +391,4 @@ FlowAI/
 - Rotation gives a stolen refresh token away: the token is accepted once, so a second presentation means two holders. That replay revokes every session for the membership, which also signs the user's other devices out — the blunt response is chosen over carrying chain identity in the schema. Replays within `JWT_REFRESH_REUSE_GRACE` are treated as concurrent tabs rather than theft.
 - AI prompts use bounded server-owned context, and generated content cannot write to domain tables until validation and explicit user confirmation succeed.
 - Apply operations are transactional and idempotent so a safe retry does not duplicate created issues.
+- Rate limiting is an in-process Bucket4j bucket held per instance, not a shared counter. The effective limit therefore multiplies by the number of instances, and a horizontally scaled deployment would need a shared backend such as Redis. Single-instance deployment is the design point, not an oversight.
