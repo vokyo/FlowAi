@@ -82,7 +82,6 @@ export function SettingsPage({ onSessionChanged }: { onSessionChanged: () => voi
           onChanged={() => queryClient.invalidateQueries({ queryKey: ['workspace-members'] })}
         />
         <ProjectSettingsLinks
-          workspaceId={workspace.id}
           projects={projectsQuery.data ?? []}
           isLoading={projectsQuery.isLoading}
           error={projectsQuery.error}
@@ -97,8 +96,7 @@ export function SettingsPage({ onSessionChanged }: { onSessionChanged: () => voi
  * Project settings moved out of this page, so anyone arriving here out of habit
  * gets a signpost rather than a dead end.
  */
-function ProjectSettingsLinks({ workspaceId, projects, isLoading, error, onOpen }: {
-  workspaceId: string
+function ProjectSettingsLinks({ projects, isLoading, error, onOpen }: {
   projects: Project[]
   isLoading: boolean
   error: Error | null
@@ -138,10 +136,6 @@ function ProjectSettingsLinks({ workspaceId, projects, isLoading, error, onOpen 
           </div>
         ))}
       </div>
-      <p className="settings-hint">
-        Or open a project in the sidebar and use its <strong>⋯</strong> menu.
-        Direct link: <code>{`${projectSettingsPath(workspaceId, ':projectId')}`}</code>
-      </p>
     </section>
   )
 }
