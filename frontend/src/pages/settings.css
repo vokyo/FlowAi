@@ -281,6 +281,18 @@
   flex: 0 0 auto;
 }
 
+/* A role picker in a list row is not a form field. On the shared filled-field
+   treatment above it inherits the 18px root, so the control outweighs the 13px
+   name it belongs to. Same compact sizing as the project members dialog. */
+.settings-list-row select {
+  min-width: 100px;
+  min-height: 36px;
+  border-radius: var(--md-shape-xs) var(--md-shape-xs) 0 0;
+  padding: 5px 24px 5px 10px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
 /* Stands in for a role select that could never be opened. */
 .settings-static-role {
   display: grid;
@@ -337,20 +349,6 @@
   margin: 0;
   font-size: 12px;
   line-height: 1.5;
-}
-
-.settings-hint {
-  margin: 0;
-  color: var(--md-on-surface-variant);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.settings-hint code {
-  border-radius: var(--md-shape-xs);
-  background: var(--md-surface-container-high);
-  padding: 1px 5px;
-  font-size: 11px;
 }
 
 /* The project settings card is titled by its page heading, so its own <h2> is
