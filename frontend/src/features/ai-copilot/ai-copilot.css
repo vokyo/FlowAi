@@ -12,9 +12,15 @@
    Rendered by DialogContent, which centres its panel. A right-edge drawer has
    to undo that positioning wholesale: the offset, both max-* bounds, the corner
    radius, and the horizontal padding all come from the component.
-   Note `translate: none` — Tailwind v4 centres with the standalone `translate`
-   property, not `transform`, so resetting `transform` alone leaves the -50%
-   shift in place. */
+
+   The centring `translate` is cancelled at the call site instead of here — both
+   drawers pass `translate-none` alongside this class so tailwind-merge drops
+   `-translate-x-1/2 -translate-y-1/2` from the class list altogether. A CSS
+   override cannot do it: Tailwind v4 centres with the standalone `translate`
+   property, and `translate: none` is that property's initial value, so
+   Lightning CSS strips the declaration when it minifies the production build.
+   Dev serves the sheet unminified and looks right either way, which is what
+   hid this until the drawer shipped half off the top of the viewport. */
 .ai-drawer {
   position: fixed;
   z-index: 80;
@@ -22,7 +28,6 @@
   right: 0;
   bottom: 0;
   left: auto;
-  translate: none;
   transform: none;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);

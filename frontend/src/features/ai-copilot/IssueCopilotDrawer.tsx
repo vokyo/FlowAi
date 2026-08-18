@@ -168,7 +168,7 @@ export function IssueCopilotDrawer({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
-      <DialogContent className="ai-drawer" showCloseButton={false} aria-describedby={undefined}>
+      <DialogContent className="translate-none ai-drawer" showCloseButton={false} aria-describedby={undefined}>
         <header className="ai-drawer-header">
           <div>
             <span className="ai-drawer-eyebrow"><Sparkles aria-hidden="true" /> AI Copilot</span>
