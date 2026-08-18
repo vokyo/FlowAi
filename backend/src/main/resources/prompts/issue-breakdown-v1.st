@@ -18,6 +18,7 @@ TASK RULES:
 - Do not create dependencies on users, projects, or labels outside allowedCandidates.
 - Dependencies may only reference clientItemId values from this response and must form an acyclic graph.
 - Include concise acceptance criteria that can be verified independently.
+- Set overview to one sentence explaining how the work was split, not a restatement of the source issue title.
 
 OUTPUT RULES:
 - Return only the declared structured response.
