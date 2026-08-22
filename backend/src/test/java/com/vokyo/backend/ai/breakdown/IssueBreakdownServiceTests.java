@@ -298,7 +298,7 @@ class IssueBreakdownServiceTests {
                     4,
                     List.of(),
                     List.of(),
-                    new IssueBreakdownContext.AllowedCandidates(List.of(), List.of(), List.of()),
+                    new IssueBreakdownContext.AllowedCandidates(List.of(), List.of()),
                     new IssueBreakdownContext.SourceStats(0, 0, false, false, true)
             );
         }
@@ -321,7 +321,7 @@ class IssueBreakdownServiceTests {
         private int calls;
 
         private FakeContextBuilder(BuiltIssueBreakdownContext built) {
-            super(null, null, null, null, null, null, null, null, null);
+            super(null, null, null, null, null, null, null, null);
             this.built = built;
         }
 

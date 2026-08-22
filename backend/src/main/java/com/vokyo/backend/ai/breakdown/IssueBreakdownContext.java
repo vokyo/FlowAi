@@ -87,13 +87,11 @@ public record IssueBreakdownContext(
 
     public record AllowedCandidates(
             List<LabelCandidate> labels,
-            List<MemberCandidate> members,
-            List<WorkflowStateCandidate> workflowStates
+            List<MemberCandidate> members
     ) {
         public AllowedCandidates {
             labels = List.copyOf(labels);
             members = List.copyOf(members);
-            workflowStates = List.copyOf(workflowStates);
         }
     }
 
@@ -108,13 +106,6 @@ public record IssueBreakdownContext(
             UUID userId,
             String displayName,
             String projectRole
-    ) {
-    }
-
-    public record WorkflowStateCandidate(
-            UUID id,
-            String name,
-            String category
     ) {
     }
 

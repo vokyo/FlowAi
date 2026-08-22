@@ -16,7 +16,6 @@ import com.vokyo.backend.project.ProjectLabelRepository;
 import com.vokyo.backend.project.ProjectMember;
 import com.vokyo.backend.project.ProjectMemberRepository;
 import com.vokyo.backend.project.ProjectWorkflowState;
-import com.vokyo.backend.project.ProjectWorkflowStateRepository;
 import com.vokyo.backend.user.User;
 import com.vokyo.backend.workspace.CurrentWorkspaceContext;
 import com.vokyo.backend.workspace.MembershipStatus;
@@ -50,7 +49,6 @@ public class IssueBreakdownContextBuilder {
     private final ActivityEventRepository activityEventRepository;
     private final ProjectLabelRepository projectLabelRepository;
     private final ProjectMemberRepository projectMemberRepository;
-    private final ProjectWorkflowStateRepository projectWorkflowStateRepository;
     private final AiProperties aiProperties;
 
     public IssueBreakdownContextBuilder(
@@ -61,7 +59,6 @@ public class IssueBreakdownContextBuilder {
             ActivityEventRepository activityEventRepository,
             ProjectLabelRepository projectLabelRepository,
             ProjectMemberRepository projectMemberRepository,
-            ProjectWorkflowStateRepository projectWorkflowStateRepository,
             AiProperties aiProperties
     ) {
         this.workspaceAccessService = workspaceAccessService;
@@ -71,7 +68,6 @@ public class IssueBreakdownContextBuilder {
         this.activityEventRepository = activityEventRepository;
         this.projectLabelRepository = projectLabelRepository;
         this.projectMemberRepository = projectMemberRepository;
-        this.projectWorkflowStateRepository = projectWorkflowStateRepository;
         this.aiProperties = aiProperties;
     }
 
@@ -160,13 +156,8 @@ public class IssueBreakdownContextBuilder {
                 .filter(member -> member.getStatus() == MembershipStatus.ACTIVE)
                 .map(this::toMemberCandidate)
                 .toList();
-        List<IssueBreakdownContext.WorkflowStateCandidate> workflowStates = projectWorkflowStateRepository
-                .findByWorkspace_IdAndProject_IdOrderByPositionAscNameAsc(workspaceId, projectId)
-                .stream()
-                .map(this::toWorkflowStateCandidate)
-                .toList();
 
-        return new IssueBreakdownContext.AllowedCandidates(labels, members, workflowStates);
+        return new IssueBreakdownContext.AllowedCandidates(labels, members);
     }
 
     private IssueBreakdownContext.SourceIssueContext toSourceIssueContext(Issue issue) {
@@ -221,14 +212,6 @@ public class IssueBreakdownContextBuilder {
                 member.getUser().getId(),
                 member.getUser().getDisplayName(),
                 member.getRole().name()
-        );
-    }
-
-    private IssueBreakdownContext.WorkflowStateCandidate toWorkflowStateCandidate(ProjectWorkflowState state) {
-        return new IssueBreakdownContext.WorkflowStateCandidate(
-                state.getId(),
-                state.getName(),
-                state.getCategory().name()
         );
     }
 
