@@ -3,8 +3,10 @@ package com.vokyo.backend.integration;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.vokyo.backend.auth.RefreshTokenRepository;
 import com.vokyo.backend.auth.RefreshTokenService;
+import com.vokyo.backend.project.ProjectMemberRepository;
 import com.vokyo.backend.user.User;
 import com.vokyo.backend.user.UserRepository;
+import com.vokyo.backend.workspace.MembershipStatus;
 import com.vokyo.backend.workspace.Workspace;
 import com.vokyo.backend.workspace.WorkspaceMembership;
 import com.vokyo.backend.workspace.WorkspaceMembershipRepository;
@@ -20,6 +22,7 @@ import org.springframework.http.MediaType;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -43,6 +46,9 @@ class ManagementIntegrationTests extends AbstractMockMvcIntegrationTest {
 
     @Autowired
     private RefreshTokenRepository refreshTokenRepository;
+
+    @Autowired
+    private ProjectMemberRepository projectMemberRepository;
 
     @Autowired
     private RefreshTokenService refreshTokenService;
@@ -238,6 +244,89 @@ class ManagementIntegrationTests extends AbstractMockMvcIntegrationTest {
                         .header("Authorization", bearer(memberWorkspaceAccessToken)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+    }
+
+    /**
+     * Project access never falls back to a workspace role, so a project whose only
+     * active owner loses their workspace membership has nobody left who can open it
+     * or add an owner back. The workspace path has to enforce the same "keep one
+     * active owner" rule the project path already does.
+     */
+    @Test
+    void workspaceRemovalIsRefusedWhileTheMemberIsAProjectsOnlyOwnerAndThenEndsProjectMembership()
+            throws Exception {
+        Session owner = register("strand-owner");
+        Session memberHome = register("strand-member");
+        Workspace workspace = workspaceRepository.findById(UUID.fromString(owner.workspaceId())).orElseThrow();
+        User ownerUser = userRepository.findByEmail(owner.email()).orElseThrow();
+        User memberUser = userRepository.findByEmail(memberHome.email()).orElseThrow();
+        WorkspaceMembership member = membershipRepository.saveAndFlush(
+                new WorkspaceMembership(workspace, memberUser, WorkspaceRole.MEMBER)
+        );
+
+        var switchActions = postJson(
+                "/api/workspaces/%s/switch".formatted(owner.workspaceId()),
+                "{}",
+                memberHome.accessToken(),
+                memberHome.refreshToken()
+        ).andExpect(status().isOk());
+        String memberToken = readJson(switchActions).get("accessToken").asText();
+
+        // Creating the project makes the member its only owner.
+        String projectId = readJson(postJson(
+                "/api/projects",
+                "{\"name\":\"Stranded project\"}",
+                memberToken
+        ).andExpect(status().isOk())).get("id").asText();
+
+        mockMvc.perform(delete("/api/workspaces/current/members/{memberId}", member.getId())
+                        .header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(containsString("Stranded project")));
+        assertThat(membershipRepository.findById(member.getId()).orElseThrow().getStatus())
+                .isEqualTo(MembershipStatus.ACTIVE);
+        assertThat(projectMemberRepository
+                .findByWorkspace_IdAndProject_IdAndUser_Id(
+                        workspace.getId(),
+                        UUID.fromString(projectId),
+                        memberUser.getId()
+                )
+                .orElseThrow()
+                .getStatus())
+                .isEqualTo(MembershipStatus.ACTIVE);
+
+        // Give the project a second owner and the removal is allowed.
+        String projectMemberId = readJson(postJson(
+                "/api/projects/%s/members".formatted(projectId),
+                """
+                { "userId": "%s", "role": "MEMBER" }
+                """.formatted(ownerUser.getId()),
+                memberToken
+        ).andExpect(status().isOk())).get("id").asText();
+        mockMvc.perform(patch("/api/projects/{projectId}/members/{memberId}", projectId, projectMemberId)
+                        .header("Authorization", bearer(memberToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "role": "OWNER" }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("OWNER"));
+
+        mockMvc.perform(delete("/api/workspaces/current/members/{memberId}", member.getId())
+                        .header("Authorization", bearer(owner.accessToken())))
+                .andExpect(status().isNoContent());
+
+        // The project membership ends with the workspace membership, so the removed
+        // user stops counting as an active owner and leaves the project member list.
+        assertThat(projectMemberRepository
+                .findByWorkspace_IdAndProject_IdAndUser_Id(
+                        workspace.getId(),
+                        UUID.fromString(projectId),
+                        memberUser.getId()
+                )
+                .orElseThrow()
+                .getStatus())
+                .isEqualTo(MembershipStatus.DISABLED);
     }
 
     private Session register(String prefix) throws Exception {

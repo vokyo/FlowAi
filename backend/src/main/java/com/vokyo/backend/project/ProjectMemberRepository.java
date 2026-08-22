@@ -78,4 +78,34 @@ public interface ProjectMemberRepository extends JpaRepository<ProjectMember, UU
             @Param("workspaceId") UUID workspaceId,
             @Param("projectId") UUID projectId
     );
+
+    List<ProjectMember> findByWorkspace_IdAndUser_IdAndStatus(
+            UUID workspaceId,
+            UUID userId,
+            MembershipStatus status
+    );
+
+
+    @Query("""
+            select member.project
+            from ProjectMember member
+            where member.workspace.id = :workspaceId
+              and member.user.id = :userId
+              and member.role = :ownerRole
+              and member.status = :activeStatus
+              and (
+                  select count(other)
+                  from ProjectMember other
+                  where other.project.id = member.project.id
+                    and other.role = :ownerRole
+                    and other.status = :activeStatus
+              ) = 1
+            order by member.project.name asc
+            """)
+    List<Project> findProjectsSolelyOwnedBy(
+            @Param("workspaceId") UUID workspaceId,
+            @Param("userId") UUID userId,
+            @Param("ownerRole") ProjectRole ownerRole,
+            @Param("activeStatus") MembershipStatus activeStatus
+    );
 }

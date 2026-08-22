@@ -3,6 +3,8 @@ package com.vokyo.backend.workspace;
 import com.vokyo.backend.auth.AuthSessionService;
 import com.vokyo.backend.auth.AuthSessionResult;
 import com.vokyo.backend.auth.dto.WorkspaceResponse;
+import com.vokyo.backend.project.Project;
+import com.vokyo.backend.project.ProjectAccessService;
 import com.vokyo.backend.user.User;
 import com.vokyo.backend.user.UserRepository;
 import com.vokyo.backend.workspace.dto.CreateWorkspaceRequest;
@@ -17,6 +19,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class WorkspaceService {
@@ -27,6 +30,7 @@ public class WorkspaceService {
     private final AuthSessionService authSessionService;
     private final WorkspaceAccessService workspaceAccessService;
     private final RefreshTokenService refreshTokenService;
+    private final ProjectAccessService projectAccessService;
 
     public WorkspaceService(
             UserRepository userRepository,
@@ -34,7 +38,8 @@ public class WorkspaceService {
             WorkspaceProvisioningService workspaceProvisioningService,
             AuthSessionService authSessionService,
             WorkspaceAccessService workspaceAccessService,
-            RefreshTokenService refreshTokenService
+            RefreshTokenService refreshTokenService,
+            ProjectAccessService projectAccessService
     ) {
         this.userRepository = userRepository;
         this.membershipRepository = membershipRepository;
@@ -42,6 +47,7 @@ public class WorkspaceService {
         this.authSessionService = authSessionService;
         this.workspaceAccessService = workspaceAccessService;
         this.refreshTokenService = refreshTokenService;
+        this.projectAccessService = projectAccessService;
     }
 
     @Transactional(readOnly = true)
@@ -103,7 +109,12 @@ public class WorkspaceService {
 
         WorkspaceRole nextRole = request.role() == null ? target.getRole() : request.role();
         if (request.status() == MembershipStatus.DISABLED) {
+            requireNoSolelyOwnedProjects(context, target);
             target.disable();
+            projectAccessService.disableProjectMemberships(
+                    context.workspace().getId(),
+                    target.getUser().getId()
+            );
             refreshTokenService.revokeMembershipSessions(target.getId());
         } else if (request.status() == MembershipStatus.ACTIVE
                 && target.getStatus() != MembershipStatus.ACTIVE) {
@@ -117,6 +128,25 @@ public class WorkspaceService {
     @Transactional
     public void removeMember(Jwt jwt, UUID memberId) {
         updateMember(jwt, memberId, new UpdateWorkspaceMemberRequest(null, MembershipStatus.DISABLED));
+    }
+
+
+    private void requireNoSolelyOwnedProjects(
+            CurrentWorkspaceContext context,
+            WorkspaceMembership target
+    ) {
+        List<Project> stranded = projectAccessService.listProjectsSolelyOwnedBy(
+                context.workspace().getId(),
+                target.getUser().getId()
+        );
+        if (stranded.isEmpty()) {
+            return;
+        }
+        String names = stranded.stream().map(Project::getName).collect(Collectors.joining(", "));
+        throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "Add another project owner before removing this member: " + names
+        );
     }
 
     private void requireCanManageMembers(CurrentWorkspaceContext context) {
