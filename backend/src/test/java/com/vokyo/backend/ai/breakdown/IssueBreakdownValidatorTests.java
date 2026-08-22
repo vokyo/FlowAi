@@ -158,8 +158,7 @@ class IssueBreakdownValidatorTests {
                 List.of(),
                 new IssueBreakdownContext.AllowedCandidates(
                         List.of(new IssueBreakdownContext.LabelCandidate(allowedLabelId, "Backend", "#000000")),
-                        List.of(new IssueBreakdownContext.MemberCandidate(allowedAssigneeId, "Member", "MEMBER")),
-                        List.of(new IssueBreakdownContext.WorkflowStateCandidate(workflowStateId, "Todo", "TODO"))
+                        List.of(new IssueBreakdownContext.MemberCandidate(allowedAssigneeId, "Member", "MEMBER"))
                 ),
                 new IssueBreakdownContext.SourceStats(0, 0, false, false, false)
         );

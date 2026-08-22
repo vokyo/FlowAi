@@ -67,7 +67,7 @@ class IssueBreakdownPromptFactoryTests {
                 5,
                 List.of(),
                 List.of(),
-                new IssueBreakdownContext.AllowedCandidates(List.of(), List.of(), List.of()),
+                new IssueBreakdownContext.AllowedCandidates(List.of(), List.of()),
                 new IssueBreakdownContext.SourceStats(0, 0, false, false, false)
         );
     }

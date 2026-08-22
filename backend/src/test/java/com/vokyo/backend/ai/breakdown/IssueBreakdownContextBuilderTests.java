@@ -19,7 +19,6 @@ import com.vokyo.backend.project.ProjectMember;
 import com.vokyo.backend.project.ProjectMemberRepository;
 import com.vokyo.backend.project.ProjectRole;
 import com.vokyo.backend.project.ProjectWorkflowState;
-import com.vokyo.backend.project.ProjectWorkflowStateRepository;
 import com.vokyo.backend.project.WorkflowStateCategory;
 import com.vokyo.backend.user.User;
 import com.vokyo.backend.workspace.CurrentWorkspaceContext;
@@ -90,10 +89,6 @@ class IssueBreakdownContextBuilderTests {
                 List.of(fixture.label)
         );
         harness.members.returns("findByProjectForMemberList", List.of(activeMember, disabledMember));
-        harness.workflowStates.returns(
-                "findByWorkspace_IdAndProject_IdOrderByPositionAscNameAsc",
-                List.of(fixture.workflowState)
-        );
 
         BuiltIssueBreakdownContext built = harness.builder.build(
                 fixture.jwt,
@@ -130,9 +125,6 @@ class IssueBreakdownContextBuilderTests {
         );
         assertThat(context.allowedCandidates().members()).containsExactly(
                 new IssueBreakdownContext.MemberCandidate(fixture.userId, "Owner", "OWNER")
-        );
-        assertThat(context.allowedCandidates().workflowStates()).containsExactly(
-                new IssueBreakdownContext.WorkflowStateCandidate(fixture.workflowStateId, "Todo", "TODO")
         );
         assertThatThrownBy(() -> context.activities().getFirst().metadata().put("x", "y"))
                 .isInstanceOf(UnsupportedOperationException.class);
@@ -188,9 +180,6 @@ class IssueBreakdownContextBuilderTests {
         assertThat(harness.activities.calls("findFirstPage")).isZero();
         assertThat(harness.labels.calls("findByWorkspace_IdAndProject_IdOrderByNameAsc")).isZero();
         assertThat(harness.members.calls("findByProjectForMemberList")).isZero();
-        assertThat(harness.workflowStates.calls(
-                "findByWorkspace_IdAndProject_IdOrderByPositionAscNameAsc"
-        )).isZero();
     }
 
     @Test
@@ -219,8 +208,6 @@ class IssueBreakdownContextBuilderTests {
         RepositoryStub<ActivityEventRepository> activities = new RepositoryStub<>(ActivityEventRepository.class);
         RepositoryStub<ProjectLabelRepository> labels = new RepositoryStub<>(ProjectLabelRepository.class);
         RepositoryStub<ProjectMemberRepository> members = new RepositoryStub<>(ProjectMemberRepository.class);
-        RepositoryStub<ProjectWorkflowStateRepository> workflowStates =
-                new RepositoryStub<>(ProjectWorkflowStateRepository.class);
         issues.returns("findByIdAndWorkspace_Id", Optional.of(fixture.issue));
 
         StubWorkspaceAccessService workspaceAccess = new StubWorkspaceAccessService(fixture.currentContext);
@@ -233,7 +220,6 @@ class IssueBreakdownContextBuilderTests {
                 activities.proxy(),
                 labels.proxy(),
                 members.proxy(),
-                workflowStates.proxy(),
                 properties
         );
         return new TestHarness(
@@ -243,18 +229,13 @@ class IssueBreakdownContextBuilderTests {
                 comments,
                 activities,
                 labels,
-                members,
-                workflowStates
+                members
         );
     }
 
     private void stubEmptyCandidates(TestHarness harness) {
         harness.labels.returns("findByWorkspace_IdAndProject_IdOrderByNameAsc", List.of());
         harness.members.returns("findByProjectForMemberList", List.of());
-        harness.workflowStates.returns(
-                "findByWorkspace_IdAndProject_IdOrderByPositionAscNameAsc",
-                List.of()
-        );
     }
 
     private void assertScopedHistoryQuery(RepositoryStub<?> repository, Fixture fixture) {
@@ -481,8 +462,7 @@ class IssueBreakdownContextBuilderTests {
             RepositoryStub<IssueCommentRepository> comments,
             RepositoryStub<ActivityEventRepository> activities,
             RepositoryStub<ProjectLabelRepository> labels,
-            RepositoryStub<ProjectMemberRepository> members,
-            RepositoryStub<ProjectWorkflowStateRepository> workflowStates
+            RepositoryStub<ProjectMemberRepository> members
     ) {
     }
 
