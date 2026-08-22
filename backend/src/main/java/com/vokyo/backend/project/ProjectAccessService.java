@@ -134,6 +134,23 @@ public class ProjectAccessService {
         );
     }
 
+
+    public List<Project> listProjectsSolelyOwnedBy(UUID workspaceId, UUID userId) {
+        return projectMemberRepository.findProjectsSolelyOwnedBy(
+                workspaceId,
+                userId,
+                ProjectRole.OWNER,
+                MembershipStatus.ACTIVE
+        );
+    }
+
+
+    public void disableProjectMemberships(UUID workspaceId, UUID userId) {
+        projectMemberRepository
+                .findByWorkspace_IdAndUser_IdAndStatus(workspaceId, userId, MembershipStatus.ACTIVE)
+                .forEach(ProjectMember::disable);
+    }
+
     public User requireActiveProjectMemberUser(Project project, UUID userId) {
         return projectMemberRepository.findByWorkspace_IdAndProject_IdAndUser_IdAndStatus(
                         project.getWorkspace().getId(),
