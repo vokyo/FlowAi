@@ -2,15 +2,7 @@ package com.vokyo.backend.issue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.vokyo.backend.activity.dto.ActivityEventResponse;
-import com.vokyo.backend.issue.dto.CreateCommentRequest;
-import com.vokyo.backend.issue.dto.CreateIssueRequest;
-import com.vokyo.backend.issue.dto.IssueCommentResponse;
-import com.vokyo.backend.issue.dto.IssueDetailResponse;
-import com.vokyo.backend.issue.dto.IssueListItemResponse;
-import com.vokyo.backend.issue.dto.MoveIssueStateRequest;
-import com.vokyo.backend.issue.dto.ProjectBoardResponse;
-import com.vokyo.backend.issue.dto.ReorderIssuesRequest;
-import com.vokyo.backend.issue.dto.ReorderIssuesResponse;
+import com.vokyo.backend.issue.dto.*;
 import com.vokyo.backend.pagination.CursorPage;
 import com.vokyo.backend.pagination.CursorPagination;
 import jakarta.validation.Valid;
@@ -27,15 +19,17 @@ public class IssueController {
     private final IssueQueryService issueQueryService;
     private final IssueCommandService issueCommandService;
     private final BoardService boardService;
+    private final IssueWatchService issueWatchService;
 
     public IssueController(
-            IssueQueryService issueQueryService,
-            IssueCommandService issueCommandService,
-            BoardService boardService
+        IssueQueryService issueQueryService,
+        IssueCommandService issueCommandService,
+        BoardService boardService, IssueWatchService issueWatchService
     ) {
         this.issueQueryService = issueQueryService;
         this.issueCommandService = issueCommandService;
         this.boardService = boardService;
+        this.issueWatchService = issueWatchService;
     }
 
     @GetMapping
@@ -153,5 +147,13 @@ public class IssueController {
             @RequestBody JsonNode request
     ) {
         return issueCommandService.updateIssue(jwt, issueId, request);
+    }
+
+    @PostMapping("/{issueId}/watch")
+    public IssueWatchResponse watchIssue(
+        @AuthenticationPrincipal Jwt jwt,
+        @PathVariable UUID issueId
+    ) {
+        return issueWatchService.watch(jwt, issueId);
     }
 }
