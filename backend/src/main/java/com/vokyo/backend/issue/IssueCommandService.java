@@ -91,7 +91,7 @@ public class IssueCommandService {
                         request.dueDate()
                 )
         );
-        return issueMapper.toSummaryResponse(issue, 0L);
+        return issueMapper.toSummaryResponse(issue, 0L,false);
     }
 
     @Transactional

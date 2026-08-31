@@ -17,7 +17,7 @@ import java.util.List;
 @Component
 public class IssueMapper {
 
-    public IssueListItemResponse toSummaryResponse(Issue issue, long commentCount) {
+    public IssueListItemResponse toSummaryResponse(Issue issue, long commentCount, boolean watched) {
         return new IssueListItemResponse(
             issue.getId(),
             issue.getProject().getId(),
@@ -34,7 +34,8 @@ public class IssueMapper {
             issue.getBoardPosition(),
             issue.getCreatedAt(),
             issue.getUpdatedAt(),
-            commentCount
+            commentCount,
+            watched
         );
     }
 

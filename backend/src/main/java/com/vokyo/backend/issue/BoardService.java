@@ -1,12 +1,7 @@
 package com.vokyo.backend.issue;
 
 import com.vokyo.backend.activity.ActivityService;
-import com.vokyo.backend.issue.dto.BoardColumnResponse;
-import com.vokyo.backend.issue.dto.IssueListItemResponse;
-import com.vokyo.backend.issue.dto.MoveIssueStateRequest;
-import com.vokyo.backend.issue.dto.ProjectBoardResponse;
-import com.vokyo.backend.issue.dto.ReorderIssuesRequest;
-import com.vokyo.backend.issue.dto.ReorderIssuesResponse;
+import com.vokyo.backend.issue.dto.*;
 import com.vokyo.backend.pagination.CursorCodec;
 import com.vokyo.backend.pagination.CursorPage;
 import com.vokyo.backend.pagination.CursorPagination;
@@ -23,10 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.UUID;
+import java.util.*;
 
 @Service
 public class BoardService {
@@ -41,16 +33,17 @@ public class BoardService {
     private final CursorCodec cursorCodec;
     private final IssueCommentCountQuery commentCountQuery;
     private final IssueMapper issueMapper;
+    private final IssueWatchQuery issueWatchQuery;
 
     public BoardService(
-            IssueRepository issueRepository,
-            ProjectWorkflowStateRepository projectWorkflowStateRepository,
-            ProjectAccessService projectAccessService,
-            WorkspaceAccessService workspaceAccessService,
-            ActivityService activityService,
-            CursorCodec cursorCodec,
-            IssueCommentCountQuery commentCountQuery,
-            IssueMapper issueMapper
+        IssueRepository issueRepository,
+        ProjectWorkflowStateRepository projectWorkflowStateRepository,
+        ProjectAccessService projectAccessService,
+        WorkspaceAccessService workspaceAccessService,
+        ActivityService activityService,
+        CursorCodec cursorCodec,
+        IssueCommentCountQuery commentCountQuery,
+        IssueMapper issueMapper, IssueWatchQuery issueWatchQuery
     ) {
         this.issueRepository = issueRepository;
         this.projectWorkflowStateRepository = projectWorkflowStateRepository;
@@ -60,6 +53,7 @@ public class BoardService {
         this.cursorCodec = cursorCodec;
         this.commentCountQuery = commentCountQuery;
         this.issueMapper = issueMapper;
+        this.issueWatchQuery = issueWatchQuery;
     }
 
     @Transactional(readOnly = true)
@@ -67,37 +61,38 @@ public class BoardService {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Project project = projectAccessService.requireAccessibleProject(projectId, context);
         List<ProjectWorkflowState> workflowStates = projectWorkflowStateRepository
-                .findByWorkspace_IdAndProject_IdOrderByPositionAscNameAsc(
-                        project.getWorkspace().getId(),
-                        project.getId()
-                );
+            .findByWorkspace_IdAndProject_IdOrderByPositionAscNameAsc(
+                project.getWorkspace().getId(),
+                project.getId()
+            );
         List<BoardColumnResponse> columns = workflowStates
-                .stream()
-                .map(workflowState -> toBoardColumn(
-                        workflowState,
-                        loadBoardStatePage(
-                                project,
-                                workflowState,
-                                null,
-                                CursorPagination.DEFAULT_LIMIT
-                        )
-                ))
-                .toList();
+            .stream()
+            .map(workflowState -> toBoardColumn(
+                workflowState,
+                loadBoardStatePage(
+                    project,
+                    workflowState,
+                    null,
+                    CursorPagination.DEFAULT_LIMIT,
+                    context.user().getId()
+                    )
+            ))
+            .toList();
         return new ProjectBoardResponse(project.getId(), columns);
     }
 
     @Transactional(readOnly = true)
     public CursorPage<IssueListItemResponse> getBoardStatePage(
-            Jwt jwt,
-            UUID projectId,
-            UUID workflowStateId,
-            String cursor,
-            int requestedLimit
+        Jwt jwt,
+        UUID projectId,
+        UUID workflowStateId,
+        String cursor,
+        int requestedLimit
     ) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Project project = projectAccessService.requireAccessibleProject(projectId, context);
         ProjectWorkflowState workflowState = requireProjectWorkflowState(project, workflowStateId);
-        return loadBoardStatePage(project, workflowState, cursor, requestedLimit);
+        return loadBoardStatePage(project, workflowState, cursor, requestedLimit, context.user().getId());
     }
 
     @Transactional
@@ -112,21 +107,21 @@ public class BoardService {
         ProjectWorkflowState targetWorkflowState = requireProjectWorkflowState(project, request.workflowStateId());
         ProjectWorkflowState previousWorkflowState = issue.getWorkflowState();
         if (previousWorkflowState.getId().equals(targetWorkflowState.getId())) {
-            return issueMapper.toSummaryResponse(issue, commentCountQuery.load(issue));
+            return issueMapper.toSummaryResponse(issue, commentCountQuery.load(issue), issueWatchQuery.isWatched(issue.getId(), context.user().getId()));
         }
 
         String previousStatus = displayStatus(issue);
         issue.changeWorkflowState(targetWorkflowState);
         issue.moveOnBoard(nextBoardPosition(project, targetWorkflowState));
         activityService.recordIssueStatusChanged(
-                issue,
-                context.user(),
-                previousStatus,
-                displayStatus(issue),
-                previousWorkflowState.getId(),
-                targetWorkflowState.getId()
+            issue,
+            context.user(),
+            previousStatus,
+            displayStatus(issue),
+            previousWorkflowState.getId(),
+            targetWorkflowState.getId()
         );
-        return issueMapper.toSummaryResponse(issue, commentCountQuery.load(issue));
+        return issueMapper.toSummaryResponse(issue, commentCountQuery.load(issue), issueWatchQuery.isWatched(issue.getId(), context.user().getId()));
     }
 
     @Transactional
@@ -141,33 +136,33 @@ public class BoardService {
         ProjectWorkflowState targetWorkflowState = requireProjectWorkflowState(project, request.workflowStateId());
         validateDistinctBoardNeighbors(request, movedIssue);
         Issue previousIssue = resolveBoardNeighbor(
-                project,
-                targetWorkflowState,
-                movedIssue,
-                request.previousIssueId()
+            project,
+            targetWorkflowState,
+            movedIssue,
+            request.previousIssueId()
         );
         Issue requestedNextIssue = resolveBoardNeighbor(
-                project,
-                targetWorkflowState,
-                movedIssue,
-                request.nextIssueId()
+            project,
+            targetWorkflowState,
+            movedIssue,
+            request.nextIssueId()
         );
         Issue nextIssue = resolveEffectiveNextBoardNeighbor(
-                project,
-                targetWorkflowState,
-                movedIssue,
-                previousIssue,
-                requestedNextIssue
+            project,
+            targetWorkflowState,
+            movedIssue,
+            previousIssue,
+            requestedNextIssue
         );
         ProjectWorkflowState previousWorkflowState = movedIssue.getWorkflowState();
         String previousStatus = displayStatus(movedIssue);
         boolean workflowStateChanged = !previousWorkflowState.getId().equals(targetWorkflowState.getId());
         BoardPositionResult boardPosition = allocateBoardPosition(
-                project,
-                targetWorkflowState,
-                movedIssue,
-                previousIssue,
-                nextIssue
+            project,
+            targetWorkflowState,
+            movedIssue,
+            previousIssue,
+            nextIssue
         );
 
         if (workflowStateChanged) {
@@ -177,28 +172,29 @@ public class BoardService {
 
         if (workflowStateChanged) {
             activityService.recordIssueStatusChanged(
-                    movedIssue,
-                    context.user(),
-                    previousStatus,
-                    displayStatus(movedIssue),
-                    previousWorkflowState.getId(),
-                    targetWorkflowState.getId()
+                movedIssue,
+                context.user(),
+                previousStatus,
+                displayStatus(movedIssue),
+                previousWorkflowState.getId(),
+                targetWorkflowState.getId()
             );
         }
 
         return new ReorderIssuesResponse(
-                movedIssue.getId(),
-                targetWorkflowState.getId(),
-                boardPosition.value(),
-                boardPosition.rebalanced()
+            movedIssue.getId(),
+            targetWorkflowState.getId(),
+            boardPosition.value(),
+            boardPosition.rebalanced()
         );
     }
 
     private CursorPage<IssueListItemResponse> loadBoardStatePage(
-            Project project,
-            ProjectWorkflowState workflowState,
-            String cursor,
-            int requestedLimit
+        Project project,
+        ProjectWorkflowState workflowState,
+        String cursor,
+        int requestedLimit,
+        UUID userId
     ) {
         int limit = CursorPagination.validateLimit(requestedLimit);
         String scope = boardCursorScope(project, workflowState);
@@ -206,85 +202,87 @@ public class BoardService {
         List<Issue> issues;
         if (cursor == null) {
             issues = issueRepository.findFirstActiveIssuesInWorkflowState(
-                    project.getWorkspace().getId(),
-                    project.getId(),
-                    workflowState.getId(),
-                    pageRequest
+                project.getWorkspace().getId(),
+                project.getId(),
+                workflowState.getId(),
+                pageRequest
             );
         } else {
             CursorCodec.BoardCursor decoded = cursorCodec.decodeBoard(cursor, scope);
             issues = issueRepository.findActiveIssuesInWorkflowStateAfter(
-                    project.getWorkspace().getId(),
-                    project.getId(),
-                    workflowState.getId(),
-                    decoded.boardPosition(),
-                    decoded.id(),
-                    pageRequest
+                project.getWorkspace().getId(),
+                project.getId(),
+                workflowState.getId(),
+                decoded.boardPosition(),
+                decoded.id(),
+                pageRequest
             );
         }
         Map<UUID, Long> commentCounts = commentCountQuery.load(issues);
+        Set<UUID> watchedIds = issueWatchQuery.loadWatchedIssueIds(issues, userId);
         return CursorPagination.page(
-                issues,
-                limit,
-                issue -> issueMapper.toSummaryResponse(
-                        issue,
-                        commentCounts.getOrDefault(issue.getId(), 0L)
-                ),
-                issue -> cursorCodec.encodeBoard(scope, issue.getBoardPosition(), issue.getId())
+            issues,
+            limit,
+            issue -> issueMapper.toSummaryResponse(
+                issue,
+                commentCounts.getOrDefault(issue.getId(), 0L),
+                watchedIds.contains(issue.getId())
+            ),
+            issue -> cursorCodec.encodeBoard(scope, issue.getBoardPosition(), issue.getId())
         );
     }
 
     private BoardColumnResponse toBoardColumn(
-            ProjectWorkflowState workflowState,
-            CursorPage<IssueListItemResponse> page
+        ProjectWorkflowState workflowState,
+        CursorPage<IssueListItemResponse> page
     ) {
         return new BoardColumnResponse(
-                issueMapper.toWorkflowStateResponse(workflowState),
-                page.items(),
-                page.nextCursor()
+            issueMapper.toWorkflowStateResponse(workflowState),
+            page.items(),
+            page.nextCursor()
         );
     }
 
     private String boardCursorScope(Project project, ProjectWorkflowState workflowState) {
         return "board-state:" + project.getWorkspace().getId()
-                + ":" + project.getId()
-                + ":" + workflowState.getId();
+            + ":" + project.getId()
+            + ":" + workflowState.getId();
     }
 
     private long nextBoardPosition(Project project, ProjectWorkflowState workflowState) {
         return issueRepository.findMaxActiveBoardPosition(
-                project.getWorkspace().getId(),
-                project.getId(),
-                workflowState.getId()
+            project.getWorkspace().getId(),
+            project.getId(),
+            workflowState.getId()
         ) + BOARD_POSITION_STEP;
     }
 
     private void validateDistinctBoardNeighbors(ReorderIssuesRequest request, Issue movedIssue) {
         if (Objects.equals(request.previousIssueId(), request.nextIssueId())
-                && request.previousIssueId() != null) {
+            && request.previousIssueId() != null) {
             throw badRequest("Previous and next issues must be different");
         }
         if (movedIssue.getId().equals(request.previousIssueId())
-                || movedIssue.getId().equals(request.nextIssueId())) {
+            || movedIssue.getId().equals(request.nextIssueId())) {
             throw badRequest("The moved issue cannot be its own neighbor");
         }
     }
 
     private Issue resolveBoardNeighbor(
-            Project project,
-            ProjectWorkflowState targetWorkflowState,
-            Issue movedIssue,
-            UUID neighborIssueId
+        Project project,
+        ProjectWorkflowState targetWorkflowState,
+        Issue movedIssue,
+        UUID neighborIssueId
     ) {
         if (neighborIssueId == null) {
             return null;
         }
 
         Issue neighbor = issueRepository.findByIdAndWorkspace_Id(
-                        neighborIssueId,
-                        project.getWorkspace().getId()
-                )
-                .orElseThrow(() -> notFound("Issue not found"));
+                neighborIssueId,
+                project.getWorkspace().getId()
+            )
+            .orElseThrow(() -> notFound("Issue not found"));
         if (!neighbor.getProject().getId().equals(project.getId())) {
             throw notFound("Issue not found");
         }
@@ -301,21 +299,21 @@ public class BoardService {
     }
 
     private Issue resolveEffectiveNextBoardNeighbor(
-            Project project,
-            ProjectWorkflowState targetWorkflowState,
-            Issue movedIssue,
-            Issue previousIssue,
-            Issue requestedNextIssue
+        Project project,
+        ProjectWorkflowState targetWorkflowState,
+        Issue movedIssue,
+        Issue previousIssue,
+        Issue requestedNextIssue
     ) {
         PageRequest firstResult = PageRequest.of(0, 1);
         Issue actualNextIssue;
         if (previousIssue == null) {
             actualNextIssue = firstOrNull(issueRepository.findFirstActiveIssueInWorkflowStateExcludingIssue(
-                    project.getWorkspace().getId(),
-                    project.getId(),
-                    targetWorkflowState.getId(),
-                    movedIssue.getId(),
-                    firstResult
+                project.getWorkspace().getId(),
+                project.getId(),
+                targetWorkflowState.getId(),
+                movedIssue.getId(),
+                firstResult
             ));
             if (!Objects.equals(issueId(actualNextIssue), issueId(requestedNextIssue))) {
                 throw badRequest("Next issue is not the first issue in the target workflow state");
@@ -324,27 +322,27 @@ public class BoardService {
         }
 
         actualNextIssue = firstOrNull(issueRepository.findFirstActiveIssueAfterExcludingIssue(
-                project.getWorkspace().getId(),
-                project.getId(),
-                targetWorkflowState.getId(),
-                previousIssue.getBoardPosition(),
-                previousIssue.getId(),
-                movedIssue.getId(),
-                firstResult
+            project.getWorkspace().getId(),
+            project.getId(),
+            targetWorkflowState.getId(),
+            previousIssue.getBoardPosition(),
+            previousIssue.getId(),
+            movedIssue.getId(),
+            firstResult
         ));
         if (requestedNextIssue != null
-                && !requestedNextIssue.getId().equals(issueId(actualNextIssue))) {
+            && !requestedNextIssue.getId().equals(issueId(actualNextIssue))) {
             throw badRequest("Previous and next issues are not adjacent");
         }
         return requestedNextIssue == null ? actualNextIssue : requestedNextIssue;
     }
 
     private BoardPositionResult allocateBoardPosition(
-            Project project,
-            ProjectWorkflowState targetWorkflowState,
-            Issue movedIssue,
-            Issue previousIssue,
-            Issue nextIssue
+        Project project,
+        ProjectWorkflowState targetWorkflowState,
+        Issue movedIssue,
+        Issue previousIssue,
+        Issue nextIssue
     ) {
         Long position = sparseBoardPosition(previousIssue, nextIssue);
         if (position != null) {
@@ -384,14 +382,14 @@ public class BoardService {
     }
 
     private void rebalanceWorkflowState(
-            Project project,
-            ProjectWorkflowState targetWorkflowState,
-            Issue movedIssue
+        Project project,
+        ProjectWorkflowState targetWorkflowState,
+        Issue movedIssue
     ) {
         List<Issue> issues = issueRepository.findAllActiveIssuesInWorkflowState(
-                project.getWorkspace().getId(),
-                project.getId(),
-                targetWorkflowState.getId()
+            project.getWorkspace().getId(),
+            project.getId(),
+            targetWorkflowState.getId()
         );
         long index = 0;
         for (Issue issue : issues) {
@@ -409,25 +407,25 @@ public class BoardService {
 
     private Project requireIssueProjectForUpdate(UUID issueId, CurrentWorkspaceContext context) {
         UUID projectId = issueRepository.findProjectIdByIdAndWorkspaceId(
-                        issueId,
-                        context.workspace().getId()
-                )
-                .orElseThrow(() -> notFound("Issue not found"));
+                issueId,
+                context.workspace().getId()
+            )
+            .orElseThrow(() -> notFound("Issue not found"));
         return projectAccessService.requireAccessibleProjectForUpdate(projectId, context);
     }
 
     private Issue requireIssue(UUID issueId, UUID workspaceId) {
         return issueRepository.findByIdAndWorkspace_Id(issueId, workspaceId)
-                .orElseThrow(() -> notFound("Issue not found"));
+            .orElseThrow(() -> notFound("Issue not found"));
     }
 
     private ProjectWorkflowState requireProjectWorkflowState(Project project, UUID workflowStateId) {
         return projectWorkflowStateRepository.findByWorkspace_IdAndProject_IdAndId(
-                        project.getWorkspace().getId(),
-                        project.getId(),
-                        workflowStateId
-                )
-                .orElseThrow(() -> notFound("Project workflow state not found"));
+                project.getWorkspace().getId(),
+                project.getId(),
+                workflowStateId
+            )
+            .orElseThrow(() -> notFound("Project workflow state not found"));
     }
 
     private Issue firstOrNull(List<Issue> issues) {

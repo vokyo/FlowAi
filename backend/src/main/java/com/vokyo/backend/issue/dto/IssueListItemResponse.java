@@ -25,6 +25,7 @@ public record IssueListItemResponse(
         long boardPosition,
         Instant createdAt,
         Instant updatedAt,
-        long commentCount
+        long commentCount,
+        boolean watched
 ) {
 }

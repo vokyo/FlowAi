@@ -26,10 +26,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
-import java.util.HexFormat;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
 @Service
 public class IssueQueryService {
@@ -67,61 +64,62 @@ public class IssueQueryService {
 
     @Transactional(readOnly = true)
     public CursorPage<IssueListItemResponse> listIssues(
-            Jwt jwt,
-            UUID projectId,
-            IssueStatus status,
-            UUID workflowStateId,
-            IssuePriority priority,
-            UUID assigneeUserId,
-            UUID labelId,
-            String query,
-            String cursor,
-            int requestedLimit
+        Jwt jwt,
+        UUID projectId,
+        IssueStatus status,
+        UUID workflowStateId,
+        IssuePriority priority,
+        UUID assigneeUserId,
+        UUID labelId,
+        String query,
+        String cursor,
+        int requestedLimit
     ) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         projectAccessService.requireAccessibleProject(projectId, context);
         String normalizedQuery = normalizeOptionalText(query);
         int limit = CursorPagination.validateLimit(requestedLimit);
         String cursorScope = issueListCursorScope(
-                context.workspace().getId(),
-                projectId,
-                status,
-                workflowStateId,
-                priority,
-                assigneeUserId,
-                labelId,
-                normalizedQuery
+            context.workspace().getId(),
+            projectId,
+            status,
+            workflowStateId,
+            priority,
+            assigneeUserId,
+            labelId,
+            normalizedQuery
         );
         CursorCodec.TimeCursor decodedCursor = cursor == null
-                ? null
-                : cursorCodec.decodeTime(cursor, cursorScope);
+            ? null
+            : cursorCodec.decodeTime(cursor, cursorScope);
 
         Specification<Issue> specification = issueListSpecification(
-                context.workspace().getId(),
-                projectId,
-                status,
-                workflowStateId,
-                priority,
-                assigneeUserId,
-                labelId,
-                normalizedQuery,
-                decodedCursor
+            context.workspace().getId(),
+            projectId,
+            status,
+            workflowStateId,
+            priority,
+            assigneeUserId,
+            labelId,
+            normalizedQuery,
+            decodedCursor
         );
         Sort sort = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
         List<Issue> issues = issueRepository.findBy(
-                specification,
-                fluentQuery -> fluentQuery.sortBy(sort).limit(limit + 1).all()
+            specification,
+            fluentQuery -> fluentQuery.sortBy(sort).limit(limit + 1).all()
         );
         Map<UUID, Long> commentCounts = commentCountQuery.load(issues);
+        Set<UUID> watchedIds = issueWatchQuery.loadWatchedIssueIds(issues, context.user().getId());
 
         return CursorPagination.page(
-                issues,
-                limit,
-                issue -> issueMapper.toSummaryResponse(
-                        issue,
-                        commentCounts.getOrDefault(issue.getId(), 0L)
-                ),
-                issue -> cursorCodec.encodeTime(cursorScope, issue.getCreatedAt(), issue.getId())
+            issues,
+            limit,
+            issue -> issueMapper.toSummaryResponse(
+                issue,
+                commentCounts.getOrDefault(issue.getId(), 0L),
+                watchedIds.contains(issue.getId())),
+            issue -> cursorCodec.encodeTime(cursorScope, issue.getCreatedAt(), issue.getId())
         );
     }
 
@@ -140,10 +138,10 @@ public class IssueQueryService {
 
     @Transactional(readOnly = true)
     public CursorPage<IssueCommentResponse> listIssueComments(
-            Jwt jwt,
-            UUID issueId,
-            String cursor,
-            int requestedLimit
+        Jwt jwt,
+        UUID issueId,
+        String cursor,
+        int requestedLimit
     ) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Issue issue = requireIssue(issueId, context.workspace().getId());
@@ -159,57 +157,57 @@ public class IssueQueryService {
         } else {
             CursorCodec.TimeCursor decoded = cursorCodec.decodeTime(cursor, scope);
             comments = issueCommentRepository.findPageAfter(
-                    workspaceId,
-                    projectId,
-                    issueId,
-                    decoded.createdAt(),
-                    decoded.id(),
-                    pageRequest
+                workspaceId,
+                projectId,
+                issueId,
+                decoded.createdAt(),
+                decoded.id(),
+                pageRequest
             );
         }
 
         return CursorPagination.page(
-                comments,
-                limit,
-                issueMapper::toCommentResponse,
-                comment -> cursorCodec.encodeTime(scope, comment.getCreatedAt(), comment.getId())
+            comments,
+            limit,
+            issueMapper::toCommentResponse,
+            comment -> cursorCodec.encodeTime(scope, comment.getCreatedAt(), comment.getId())
         );
     }
 
     @Transactional(readOnly = true)
     public CursorPage<ActivityEventResponse> listIssueActivities(
-            Jwt jwt,
-            UUID issueId,
-            String cursor,
-            int requestedLimit
+        Jwt jwt,
+        UUID issueId,
+        String cursor,
+        int requestedLimit
     ) {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Issue issue = requireIssue(issueId, context.workspace().getId());
         projectAccessService.requireIssueProjectAccess(issue, context);
         return activityService.listIssueActivities(
-                issue.getId(),
-                context.workspace().getId(),
-                issue.getProject().getId(),
-                cursor,
-                requestedLimit
+            issue.getId(),
+            context.workspace().getId(),
+            issue.getProject().getId(),
+            cursor,
+            requestedLimit
         );
     }
 
     private Issue requireIssue(UUID issueId, UUID workspaceId) {
         return issueRepository.findByIdAndWorkspace_Id(issueId, workspaceId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Issue not found"));
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Issue not found"));
     }
 
     private Specification<Issue> issueListSpecification(
-            UUID workspaceId,
-            UUID projectId,
-            IssueStatus status,
-            UUID workflowStateId,
-            IssuePriority priority,
-            UUID assigneeUserId,
-            UUID labelId,
-            String query,
-            CursorCodec.TimeCursor cursor
+        UUID workspaceId,
+        UUID projectId,
+        IssueStatus status,
+        UUID workflowStateId,
+        IssuePriority priority,
+        UUID assigneeUserId,
+        UUID labelId,
+        String query,
+        CursorCodec.TimeCursor cursor
     ) {
         return (root, criteriaQuery, criteriaBuilder) -> {
             List<Predicate> predicates = new java.util.ArrayList<>();
@@ -223,8 +221,8 @@ public class IssueQueryService {
             } else {
                 predicates.add(criteriaBuilder.isNull(root.get("archivedAt")));
                 predicates.add(criteriaBuilder.equal(
-                        root.get("workflowState").get("category"),
-                        categoryFromStatus(status)
+                    root.get("workflowState").get("category"),
+                    categoryFromStatus(status)
                 ));
             }
 
@@ -243,17 +241,17 @@ public class IssueQueryService {
             if (query != null) {
                 String pattern = "%" + query.toLowerCase() + "%";
                 predicates.add(criteriaBuilder.or(
-                        criteriaBuilder.like(criteriaBuilder.lower(root.get("title")), pattern),
-                        criteriaBuilder.like(criteriaBuilder.lower(root.get("description")), pattern)
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("title")), pattern),
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("description")), pattern)
                 ));
             }
             if (cursor != null) {
                 predicates.add(criteriaBuilder.or(
-                        criteriaBuilder.lessThan(root.<Instant>get("createdAt"), cursor.createdAt()),
-                        criteriaBuilder.and(
-                                criteriaBuilder.equal(root.get("createdAt"), cursor.createdAt()),
-                                criteriaBuilder.lessThan(root.<UUID>get("id"), cursor.id())
-                        )
+                    criteriaBuilder.lessThan(root.get("createdAt"), cursor.createdAt()),
+                    criteriaBuilder.and(
+                        criteriaBuilder.equal(root.get("createdAt"), cursor.createdAt()),
+                        criteriaBuilder.lessThan(root.get("id"), cursor.id())
+                    )
                 ));
             }
             return criteriaBuilder.and(predicates.toArray(Predicate[]::new));
@@ -261,23 +259,23 @@ public class IssueQueryService {
     }
 
     private String issueListCursorScope(
-            UUID workspaceId,
-            UUID projectId,
-            IssueStatus status,
-            UUID workflowStateId,
-            IssuePriority priority,
-            UUID assigneeUserId,
-            UUID labelId,
-            String query
+        UUID workspaceId,
+        UUID projectId,
+        IssueStatus status,
+        UUID workflowStateId,
+        IssuePriority priority,
+        UUID assigneeUserId,
+        UUID labelId,
+        String query
     ) {
         String filters = String.join(
-                "",
-                lengthPrefixed(status),
-                lengthPrefixed(workflowStateId),
-                lengthPrefixed(priority),
-                lengthPrefixed(assigneeUserId),
-                lengthPrefixed(labelId),
-                lengthPrefixed(query)
+            "",
+            lengthPrefixed(status),
+            lengthPrefixed(workflowStateId),
+            lengthPrefixed(priority),
+            lengthPrefixed(assigneeUserId),
+            lengthPrefixed(labelId),
+            lengthPrefixed(query)
         );
         return "issues:" + workspaceId + ":" + projectId + ":" + sha256(filters);
     }
@@ -297,7 +295,7 @@ public class IssueQueryService {
     private String sha256(String value) {
         try {
             return HexFormat.of().formatHex(
-                    MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))
+                MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))
             );
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 is unavailable", exception);
@@ -310,8 +308,8 @@ public class IssueQueryService {
             case IN_PROGRESS -> WorkflowStateCategory.IN_PROGRESS;
             case DONE -> WorkflowStateCategory.DONE;
             case ARCHIVED -> throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Archived is not a workflow state"
+                HttpStatus.BAD_REQUEST,
+                "Archived is not a workflow state"
             );
         };
     }
