@@ -12,6 +12,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.UUID;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -55,12 +56,46 @@ class IssueWatchIntegrationTests {
         String projectId = createProject(token, "Watch Project");
         String issueId = createIssue(token, projectId, "Some issue");
         mockMvc.perform(post("/api/issues/" + issueId + "/watch")
-            .header("Authorization", "Bearer " + token))
+                .header("Authorization", "Bearer " + token))
             .andExpect(status().isOk());
         mockMvc.perform(post("/api/issues/" + issueId + "/watch")
-            .header("Authorization", "Bearer " + token))
+                .header("Authorization", "Bearer " + token))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.watcherCount").value(1));
+    }
+
+    @Test
+    void unwatchAnIssue() throws Exception {
+        String token = register("watch-" + uniqueId() + "@example.com");
+        String projectId = createProject(token, "Watch Project");
+        String issueId = createIssue(token, projectId, "Some issue");
+        mockMvc.perform(post("/api/issues/" + issueId + "/watch")
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk());
+        mockMvc.perform(delete("/api/issues/" + issueId + "/watch")
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.watched").value(false))
+            .andExpect(jsonPath("$.watcherCount").value(0));
+    }
+
+    @Test
+    void unwatchingTwiceIsIdempotent() throws Exception {
+        String token = register("watch-" + uniqueId() + "@example.com");
+        String projectId = createProject(token, "Watch Project");
+        String issueId = createIssue(token, projectId, "Some issue");
+
+        mockMvc.perform(post("/api/issues/" + issueId + "/watch")
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(delete("/api/issues/" + issueId + "/watch")
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk());
+        mockMvc.perform(delete("/api/issues/" + issueId + "/watch")
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.watcherCount").value(0));
     }
 
 

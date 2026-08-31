@@ -35,6 +35,15 @@ public class IssueWatchService {
         return new IssueWatchResponse(issueWatcherRepository.countByIssueId(issueId),true);
     }
 
+    @Transactional
+    public IssueWatchResponse unwatch(Jwt jwt, UUID issueId) {
+        CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
+        Issue issue = requireIssue(issueId,context.workspace().getId());
+        projectAccessService.requireIssueProjectAccess(issue, context);
+        issueWatcherRepository.deleteById(new IssueWatcherId(issueId, context.user().getId()));
+        return new IssueWatchResponse(issueWatcherRepository.countByIssueId(issueId),false);
+    }
+
     private Issue requireIssue(UUID issueId, UUID workspaceId) {
         return issueRepository.findByIdAndWorkspace_Id(issueId,workspaceId)
             .orElseThrow(()->notFound("Issue not found"));
