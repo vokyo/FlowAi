@@ -157,11 +157,11 @@ class IssueWatchIntegrationTests {
         String outsiderToken = createWorkspaceMember(ownerEmail, outEmail);
         User outsider = userRepository.findByEmail(outEmail).orElseThrow();
         mockMvc.perform(post("/api/projects/" + projectId + "/members")
-            .header("Authorization", "Bearer " + token)
-            .contentType(MediaType.APPLICATION_JSON)
-            .content("""
-                { "userId": "%s", "role": "%s" }
-                """.formatted(outsider.getId(), "MEMBER")))
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    { "userId": "%s", "role": "%s" }
+                    """.formatted(outsider.getId(), "MEMBER")))
             .andExpect(status().isOk());
         mockMvc.perform(post("/api/issues/" + issueId + "/watch")
                 .header("Authorization", "Bearer " + outsiderToken))
@@ -173,11 +173,11 @@ class IssueWatchIntegrationTests {
                 outsider.getId())
             .orElseThrow()
             .getId();
-        mockMvc.perform(delete("/api/projects/" + projectId + "/members/"+ outMemberId)
-            .header("Authorization", "Bearer " + token))
+        mockMvc.perform(delete("/api/projects/" + projectId + "/members/" + outMemberId)
+                .header("Authorization", "Bearer " + token))
             .andExpect(status().isNoContent());
         mockMvc.perform(post("/api/issues/" + issueId + "/watch")
-            .header("Authorization", "Bearer " + outsiderToken))
+                .header("Authorization", "Bearer " + outsiderToken))
             .andExpect(status().isNotFound());
     }
 
@@ -188,13 +188,51 @@ class IssueWatchIntegrationTests {
         String projectId = createProject(token, "Watch Project");
         String issueId = createIssue(token, projectId, "Some issue");
         mockMvc.perform(post("/api/issues/" + issueId + "/watch")
-            .header("Authorization", "Bearer " + token))
+                .header("Authorization", "Bearer " + token))
             .andExpect(status().isOk());
         mockMvc.perform(get("/api/issues/" + issueId)
-            .header("Authorization", "Bearer " + token))
+                .header("Authorization", "Bearer " + token))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.watcherCount").value(1))
             .andExpect(jsonPath("$.watched").value(true));
+    }
+
+    @Test
+    void issueListReturnsWatchStatus() throws Exception {
+        String ownerEmail = "watch-" + uniqueId() + "@example.com";
+        String token = register(ownerEmail);
+        String projectId = createProject(token, "Watch Project");
+        String notWatched = createIssue(token, projectId, "notWatched");
+        String watched = createIssue(token, projectId, "watched");
+        mockMvc.perform(post("/api/issues/" + watched + "/watch")
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk());
+        mockMvc.perform(get("/api/issues").queryParam("projectId", projectId)
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.items[0].id").value(watched))
+            .andExpect(jsonPath("$.items[0].watched").value(true))
+            .andExpect(jsonPath("$.items[1].id").value(notWatched))
+            .andExpect(jsonPath("$.items[1].watched").value(false));
+    }
+
+    @Test
+    void issueBoardReturnsWatchStatus() throws Exception {
+        String ownerEmail = "watch-" + uniqueId() + "@example.com";
+        String token = register(ownerEmail);
+        String projectId = createProject(token, "Watch Project");
+        String notWatched = createIssue(token, projectId, "notWatched");
+        String watched = createIssue(token, projectId, "watched");
+        mockMvc.perform(post("/api/issues/" + watched + "/watch")
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk());
+        mockMvc.perform(get("/api/issues/board").queryParam("projectId", projectId)
+            .header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.columns[0].issues[0].id").value(notWatched))
+            .andExpect(jsonPath("$.columns[0].issues[0].watched").value(false))
+            .andExpect(jsonPath("$.columns[0].issues[1].id").value(watched))
+            .andExpect(jsonPath("$.columns[0].issues[1].watched").value(true));
     }
 
     private String register(String email) throws Exception {
