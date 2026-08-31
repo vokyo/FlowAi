@@ -20,8 +20,7 @@ import java.util.UUID;
 
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -180,6 +179,22 @@ class IssueWatchIntegrationTests {
         mockMvc.perform(post("/api/issues/" + issueId + "/watch")
             .header("Authorization", "Bearer " + outsiderToken))
             .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void issueDetailReturnsWatchStatus() throws Exception {
+        String ownerEmail = "watch-" + uniqueId() + "@example.com";
+        String token = register(ownerEmail);
+        String projectId = createProject(token, "Watch Project");
+        String issueId = createIssue(token, projectId, "Some issue");
+        mockMvc.perform(post("/api/issues/" + issueId + "/watch")
+            .header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk());
+        mockMvc.perform(get("/api/issues/" + issueId)
+            .header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.watcherCount").value(1))
+            .andExpect(jsonPath("$.watched").value(true));
     }
 
     private String register(String email) throws Exception {

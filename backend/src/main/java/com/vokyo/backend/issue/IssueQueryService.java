@@ -42,16 +42,17 @@ public class IssueQueryService {
     private final CursorCodec cursorCodec;
     private final IssueCommentCountQuery commentCountQuery;
     private final IssueMapper issueMapper;
+    private final IssueWatchQuery issueWatchQuery;
 
     public IssueQueryService(
-            IssueRepository issueRepository,
-            IssueCommentRepository issueCommentRepository,
-            ProjectAccessService projectAccessService,
-            WorkspaceAccessService workspaceAccessService,
-            ActivityService activityService,
-            CursorCodec cursorCodec,
-            IssueCommentCountQuery commentCountQuery,
-            IssueMapper issueMapper
+        IssueRepository issueRepository,
+        IssueCommentRepository issueCommentRepository,
+        ProjectAccessService projectAccessService,
+        WorkspaceAccessService workspaceAccessService,
+        ActivityService activityService,
+        CursorCodec cursorCodec,
+        IssueCommentCountQuery commentCountQuery,
+        IssueMapper issueMapper, IssueWatchQuery issueWatchQuery
     ) {
         this.issueRepository = issueRepository;
         this.issueCommentRepository = issueCommentRepository;
@@ -61,6 +62,7 @@ public class IssueQueryService {
         this.cursorCodec = cursorCodec;
         this.commentCountQuery = commentCountQuery;
         this.issueMapper = issueMapper;
+        this.issueWatchQuery = issueWatchQuery;
     }
 
     @Transactional(readOnly = true)
@@ -128,7 +130,12 @@ public class IssueQueryService {
         CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
         Issue issue = requireIssue(issueId, context.workspace().getId());
         projectAccessService.requireIssueProjectAccess(issue, context);
-        return issueMapper.toDetailResponse(issue);
+        UUID userId = context.user().getId();
+        return issueMapper.toDetailResponse(
+            issue,
+            issueWatchQuery.isWatched(issueId, userId),
+            issueWatchQuery.countByIssueId(issueId)
+        );
     }
 
     @Transactional(readOnly = true)

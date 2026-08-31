@@ -19,86 +19,88 @@ public class IssueMapper {
 
     public IssueListItemResponse toSummaryResponse(Issue issue, long commentCount) {
         return new IssueListItemResponse(
-                issue.getId(),
-                issue.getProject().getId(),
-                issue.getTitle(),
-                issue.getDescription(),
-                responseStatus(issue),
-                toWorkflowStateResponse(issue.getWorkflowState()),
-                issue.getPriority() == null ? null : issue.getPriority().name(),
-                toLabelResponses(issue),
-                toUserResponse(issue.getCreatedByUser()),
-                issue.getAssigneeUser() == null ? null : toUserResponse(issue.getAssigneeUser()),
-                issue.getDueDate(),
-                issue.getArchivedAt(),
-                issue.getBoardPosition(),
-                issue.getCreatedAt(),
-                issue.getUpdatedAt(),
-                commentCount
+            issue.getId(),
+            issue.getProject().getId(),
+            issue.getTitle(),
+            issue.getDescription(),
+            responseStatus(issue),
+            toWorkflowStateResponse(issue.getWorkflowState()),
+            issue.getPriority() == null ? null : issue.getPriority().name(),
+            toLabelResponses(issue),
+            toUserResponse(issue.getCreatedByUser()),
+            issue.getAssigneeUser() == null ? null : toUserResponse(issue.getAssigneeUser()),
+            issue.getDueDate(),
+            issue.getArchivedAt(),
+            issue.getBoardPosition(),
+            issue.getCreatedAt(),
+            issue.getUpdatedAt(),
+            commentCount
         );
     }
 
-    public IssueDetailResponse toDetailResponse(Issue issue) {
+    public IssueDetailResponse toDetailResponse(Issue issue, boolean watched, long watcherCount) {
         return new IssueDetailResponse(
-                issue.getId(),
-                issue.getProject().getId(),
-                issue.getTitle(),
-                issue.getDescription(),
-                responseStatus(issue),
-                toWorkflowStateResponse(issue.getWorkflowState()),
-                issue.getPriority() == null ? null : issue.getPriority().name(),
-                toLabelResponses(issue),
-                toUserResponse(issue.getCreatedByUser()),
-                issue.getAssigneeUser() == null ? null : toUserResponse(issue.getAssigneeUser()),
-                issue.getDueDate(),
-                issue.getArchivedAt(),
-                issue.getBoardPosition(),
-                issue.getCreatedAt(),
-                issue.getUpdatedAt()
+            issue.getId(),
+            issue.getProject().getId(),
+            issue.getTitle(),
+            issue.getDescription(),
+            responseStatus(issue),
+            toWorkflowStateResponse(issue.getWorkflowState()),
+            issue.getPriority() == null ? null : issue.getPriority().name(),
+            toLabelResponses(issue),
+            toUserResponse(issue.getCreatedByUser()),
+            issue.getAssigneeUser() == null ? null : toUserResponse(issue.getAssigneeUser()),
+            issue.getDueDate(),
+            issue.getArchivedAt(),
+            issue.getBoardPosition(),
+            issue.getCreatedAt(),
+            issue.getUpdatedAt(),
+            watched,
+            watcherCount
         );
     }
 
     public IssueCommentResponse toCommentResponse(IssueComment comment) {
         User author = comment.getAuthorUser();
         return new IssueCommentResponse(
-                comment.getId(),
-                comment.getIssue().getId(),
-                toUserResponse(author),
-                comment.getBody(),
-                comment.getCreatedAt()
+            comment.getId(),
+            comment.getIssue().getId(),
+            toUserResponse(author),
+            comment.getBody(),
+            comment.getCreatedAt()
         );
     }
 
     public ProjectWorkflowStateResponse toWorkflowStateResponse(ProjectWorkflowState workflowState) {
         return new ProjectWorkflowStateResponse(
-                workflowState.getId(),
-                workflowState.getProject().getId(),
-                workflowState.getName(),
-                workflowState.getCategory().name(),
-                workflowState.getPosition(),
-                workflowState.getCreatedAt(),
-                workflowState.getUpdatedAt()
+            workflowState.getId(),
+            workflowState.getProject().getId(),
+            workflowState.getName(),
+            workflowState.getCategory().name(),
+            workflowState.getPosition(),
+            workflowState.getCreatedAt(),
+            workflowState.getUpdatedAt()
         );
     }
 
     private List<ProjectLabelResponse> toLabelResponses(Issue issue) {
         return issue.getLabels()
-                .stream()
-                .sorted(Comparator
-                        .comparing(ProjectLabel::getName, String.CASE_INSENSITIVE_ORDER)
-                        .thenComparing(ProjectLabel::getId))
-                .map(this::toLabelResponse)
-                .toList();
+            .stream()
+            .sorted(Comparator
+                .comparing(ProjectLabel::getName, String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(ProjectLabel::getId))
+            .map(this::toLabelResponse)
+            .toList();
     }
 
     private ProjectLabelResponse toLabelResponse(ProjectLabel label) {
         return new ProjectLabelResponse(
-                label.getId(),
-                label.getProject().getId(),
-                label.getName(),
-                label.getColor(),
-                label.getCreatedAt(),
-                label.getUpdatedAt()
+            label.getId(),
+            label.getProject().getId(),
+            label.getName(),
+            label.getColor(),
+            label.getCreatedAt(),
+            label.getUpdatedAt()
         );
     }
 
