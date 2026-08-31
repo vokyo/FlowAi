@@ -1,6 +1,12 @@
 package com.vokyo.backend.integration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.vokyo.backend.issue.IssueWatcherRepository;
+import com.vokyo.backend.project.ProjectMemberRepository;
+import com.vokyo.backend.security.JwtService;
+import com.vokyo.backend.user.User;
+import com.vokyo.backend.user.UserRepository;
+import com.vokyo.backend.workspace.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,6 +18,8 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.UUID;
 
+
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -29,7 +37,21 @@ class IssueWatchIntegrationTests {
     private ObjectMapper objectMapper;
 
     @Autowired
+    private IssueWatcherRepository issueWatcherRepository;
+
+    @Autowired
+    private UserRepository userRepository;
+    @Autowired
+    private WorkspaceRepository workspaceRepository;
+    @Autowired
+    private WorkspaceMembershipRepository membershipRepository;
+    @Autowired
+    private JwtService jwtService;
+
+    @Autowired
     private IntegrationTestDatabaseCleaner databaseCleaner;
+    @Autowired
+    private ProjectMemberRepository projectMemberRepository;
 
     @BeforeEach
     void cleanDatabase() {
@@ -98,6 +120,67 @@ class IssueWatchIntegrationTests {
             .andExpect(jsonPath("$.watcherCount").value(0));
     }
 
+    @Test
+    void watchingFromAnotherWorkspaceIsRejected() throws Exception {
+        String token = register("watch-" + uniqueId() + "@example.com");
+        String newToken = register("newWatch-" + uniqueId() + "@example.com");
+        String projectId = createProject(token, "Watch Project");
+        String issueId = createIssue(token, projectId, "Some issue");
+        mockMvc.perform(post("/api/issues/" + issueId + "/watch")
+                .header("Authorization", "Bearer " + newToken))
+            .andExpect(status().isNotFound());
+        assertThat(issueWatcherRepository.count()).isZero();
+    }
+
+    @Test
+    void watchingFromAnotherProjectIsRejected() throws Exception {
+        String ownerEmail = "watch-" + uniqueId() + "@example.com";
+        String token = register(ownerEmail);
+        String projectId = createProject(token, "Watch Project");
+        String issueId = createIssue(token, projectId, "Some issue");
+
+        String outsiderToken = createWorkspaceMember(ownerEmail, "outsider-" + uniqueId() + "@example.com");
+
+        mockMvc.perform(post("/api/issues/" + issueId + "/watch")
+                .header("Authorization", "Bearer " + outsiderToken))
+            .andExpect(status().isNotFound());
+
+        assertThat(issueWatcherRepository.count()).isZero();
+    }
+
+    @Test
+    void watchingFromDisableUserIsRejected() throws Exception {
+        String ownerEmail = "watch-" + uniqueId() + "@example.com";
+        String token = register(ownerEmail);
+        String projectId = createProject(token, "Watch Project");
+        String issueId = createIssue(token, projectId, "Some issue");
+        String outEmail = "outsider-" + uniqueId() + "@example.com";
+        String outsiderToken = createWorkspaceMember(ownerEmail, outEmail);
+        User outsider = userRepository.findByEmail(outEmail).orElseThrow();
+        mockMvc.perform(post("/api/projects/" + projectId + "/members")
+            .header("Authorization", "Bearer " + token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                { "userId": "%s", "role": "%s" }
+                """.formatted(outsider.getId(), "MEMBER")))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/issues/" + issueId + "/watch")
+                .header("Authorization", "Bearer " + outsiderToken))
+            .andExpect(status().isOk());
+        UUID outMemberId = projectMemberRepository
+            .findByWorkspace_IdAndProject_IdAndUser_Id(
+                workspaceIdOf(ownerEmail),
+                UUID.fromString(projectId),
+                outsider.getId())
+            .orElseThrow()
+            .getId();
+        mockMvc.perform(delete("/api/projects/" + projectId + "/members/"+ outMemberId)
+            .header("Authorization", "Bearer " + token))
+            .andExpect(status().isNoContent());
+        mockMvc.perform(post("/api/issues/" + issueId + "/watch")
+            .header("Authorization", "Bearer " + outsiderToken))
+            .andExpect(status().isNotFound());
+    }
 
     private String register(String email) throws Exception {
         String body = mockMvc.perform(post("/api/auth/register")
@@ -144,5 +227,21 @@ class IssueWatchIntegrationTests {
 
     private String uniqueId() {
         return UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private String createWorkspaceMember(String ownerEmail, String email) {
+        User owner = userRepository.findByEmail(ownerEmail).orElseThrow();
+        Workspace workspace = workspaceRepository
+            .findFirstByOwner_IdOrderByCreatedAtAsc(owner.getId()).orElseThrow();
+        User user = userRepository.save(new User(email, "unused", "Workspace Member"));
+        WorkspaceMembership membership = membershipRepository.save(
+            new WorkspaceMembership(workspace, user, WorkspaceRole.MEMBER));
+        return jwtService.generateAccessToken(user, membership);
+    }
+
+    private UUID workspaceIdOf(String ownerEmail) {
+        User owner = userRepository.findByEmail(ownerEmail).orElseThrow();
+        return workspaceRepository.findFirstByOwner_IdOrderByCreatedAtAsc(owner.getId())
+            .orElseThrow().getId();
     }
 }
