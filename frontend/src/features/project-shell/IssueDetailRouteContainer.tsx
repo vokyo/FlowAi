@@ -12,6 +12,7 @@ import { InlineState } from '@/ui/feature-ui'
 import { queryKeys, resetProjectBoard } from '@/lib/query-keys'
 import type { CommentFormValues } from '@/domain/project-model'
 import { pathWithSearchParams, projectPath } from '@/routing/route-utils'
+import { useIssueWatchMutation } from '@/features/issue-watch/useIssueWatchMutation'
 import type { Project, UpdateIssueRequest } from '@/api/work-api'
 
 const IssueDetailFeature = lazy(() =>
@@ -90,8 +91,20 @@ export function IssueDetailRouteContainer({
     issueId,
     enabled: Boolean(enabled && selectedProject),
   })
+  const watchMutation = useIssueWatchMutation(workspaceId)
   const { createCommentMutation, updateIssueMutation } = useIssueDetailMutations(workspaceId)
   const activeIssue = issueQuery.data ?? null
+
+  const handleToggleWatch = async()=>{
+    if (!activeIssue||!selectedProjectId){
+      return
+    }
+    await watchMutation.mutateAsync({
+      issueId: activeIssue.id,
+      projectId: selectedProjectId,
+      watched: activeIssue.watched ?? false,
+    })
+  }
 
   async function handleCreateComment(values: CommentFormValues) {
     const body = values.body.trim()
@@ -210,6 +223,8 @@ export function IssueDetailRouteContainer({
           isLoadingAiStatus={aiStatusQuery.isLoading}
           onOpenAiBreakdown={openBreakdownCopilot}
           onOpenAiSummary={openSummaryCopilot}
+          onToggleWatch={handleToggleWatch}
+          isTogglingWatch={watchMutation.isPending}
         />
         {selectedProjectId ? (
           <IssueCopilotDrawer

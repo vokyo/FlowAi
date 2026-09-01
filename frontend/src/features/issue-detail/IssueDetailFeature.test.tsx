@@ -72,6 +72,8 @@ describe('IssueDetailFeature pagination controls', () => {
         isUpdatingIssue={false}
         updateIssueError={null}
         onResetUpdateIssueError={vi.fn()}
+        onToggleWatch={vi.fn(async () => undefined)}
+        isTogglingWatch={false}
       />,
     )
 
@@ -122,6 +124,8 @@ describe('IssueDetailFeature pagination controls', () => {
         aiIssueSummaryAvailable
         onOpenAiBreakdown={onOpenAiBreakdown}
         onOpenAiSummary={onOpenAiSummary}
+        onToggleWatch={vi.fn(async () => undefined)}
+        isTogglingWatch={false}
       />,
     )
 
