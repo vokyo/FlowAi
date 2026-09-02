@@ -1,6 +1,7 @@
 package com.vokyo.backend.project;
 
 import com.vokyo.backend.issue.Issue;
+import com.vokyo.backend.issue.IssueWatcherRepository;
 import com.vokyo.backend.user.User;
 import com.vokyo.backend.workspace.CurrentWorkspaceContext;
 import com.vokyo.backend.workspace.MembershipStatus;
@@ -17,13 +18,15 @@ public class ProjectAccessService {
 
     private final ProjectRepository projectRepository;
     private final ProjectMemberRepository projectMemberRepository;
+    private final IssueWatcherRepository issueWatcherRepository;
 
     public ProjectAccessService(
-            ProjectRepository projectRepository,
-            ProjectMemberRepository projectMemberRepository
+        ProjectRepository projectRepository,
+        ProjectMemberRepository projectMemberRepository, IssueWatcherRepository issueWatcherRepository
     ) {
         this.projectRepository = projectRepository;
         this.projectMemberRepository = projectMemberRepository;
+        this.issueWatcherRepository = issueWatcherRepository;
     }
 
     public List<Project> listAccessibleProjects(CurrentWorkspaceContext context) {
@@ -145,10 +148,18 @@ public class ProjectAccessService {
     }
 
 
+    public void disableProjectMembership(ProjectMember member) {
+        member.disable();
+        issueWatcherRepository.deleteByProjectIdAndUserId(
+            member.getProject().getId(),
+            member.getUser().getId()
+        );
+    }
+
     public void disableProjectMemberships(UUID workspaceId, UUID userId) {
         projectMemberRepository
-                .findByWorkspace_IdAndUser_IdAndStatus(workspaceId, userId, MembershipStatus.ACTIVE)
-                .forEach(ProjectMember::disable);
+            .findByWorkspace_IdAndUser_IdAndStatus(workspaceId, userId, MembershipStatus.ACTIVE)
+            .forEach(this::disableProjectMembership);
     }
 
     public User requireActiveProjectMemberUser(Project project, UUID userId) {

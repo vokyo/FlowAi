@@ -345,7 +345,7 @@ public class ProjectConfigurationService {
                 && projectAccessService.countActiveProjectOwners(project) <= 1) {
             throw conflict("A project must have at least one active owner");
         }
-        member.disable();
+        projectAccessService.disableProjectMembership(member);
     }
 
     private int nextWorkflowStatePosition(Project project) {

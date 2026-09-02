@@ -9,4 +9,6 @@ public interface IssueWatcherRepository extends JpaRepository<IssueWatcher, Issu
     long countByIssueId(UUID issueId);
 
     List<IssueWatcher> findByUserIdAndIssueIdIn(UUID userId, Collection<UUID> issueIds);
+
+    void deleteByProjectIdAndUserId(UUID projectId, UUID userId);
 }
