@@ -7,6 +7,7 @@ import com.vokyo.backend.issue.dto.CreateIssueRequest;
 import com.vokyo.backend.issue.dto.IssueCommentResponse;
 import com.vokyo.backend.issue.dto.IssueDetailResponse;
 import com.vokyo.backend.issue.dto.IssueListItemResponse;
+import com.vokyo.backend.issue.dto.IssueWatchResponse;
 import com.vokyo.backend.issue.dto.MoveIssueStateRequest;
 import com.vokyo.backend.issue.dto.ProjectBoardResponse;
 import com.vokyo.backend.issue.dto.ReorderIssuesRequest;
@@ -27,131 +28,149 @@ public class IssueController {
     private final IssueQueryService issueQueryService;
     private final IssueCommandService issueCommandService;
     private final BoardService boardService;
+    private final IssueWatchService issueWatchService;
 
     public IssueController(
-            IssueQueryService issueQueryService,
-            IssueCommandService issueCommandService,
-            BoardService boardService
+        IssueQueryService issueQueryService,
+        IssueCommandService issueCommandService,
+        BoardService boardService, IssueWatchService issueWatchService
     ) {
         this.issueQueryService = issueQueryService;
         this.issueCommandService = issueCommandService;
         this.boardService = boardService;
+        this.issueWatchService = issueWatchService;
     }
 
     @GetMapping
     public CursorPage<IssueListItemResponse> listIssues(
-            @AuthenticationPrincipal Jwt jwt,
-            @RequestParam UUID projectId,
-            @RequestParam(required = false) IssueStatus status,
-            @RequestParam(required = false) UUID workflowStateId,
-            @RequestParam(required = false) IssuePriority priority,
-            @RequestParam(required = false) UUID assigneeUserId,
-            @RequestParam(required = false) UUID labelId,
-            @RequestParam(required = false) String q,
-            @RequestParam(required = false) String cursor,
-            @RequestParam(defaultValue = "" + CursorPagination.DEFAULT_LIMIT) int limit
+        @AuthenticationPrincipal Jwt jwt,
+        @RequestParam UUID projectId,
+        @RequestParam(required = false) IssueStatus status,
+        @RequestParam(required = false) UUID workflowStateId,
+        @RequestParam(required = false) IssuePriority priority,
+        @RequestParam(required = false) UUID assigneeUserId,
+        @RequestParam(required = false) UUID labelId,
+        @RequestParam(required = false) String q,
+        @RequestParam(required = false) String cursor,
+        @RequestParam(defaultValue = "" + CursorPagination.DEFAULT_LIMIT) int limit
     ) {
         return issueQueryService.listIssues(
-                jwt,
-                projectId,
-                status,
-                workflowStateId,
-                priority,
-                assigneeUserId,
-                labelId,
-                q,
-                cursor,
-                limit
+            jwt,
+            projectId,
+            status,
+            workflowStateId,
+            priority,
+            assigneeUserId,
+            labelId,
+            q,
+            cursor,
+            limit
         );
     }
 
     @GetMapping("/board")
     public ProjectBoardResponse getBoard(
-            @AuthenticationPrincipal Jwt jwt,
-            @RequestParam UUID projectId
+        @AuthenticationPrincipal Jwt jwt,
+        @RequestParam UUID projectId
     ) {
         return boardService.getBoard(jwt, projectId);
     }
 
     @GetMapping("/board/states/{workflowStateId}")
     public CursorPage<IssueListItemResponse> getBoardStatePage(
-            @AuthenticationPrincipal Jwt jwt,
-            @PathVariable UUID workflowStateId,
-            @RequestParam UUID projectId,
-            @RequestParam(required = false) String cursor,
-            @RequestParam(defaultValue = "" + CursorPagination.DEFAULT_LIMIT) int limit
+        @AuthenticationPrincipal Jwt jwt,
+        @PathVariable UUID workflowStateId,
+        @RequestParam UUID projectId,
+        @RequestParam(required = false) String cursor,
+        @RequestParam(defaultValue = "" + CursorPagination.DEFAULT_LIMIT) int limit
     ) {
         return boardService.getBoardStatePage(jwt, projectId, workflowStateId, cursor, limit);
     }
 
     @PostMapping
     public IssueListItemResponse createIssue(
-            @AuthenticationPrincipal Jwt jwt,
-            @Valid @RequestBody CreateIssueRequest request
+        @AuthenticationPrincipal Jwt jwt,
+        @Valid @RequestBody CreateIssueRequest request
     ) {
         return issueCommandService.createIssue(jwt, request);
     }
 
     @GetMapping("/{issueId}")
     public IssueDetailResponse getIssue(
-            @AuthenticationPrincipal Jwt jwt,
-            @PathVariable UUID issueId
+        @AuthenticationPrincipal Jwt jwt,
+        @PathVariable UUID issueId
     ) {
         return issueQueryService.getIssue(jwt, issueId);
     }
 
     @PatchMapping("/{issueId}/state")
     public IssueListItemResponse moveIssueState(
-            @AuthenticationPrincipal Jwt jwt,
-            @PathVariable UUID issueId,
-            @Valid @RequestBody MoveIssueStateRequest request
+        @AuthenticationPrincipal Jwt jwt,
+        @PathVariable UUID issueId,
+        @Valid @RequestBody MoveIssueStateRequest request
     ) {
         return boardService.moveIssueState(jwt, issueId, request);
     }
 
     @PatchMapping("/reorder")
     public ReorderIssuesResponse reorderIssues(
-            @AuthenticationPrincipal Jwt jwt,
-            @Valid @RequestBody ReorderIssuesRequest request
+        @AuthenticationPrincipal Jwt jwt,
+        @Valid @RequestBody ReorderIssuesRequest request
     ) {
         return boardService.reorderIssues(jwt, request);
     }
 
     @PostMapping("/{issueId}/comments")
     public IssueCommentResponse createComment(
-            @AuthenticationPrincipal Jwt jwt,
-            @PathVariable UUID issueId,
-            @Valid @RequestBody CreateCommentRequest request
+        @AuthenticationPrincipal Jwt jwt,
+        @PathVariable UUID issueId,
+        @Valid @RequestBody CreateCommentRequest request
     ) {
         return issueCommandService.createComment(jwt, issueId, request);
     }
 
     @GetMapping("/{issueId}/comments")
     public CursorPage<IssueCommentResponse> listIssueComments(
-            @AuthenticationPrincipal Jwt jwt,
-            @PathVariable UUID issueId,
-            @RequestParam(required = false) String cursor,
-            @RequestParam(defaultValue = "" + CursorPagination.DEFAULT_LIMIT) int limit
+        @AuthenticationPrincipal Jwt jwt,
+        @PathVariable UUID issueId,
+        @RequestParam(required = false) String cursor,
+        @RequestParam(defaultValue = "" + CursorPagination.DEFAULT_LIMIT) int limit
     ) {
         return issueQueryService.listIssueComments(jwt, issueId, cursor, limit);
     }
 
     @GetMapping("/{issueId}/activities")
     public CursorPage<ActivityEventResponse> listIssueActivities(
-            @AuthenticationPrincipal Jwt jwt,
-            @PathVariable UUID issueId,
-            @RequestParam(required = false) String cursor,
-            @RequestParam(defaultValue = "" + CursorPagination.DEFAULT_LIMIT) int limit
+        @AuthenticationPrincipal Jwt jwt,
+        @PathVariable UUID issueId,
+        @RequestParam(required = false) String cursor,
+        @RequestParam(defaultValue = "" + CursorPagination.DEFAULT_LIMIT) int limit
     ) {
         return issueQueryService.listIssueActivities(jwt, issueId, cursor, limit);
     }
 
     @PatchMapping("/{issueId}")
     public IssueDetailResponse updateIssue(
-            @AuthenticationPrincipal Jwt jwt,
-            @PathVariable UUID issueId,
-            @RequestBody JsonNode request
+        @AuthenticationPrincipal Jwt jwt,
+        @PathVariable UUID issueId,
+        @RequestBody JsonNode request
     ) {
         return issueCommandService.updateIssue(jwt, issueId, request);
+    }
+
+    @PostMapping("/{issueId}/watch")
+    public IssueWatchResponse watchIssue(
+        @AuthenticationPrincipal Jwt jwt,
+        @PathVariable UUID issueId
+    ) {
+        return issueWatchService.watch(jwt, issueId);
+    }
+
+    @DeleteMapping("/{issueId}/watch")
+    public IssueWatchResponse unwatchIssue(
+        @AuthenticationPrincipal Jwt jwt,
+        @PathVariable UUID issueId
+    ) {
+        return issueWatchService.unwatch(jwt, issueId);
     }
 }

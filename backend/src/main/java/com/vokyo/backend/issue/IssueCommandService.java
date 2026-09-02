@@ -48,17 +48,18 @@ public class IssueCommandService {
     private final ActivityService activityService;
     private final IssueMapper issueMapper;
     private final IssueCreationService issueCreationService;
+    private final IssueWatchQuery issueWatchQuery;
 
     public IssueCommandService(
-            IssueRepository issueRepository,
-            IssueCommentRepository issueCommentRepository,
-            ProjectLabelRepository projectLabelRepository,
-            ProjectWorkflowStateRepository projectWorkflowStateRepository,
-            ProjectAccessService projectAccessService,
-            WorkspaceAccessService workspaceAccessService,
-            ActivityService activityService,
-            IssueMapper issueMapper,
-            IssueCreationService issueCreationService
+        IssueRepository issueRepository,
+        IssueCommentRepository issueCommentRepository,
+        ProjectLabelRepository projectLabelRepository,
+        ProjectWorkflowStateRepository projectWorkflowStateRepository,
+        ProjectAccessService projectAccessService,
+        WorkspaceAccessService workspaceAccessService,
+        ActivityService activityService,
+        IssueMapper issueMapper,
+        IssueCreationService issueCreationService, IssueWatchQuery issueWatchQuery
     ) {
         this.issueRepository = issueRepository;
         this.issueCommentRepository = issueCommentRepository;
@@ -69,6 +70,7 @@ public class IssueCommandService {
         this.activityService = activityService;
         this.issueMapper = issueMapper;
         this.issueCreationService = issueCreationService;
+        this.issueWatchQuery = issueWatchQuery;
     }
 
     @Transactional
@@ -89,7 +91,7 @@ public class IssueCommandService {
                         request.dueDate()
                 )
         );
-        return issueMapper.toSummaryResponse(issue, 0L);
+        return issueMapper.toSummaryResponse(issue, 0L,false);
     }
 
     @Transactional
@@ -150,7 +152,12 @@ public class IssueCommandService {
                 previousDueDate,
                 workflowStateChanged
         );
-        return issueMapper.toDetailResponse(issue);
+        UUID userId = context.user().getId();
+        return issueMapper.toDetailResponse(
+            issue,
+            issueWatchQuery.isWatched(issueId, userId),
+            issueWatchQuery.countByIssueId(issueId)
+        );
     }
 
     private void applyIssuePatch(Issue issue, JsonNode request) {

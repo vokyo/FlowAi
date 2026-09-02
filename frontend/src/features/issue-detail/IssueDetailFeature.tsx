@@ -15,6 +15,7 @@ import {
   Pencil,
   Send,
   Sparkles,
+  Star,
   UserCircle,
 } from 'lucide-react'
 import type { AuthUser, AuthWorkspace } from '@/api/auth-api'
@@ -85,6 +86,9 @@ export function IssueDetailFeature({
   isLoadingAiStatus = false,
   onOpenAiBreakdown,
   onOpenAiSummary,
+  onToggleWatch,
+  watchError,
+  isTogglingWatch
 }: {
   issue: IssueSummary | IssueDetail | null
   selectedProject: Project | null
@@ -121,6 +125,9 @@ export function IssueDetailFeature({
   isLoadingAiStatus?: boolean
   onOpenAiBreakdown?: () => void
   onOpenAiSummary?: () => void
+  onToggleWatch: () => Promise<void>
+  watchError: Error | null
+  isTogglingWatch: boolean
 }) {
   const [editingIssueId, setEditingIssueId] = useState<string | null>(null)
   const {
@@ -236,6 +243,17 @@ export function IssueDetailFeature({
           </Button>
         </div>
         <div className="issue-ai-actions">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={isTogglingWatch}
+            onClick={() => void onToggleWatch().catch(() => undefined)}
+          >
+            <Star aria-hidden="true" fill={issue.watched ? 'currentColor' : 'none'} />
+            {issue.watched ? 'Watching' : 'Watch'}
+            {issue.watcherCount ? ` (${issue.watcherCount})` : ''}
+          </Button>
           {onOpenAiSummary ? (
             <Button
               type="button"
@@ -276,6 +294,7 @@ export function IssueDetailFeature({
           </span>
         </div>
       </header>
+      {watchError ? <ErrorState error={watchError} /> : null}
 
       <div className="issue-detail-layout">
         <article className="issue-detail-main">

@@ -1,15 +1,15 @@
-import { useEffect, useState } from 'react'
+import {useEffect, useState} from 'react'
 import {
+  closestCorners,
   DndContext,
+  type DragEndEvent,
   DragOverlay,
+  type DragStartEvent,
   KeyboardSensor,
   PointerSensor,
-  closestCorners,
   useDroppable,
   useSensor,
   useSensors,
-  type DragEndEvent,
-  type DragStartEvent,
 } from '@dnd-kit/core'
 import {
   SortableContext,
@@ -17,51 +17,31 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { useForm, useWatch } from 'react-hook-form'
-import {
-  CalendarDays,
-  GripVertical,
-  Loader2,
-  Maximize2,
-  MessageSquare,
-  Plus,
-  UserCircle,
-  X,
-} from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import type { CursorPage } from '@/api/pagination'
-import {
-  type BoardColumn,
-  type IssueSummary,
-  type ProjectBoard,
-  type ProjectWorkflowState,
-} from '@/api/work-api'
+import {CSS} from '@dnd-kit/utilities'
+import {zodResolver} from '@hookform/resolvers/zod'
+import {useForm, useWatch} from 'react-hook-form'
+import {CalendarDays, GripVertical, Loader2, Maximize2, MessageSquare, Plus, Star, UserCircle, X,} from 'lucide-react'
+import {Button} from '@/components/ui/button'
+import type {CursorPage} from '@/api/pagination'
+import {type BoardColumn, type IssueSummary, type ProjectBoard, type ProjectWorkflowState,} from '@/api/work-api'
 import {
   boardEmptyColumnLabel,
   boardIssueNeighbors,
+  type BoardIssueView,
   buildOptimisticBoard,
   findBoardIssue,
   kanbanColumnId,
-  type BoardIssueView,
 } from '@/domain/board-utils'
 import {
-  quickCreateIssueFormSchema,
   type CreateIssueDialogSeed,
   type KanbanReorder,
+  quickCreateIssueFormSchema,
   type QuickCreateIssueFormValues,
   type QuickCreateIssueMutationVariables,
 } from '@/domain/project-model'
-import { formatDateOnly, getErrorMessage } from '@/ui/display-utils'
-import {
-  ErrorState,
-  InlineNotice,
-  LabelBadge,
-  PriorityBadge,
-  StatusIcon,
-} from '@/ui/feature-ui'
-import { useBoardColumnPagination } from './useBoardColumnPagination'
+import {formatDateOnly, getErrorMessage} from '@/ui/display-utils'
+import {ErrorState, InlineNotice, LabelBadge, PriorityBadge, StatusIcon,} from '@/ui/feature-ui'
+import {useBoardColumnPagination} from './useBoardColumnPagination'
 
 type KanbanDragData = {
   type: 'column' | 'issue'
@@ -69,24 +49,24 @@ type KanbanDragData = {
 }
 
 export function BoardFeature({
-  board,
-  completeBoard,
-  workspaceId,
-  boardIssueView,
-  currentUserId,
-  selectedIssueId,
-  isReordering,
-  isQuickCreating,
-  canUseQuickCreateShortcut,
-  reorderError,
-  quickCreateError,
-  onIssueSelect,
-  onOpenFullCreate,
-  onReorder,
-  onQuickCreate,
-  onResetQuickCreate,
-  onBoardColumnPageLoaded,
-}: {
+                               board,
+                               completeBoard,
+                               workspaceId,
+                               boardIssueView,
+                               currentUserId,
+                               selectedIssueId,
+                               isReordering,
+                               isQuickCreating,
+                               canUseQuickCreateShortcut,
+                               reorderError,
+                               quickCreateError,
+                               onIssueSelect,
+                               onOpenFullCreate,
+                               onReorder,
+                               onQuickCreate,
+                               onResetQuickCreate,
+                               onBoardColumnPageLoaded,
+                             }: {
   board: ProjectBoard
   completeBoard: ProjectBoard
   workspaceId: string
@@ -117,7 +97,7 @@ export function BoardFeature({
   const [composerWorkflowStateId, setComposerWorkflowStateId] = useState<string | null>(null)
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: { distance: 6 },
+      activationConstraint: {distance: 6},
     }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
@@ -259,10 +239,10 @@ export function BoardFeature({
       aria-label="Project board"
       aria-busy={isReordering || isQuickCreating}
     >
-      {reorderError ? <ErrorState error={reorderError} /> : null}
+      {reorderError ? <ErrorState error={reorderError}/> : null}
       {isReordering ? (
         <p className="kanban-save-state" role="status">
-          <Loader2 className="auth-spin" aria-hidden="true" />
+          <Loader2 className="auth-spin" aria-hidden="true"/>
           Saving board
         </p>
       ) : null}
@@ -305,7 +285,7 @@ export function BoardFeature({
         <DragOverlay>
           {activeIssue ? (
             <article className="kanban-card kanban-card-overlay">
-              <KanbanIssueCardContent issue={activeIssue} />
+              <KanbanIssueCardContent issue={activeIssue}/>
             </article>
           ) : null}
         </DragOverlay>
@@ -315,23 +295,23 @@ export function BoardFeature({
 }
 
 function KanbanColumn({
-  column,
-  defaultAssigneeUserId,
-  emptyLabel,
-  selectedIssueId,
-  isReordering,
-  isComposerOpen,
-  isQuickCreating,
-  quickCreateError,
-  onIssueSelect,
-  onOpenQuickCreate,
-  onCloseQuickCreate,
-  onExpandQuickCreate,
-  onQuickCreate,
-  projectId,
-  workspaceId,
-  onPageLoaded,
-}: {
+                        column,
+                        defaultAssigneeUserId,
+                        emptyLabel,
+                        selectedIssueId,
+                        isReordering,
+                        isComposerOpen,
+                        isQuickCreating,
+                        quickCreateError,
+                        onIssueSelect,
+                        onOpenQuickCreate,
+                        onCloseQuickCreate,
+                        onExpandQuickCreate,
+                        onQuickCreate,
+                        projectId,
+                        workspaceId,
+                        onPageLoaded,
+                      }: {
   column: BoardColumn
   defaultAssigneeUserId?: string
   emptyLabel: string
@@ -361,7 +341,7 @@ function KanbanColumn({
     workspaceId,
     onPageLoaded,
   })
-  const { isOver, setNodeRef } = useDroppable({
+  const {isOver, setNodeRef} = useDroppable({
     id: kanbanColumnId(column.workflowState.id),
     data: {
       type: 'column',
@@ -378,7 +358,7 @@ function KanbanColumn({
     >
       <header className="kanban-column-header">
         <span className="kanban-column-title">
-          <StatusIcon status={column.workflowState.category} />
+          <StatusIcon status={column.workflowState.category}/>
           <strong>{column.workflowState.name}</strong>
           <small>{column.issues.length}</small>
         </span>
@@ -391,7 +371,7 @@ function KanbanColumn({
           aria-label={`Quick create issue in ${column.workflowState.name}`}
           title="Quick create issue"
         >
-          <Plus aria-hidden="true" />
+          <Plus aria-hidden="true"/>
         </Button>
       </header>
       <div className="kanban-column-body" data-over={isOver} ref={setNodeRef}>
@@ -434,26 +414,26 @@ function KanbanColumn({
             onClick={() => void columnPagesQuery.fetchNextPage()}
           >
             {columnPagesQuery.isFetchingNextPage ? (
-              <Loader2 className="auth-spin" aria-hidden="true" />
+              <Loader2 className="auth-spin" aria-hidden="true"/>
             ) : null}
             {columnPagesQuery.isFetchingNextPage ? 'Loading' : 'Load more'}
           </Button>
         ) : null}
-        {columnPagesQuery.error ? <ErrorState error={columnPagesQuery.error} /> : null}
+        {columnPagesQuery.error ? <ErrorState error={columnPagesQuery.error}/> : null}
       </div>
     </section>
   )
 }
 
 function InlineIssueComposer({
-  workflowState,
-  defaultAssigneeUserId,
-  isSubmitting,
-  error,
-  onSubmit,
-  onClose,
-  onExpand,
-}: {
+                               workflowState,
+                               defaultAssigneeUserId,
+                               isSubmitting,
+                               error,
+                               onSubmit,
+                               onClose,
+                               onExpand,
+                             }: {
   workflowState: ProjectWorkflowState
   defaultAssigneeUserId?: string
   isSubmitting: boolean
@@ -470,12 +450,12 @@ function InlineIssueComposer({
     reset,
     setFocus,
     control,
-    formState: { errors },
+    formState: {errors},
   } = useForm<QuickCreateIssueFormValues>({
     resolver: zodResolver(quickCreateIssueFormSchema),
-    defaultValues: { title: '' },
+    defaultValues: {title: ''},
   })
-  const title = useWatch({ control, name: 'title' }) ?? ''
+  const title = useWatch({control, name: 'title'}) ?? ''
 
   async function submitQuickIssue(values: QuickCreateIssueFormValues) {
     try {
@@ -488,7 +468,7 @@ function InlineIssueComposer({
         return
       }
 
-      reset({ title: '' })
+      reset({title: ''})
       setFocus('title')
     } catch {
       // The request error is rendered below and the draft title is retained.
@@ -533,7 +513,7 @@ function InlineIssueComposer({
           aria-label="Open full issue form"
           title="Open full issue form"
         >
-          <Maximize2 aria-hidden="true" />
+          <Maximize2 aria-hidden="true"/>
         </Button>
         <span>
           <Button
@@ -545,7 +525,7 @@ function InlineIssueComposer({
             aria-label="Close quick create"
             title="Close"
           >
-            <X aria-hidden="true" />
+            <X aria-hidden="true"/>
           </Button>
           <Button
             type="submit"
@@ -555,9 +535,9 @@ function InlineIssueComposer({
             title="Create issue"
           >
             {isSubmitting ? (
-              <Loader2 aria-hidden="true" className="auth-spin" />
+              <Loader2 aria-hidden="true" className="auth-spin"/>
             ) : (
-              <Plus aria-hidden="true" />
+              <Plus aria-hidden="true"/>
             )}
           </Button>
         </span>
@@ -567,12 +547,12 @@ function InlineIssueComposer({
 }
 
 function SortableIssueCard({
-  issue,
-  workflowStateId,
-  isActive,
-  isReordering,
-  onIssueSelect,
-}: {
+                             issue,
+                             workflowStateId,
+                             isActive,
+                             isReordering,
+                             onIssueSelect,
+                           }: {
   issue: IssueSummary
   workflowStateId: string
   isActive: boolean
@@ -615,44 +595,49 @@ function SortableIssueCard({
         {...attributes}
         {...listeners}
       >
-        <GripVertical aria-hidden="true" />
+        <GripVertical aria-hidden="true"/>
       </button>
       <button
         className="kanban-card-open"
         type="button"
         onClick={() => onIssueSelect(issue.id)}
       >
-        <KanbanIssueCardContent issue={issue} />
+        <KanbanIssueCardContent issue={issue}/>
       </button>
     </article>
   )
 }
 
-function KanbanIssueCardContent({ issue }: { issue: IssueSummary }) {
+function KanbanIssueCardContent({issue}: { issue: IssueSummary }) {
   return (
     <span className="kanban-card-content">
       <strong>{issue.title}</strong>
       {issue.labels.length > 0 ? (
         <span className="issue-label-row">
           {issue.labels.map((label) => (
-            <LabelBadge label={label} key={label.id} />
+            <LabelBadge label={label} key={label.id}/>
           ))}
         </span>
       ) : null}
       <span className="kanban-card-meta">
-        <PriorityBadge priority={issue.priority} />
+        <PriorityBadge priority={issue.priority}/>
         <span title={issue.assignee?.email ?? 'Unassigned'}>
-          <UserCircle aria-hidden="true" />
+          <UserCircle aria-hidden="true"/>
           {issue.assignee ? issue.assignee.displayName || issue.assignee.email : 'Unassigned'}
         </span>
         {issue.dueDate ? (
           <span>
-            <CalendarDays aria-hidden="true" />
+            <CalendarDays aria-hidden="true"/>
             {formatDateOnly(issue.dueDate)}
           </span>
         ) : null}
+        {issue.watched ? (
+          <span>
+            <Star aria-hidden="true" fill="currentColor"/>
+          </span>
+        ) : null}
         <span>
-          <MessageSquare aria-hidden="true" />
+          <MessageSquare aria-hidden="true"/>
           {issue.commentCount ?? 0}
         </span>
       </span>

@@ -376,7 +376,7 @@ class IssueBreakdownContextBuilderTests {
         private CurrentWorkspaceContext checkedContext;
 
         private StubProjectAccessService() {
-            super(null, null);
+            super(null, null, null);
         }
 
         @Override

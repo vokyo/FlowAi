@@ -72,6 +72,9 @@ describe('IssueDetailFeature pagination controls', () => {
         isUpdatingIssue={false}
         updateIssueError={null}
         onResetUpdateIssueError={vi.fn()}
+        onToggleWatch={vi.fn(async () => undefined)}
+        isTogglingWatch={false}
+        watchError={null}
       />,
     )
 
@@ -122,6 +125,9 @@ describe('IssueDetailFeature pagination controls', () => {
         aiIssueSummaryAvailable
         onOpenAiBreakdown={onOpenAiBreakdown}
         onOpenAiSummary={onOpenAiSummary}
+        onToggleWatch={vi.fn(async () => undefined)}
+        isTogglingWatch={false}
+        watchError={null}
       />,
     )
 
@@ -129,5 +135,51 @@ describe('IssueDetailFeature pagination controls', () => {
     expect(onOpenAiBreakdown).toHaveBeenCalledOnce()
     await userEvent.click(screen.getByRole('button', { name: 'Summarize' }))
     expect(onOpenAiSummary).toHaveBeenCalledOnce()
+  })
+
+  it('shows the watch state and toggles it', async () => {
+
+    const onToggleWatch = vi.fn(async () => undefined)
+    render(
+      <IssueDetailFeature
+        issue={{ ...issue, watched: true, watcherCount: 3 }}
+        selectedProject={project}
+        projectMembers={[]}
+        projectLabels={[]}
+        projectWorkflowStates={[workflowState]}
+        currentWorkspace={{ id: 'workspace-1', name: 'Workspace', slug: 'workspace', role: 'OWNER' }}
+        currentUser={user}
+        comments={[]}
+        activities={[]}
+        isLoadingIssue={false}
+        issueError={null}
+        isLoadingComments={false}
+        commentsError={null}
+        hasMoreComments={false}
+        isLoadingMoreComments={false}
+        onLoadMoreComments={vi.fn()}
+        isLoadingActivities={false}
+        activitiesError={null}
+        hasMoreActivities={false}
+        isLoadingMoreActivities={false}
+        onLoadMoreActivities={vi.fn()}
+        onSubmitComment={vi.fn(async () => undefined)}
+        isSubmittingComment={false}
+        commentError={null}
+        onBackToProject={vi.fn()}
+        onUpdateIssue={vi.fn(async () => undefined)}
+        onArchiveIssue={vi.fn(async () => undefined)}
+        isUpdatingIssue={false}
+        updateIssueError={null}
+        onResetUpdateIssueError={vi.fn()}
+        aiBreakdownAvailable
+        aiIssueSummaryAvailable
+        onToggleWatch={onToggleWatch}
+        isTogglingWatch={false}
+        watchError={null}
+      />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Watching (3)' }))
+    expect(onToggleWatch).toHaveBeenCalledOnce()
   })
 })
