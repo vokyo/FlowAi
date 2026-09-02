@@ -2,19 +2,22 @@ package com.vokyo.backend.issue;
 
 import org.springframework.stereotype.Component;
 
-import java.util.*;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Component
 class IssueWatchQuery {
-    private final IssueWatcherRepository issueWatcherRepository;
 
+    private final IssueWatcherRepository issueWatcherRepository;
 
     IssueWatchQuery(IssueWatcherRepository issueWatcherRepository) {
         this.issueWatcherRepository = issueWatcherRepository;
     }
 
-    boolean isWatched(UUID issueId, UUID watcherId) {
-        return issueWatcherRepository.existsById(new IssueWatcherId(issueId, watcherId));
+    boolean isWatched(UUID issueId, UUID userId) {
+        return issueWatcherRepository.existsById(new IssueWatcherId(issueId, userId));
     }
 
     long countByIssueId(UUID issueId) {
@@ -22,19 +25,14 @@ class IssueWatchQuery {
     }
 
     Set<UUID> loadWatchedIssueIds(List<Issue> issues, UUID userId) {
-        if (issues == null || issues.isEmpty()) {
+        if (issues.isEmpty()) {
             return Set.of();
         }
-        List<UUID> issueIds = new ArrayList<>();
-        for (Issue issue : issues) {
-            issueIds.add(issue.getId());
-        }
-        List<IssueWatcher> watchers = issueWatcherRepository.findByUserIdAndIssueIdIn(userId, issueIds);
-        Set<UUID> watchedIds = new HashSet<>();
-        for (IssueWatcher watcher : watchers) {
-            watchedIds.add(watcher.getIssueId());
-        }
-        return watchedIds;
 
+        List<UUID> issueIds = issues.stream().map(Issue::getId).toList();
+        return issueWatcherRepository.findByUserIdAndIssueIdIn(userId, issueIds)
+                .stream()
+                .map(IssueWatcher::getIssueId)
+                .collect(Collectors.toSet());
     }
 }

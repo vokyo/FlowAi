@@ -585,8 +585,8 @@ function IssueRow({
         ) : null}
         {issue.watched ? (
           <span className="issue-comment-count">
-    <Star aria-hidden="true" fill="currentColor" />
-  </span>
+            <Star aria-hidden="true" fill="currentColor" />
+          </span>
         ) : null}
         <span className="issue-comment-count">
           <MessageSquare aria-hidden="true" />

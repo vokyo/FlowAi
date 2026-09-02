@@ -225,6 +225,7 @@ export function IssueDetailRouteContainer({
           onOpenAiSummary={openSummaryCopilot}
           onToggleWatch={handleToggleWatch}
           isTogglingWatch={watchMutation.isPending}
+          watchError={watchMutation.error}
         />
         {selectedProjectId ? (
           <IssueCopilotDrawer

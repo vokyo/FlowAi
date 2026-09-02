@@ -87,6 +87,7 @@ export function IssueDetailFeature({
   onOpenAiBreakdown,
   onOpenAiSummary,
   onToggleWatch,
+  watchError,
   isTogglingWatch
 }: {
   issue: IssueSummary | IssueDetail | null
@@ -125,6 +126,7 @@ export function IssueDetailFeature({
   onOpenAiBreakdown?: () => void
   onOpenAiSummary?: () => void
   onToggleWatch: () => Promise<void>
+  watchError: Error | null
   isTogglingWatch: boolean
 }) {
   const [editingIssueId, setEditingIssueId] = useState<string | null>(null)
@@ -292,6 +294,7 @@ export function IssueDetailFeature({
           </span>
         </div>
       </header>
+      {watchError ? <ErrorState error={watchError} /> : null}
 
       <div className="issue-detail-layout">
         <article className="issue-detail-main">

@@ -26,7 +26,11 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
-import java.util.*;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 
 @Service
 public class IssueQueryService {
@@ -247,10 +251,10 @@ public class IssueQueryService {
             }
             if (cursor != null) {
                 predicates.add(criteriaBuilder.or(
-                    criteriaBuilder.lessThan(root.get("createdAt"), cursor.createdAt()),
+                    criteriaBuilder.lessThan(root.<Instant>get("createdAt"), cursor.createdAt()),
                     criteriaBuilder.and(
                         criteriaBuilder.equal(root.get("createdAt"), cursor.createdAt()),
-                        criteriaBuilder.lessThan(root.get("id"), cursor.id())
+                        criteriaBuilder.lessThan(root.<UUID>get("id"), cursor.id())
                     )
                 ));
             }

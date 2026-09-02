@@ -74,6 +74,7 @@ describe('IssueDetailFeature pagination controls', () => {
         onResetUpdateIssueError={vi.fn()}
         onToggleWatch={vi.fn(async () => undefined)}
         isTogglingWatch={false}
+        watchError={null}
       />,
     )
 
@@ -126,6 +127,7 @@ describe('IssueDetailFeature pagination controls', () => {
         onOpenAiSummary={onOpenAiSummary}
         onToggleWatch={vi.fn(async () => undefined)}
         isTogglingWatch={false}
+        watchError={null}
       />,
     )
 
@@ -174,6 +176,7 @@ describe('IssueDetailFeature pagination controls', () => {
         aiIssueSummaryAvailable
         onToggleWatch={onToggleWatch}
         isTogglingWatch={false}
+        watchError={null}
       />,
     )
     await userEvent.click(screen.getByRole('button', { name: 'Watching (3)' }))

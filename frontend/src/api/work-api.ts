@@ -81,7 +81,7 @@ export type IssueSummary = {
 }
 
 export type IssueWatchState = {
-  wathcerCOunt: number
+  watcherCount: number
   watched: boolean
 }
 
