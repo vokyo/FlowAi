@@ -236,11 +236,11 @@ class IssueWatchIntegrationTests {
     }
 
     @Test
-    void issueWatchingFromOtherUser() throws Exception {
+    void otherUsersDoNotSeeMyWatchState() throws Exception {
         String ownerEmail = "watch-" + uniqueId() + "@example.com";
         String token = register(ownerEmail);
         String projectId = createProject(token, "Watch Project");
-        String ownerIssue = createIssue(token, projectId, "notWatched");
+        String ownerIssue = createIssue(token, projectId, "Watched by owner");
         String outEmail = "outsider-" + uniqueId() + "@example.com";
         String outsiderToken = createWorkspaceMember(ownerEmail, outEmail);
         User outsider = userRepository.findByEmail(outEmail).orElseThrow();
@@ -257,8 +257,42 @@ class IssueWatchIntegrationTests {
         mockMvc.perform(get("/api/issues").queryParam("projectId", projectId)
                 .header("Authorization", "Bearer " + outsiderToken))
             .andExpect(status().isOk())
+            .andExpect(jsonPath("$.items[0].id").value(ownerIssue))
             .andExpect(jsonPath("$.items[0].watched").value(false));
+    }
 
+    @Test
+    void removingAMemberFromTheWorkspaceDropsTheirWatchRecords() throws Exception {
+        String ownerEmail = "watch-" + uniqueId() + "@example.com";
+        String token = register(ownerEmail);
+        String projectId = createProject(token, "Watch Project");
+        String issueId = createIssue(token, projectId, "Watched by member");
+
+        String memberEmail = "member-" + uniqueId() + "@example.com";
+        String memberToken = createWorkspaceMember(ownerEmail, memberEmail);
+        User member = userRepository.findByEmail(memberEmail).orElseThrow();
+        mockMvc.perform(post("/api/projects/" + projectId + "/members")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    { "userId": "%s", "role": "%s" }
+                    """.formatted(member.getId(), "MEMBER")))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/issues/" + issueId + "/watch")
+                .header("Authorization", "Bearer " + memberToken))
+            .andExpect(status().isOk());
+        assertThat(issueWatcherRepository.count()).isEqualTo(1);
+
+        UUID membershipId = membershipRepository
+            .findByWorkspace_IdAndUser_Id(workspaceIdOf(ownerEmail), member.getId())
+            .orElseThrow()
+            .getId();
+        mockMvc.perform(delete("/api/workspaces/current/members/" + membershipId)
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isNoContent());
+
+        assertThat(issueWatcherRepository.count()).isZero();
     }
 
     private String register(String email) throws Exception {
