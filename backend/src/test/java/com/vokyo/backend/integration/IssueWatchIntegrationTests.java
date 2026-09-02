@@ -235,6 +235,32 @@ class IssueWatchIntegrationTests {
             .andExpect(jsonPath("$.columns[0].issues[1].watched").value(true));
     }
 
+    @Test
+    void issueWatchingFromOtherUser() throws Exception {
+        String ownerEmail = "watch-" + uniqueId() + "@example.com";
+        String token = register(ownerEmail);
+        String projectId = createProject(token, "Watch Project");
+        String ownerIssue = createIssue(token, projectId, "notWatched");
+        String outEmail = "outsider-" + uniqueId() + "@example.com";
+        String outsiderToken = createWorkspaceMember(ownerEmail, outEmail);
+        User outsider = userRepository.findByEmail(outEmail).orElseThrow();
+        mockMvc.perform(post("/api/projects/" + projectId + "/members")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    { "userId": "%s", "role": "%s" }
+                    """.formatted(outsider.getId(), "MEMBER")))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/issues/" + ownerIssue + "/watch")
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk());
+        mockMvc.perform(get("/api/issues").queryParam("projectId", projectId)
+                .header("Authorization", "Bearer " + outsiderToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.items[0].watched").value(false));
+
+    }
+
     private String register(String email) throws Exception {
         String body = mockMvc.perform(post("/api/auth/register")
                 .contentType(MediaType.APPLICATION_JSON)
