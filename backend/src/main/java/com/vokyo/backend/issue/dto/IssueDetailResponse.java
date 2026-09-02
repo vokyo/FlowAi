@@ -24,6 +24,8 @@ public record IssueDetailResponse(
         Instant archivedAt,
         long boardPosition,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        boolean watched,
+        long watcherCount
 ) {
 }

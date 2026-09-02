@@ -1,6 +1,6 @@
-import { api } from '@/api/client'
-import type { CursorPage } from '@/api/pagination'
-import type { AuthUser } from '@/api/auth-api'
+import {api} from '@/api/client'
+import type {CursorPage} from '@/api/pagination'
+import type {AuthUser} from '@/api/auth-api'
 
 export type Project = {
   id: string
@@ -76,6 +76,21 @@ export type IssueSummary = {
   createdAt: string
   updatedAt: string
   commentCount?: number | null
+  watched?: boolean | null
+  watcherCount?: number | null
+}
+
+export type IssueWatchState = {
+  watcherCount: number
+  watched: boolean
+}
+
+export function watchIssue(issueId: string){
+  return api.post<IssueWatchState>(`/issues/${issueId}/watch`)
+}
+
+export function unwatchIssue(issueId: string){
+  return api.delete<IssueWatchState>(`/issues/${issueId}/watch`)
 }
 
 export type IssueComment = {
@@ -325,7 +340,7 @@ export function listIssues(
   cursor?: string | null,
   limit = 50,
 ) {
-  const params = new URLSearchParams({ projectId })
+  const params = new URLSearchParams({projectId})
 
   if (filters.status) {
     params.set('status', filters.status)
@@ -354,7 +369,7 @@ export function listIssues(
 }
 
 export function getProjectBoard(projectId: string) {
-  const params = new URLSearchParams({ projectId })
+  const params = new URLSearchParams({projectId})
   return api.get<ProjectBoard>(`/issues/board?${params.toString()}`)
 }
 
@@ -364,7 +379,7 @@ export function getBoardColumnPage(
   cursor?: string | null,
   limit = 50,
 ) {
-  const params = new URLSearchParams({ projectId, limit: String(limit) })
+  const params = new URLSearchParams({projectId, limit: String(limit)})
   if (cursor) {
     params.set('cursor', cursor)
   }
@@ -398,7 +413,7 @@ export function createIssueComment(issueId: string, request: CreateCommentReques
 }
 
 export function listIssueComments(issueId: string, cursor?: string | null, limit = 50) {
-  const params = new URLSearchParams({ limit: String(limit) })
+  const params = new URLSearchParams({limit: String(limit)})
   if (cursor) {
     params.set('cursor', cursor)
   }
@@ -408,7 +423,7 @@ export function listIssueComments(issueId: string, cursor?: string | null, limit
 }
 
 export function listIssueActivities(issueId: string, cursor?: string | null, limit = 50) {
-  const params = new URLSearchParams({ limit: String(limit) })
+  const params = new URLSearchParams({limit: String(limit)})
   if (cursor) {
     params.set('cursor', cursor)
   }
