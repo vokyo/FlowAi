@@ -157,9 +157,9 @@
     padding: 14px;
   }
 
-  .content-header h1,
+  /* Page titles are already 22px; only the issue title needs to come down. */
   .issue-title-block h1 {
-    font-size: 24px;
+    font-size: 22px;
   }
 
   .kanban-board {

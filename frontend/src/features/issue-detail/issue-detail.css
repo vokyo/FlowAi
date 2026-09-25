@@ -22,12 +22,13 @@
   padding-bottom: 26px;
 }
 
-/* Headline Large. */
+/* The one heading allowed to be larger than a page title: it is the content,
+   not a label for the screen. 26px keeps a typical title on one line. */
 .issue-title-block h1 {
-  font-size: 36px;
-  font-weight: 500;
-  line-height: 1.18;
-  letter-spacing: -0.01em;
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
 }
 
 .issue-title-display {
@@ -47,25 +48,26 @@
   min-width: 0;
 }
 
-/* Filled text field, sized up for the title so editing keeps the display
+/* Outlined field, sized up for the title so editing keeps the display
    typography rather than dropping into a form control. */
 .issue-title-input,
 .issue-description-input {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  border: 0;
-  border-bottom: 2px solid var(--md-outline);
-  border-radius: var(--md-shape-sm) var(--md-shape-sm) 0 0;
-  background: var(--md-surface-container-highest);
+  border: 1px solid var(--field-border);
+  border-radius: var(--md-shape-sm);
+  background: var(--field-surface);
   color: var(--md-on-surface);
   font: inherit;
   outline: none;
-  transition: border-color var(--md-duration-short) var(--md-easing);
+  box-shadow: var(--elevation-control);
+  transition: border-color var(--md-duration-short) var(--md-easing),
+    box-shadow var(--md-duration-short) var(--md-easing);
 }
 
 .issue-title-input {
-  min-height: 56px;
+  min-height: 48px;
   font-size: 26px;
   font-weight: 500;
   letter-spacing: -0.01em;
@@ -84,8 +86,8 @@
 
 .issue-title-input:focus,
 .issue-description-input:focus {
-  border-bottom-color: var(--md-primary);
-  box-shadow: none;
+  border-color: var(--md-primary);
+  box-shadow: var(--field-focus-ring);
 }
 
 .issue-edit-actions {
@@ -124,15 +126,14 @@
 .comment-item {
   border: 0;
   border-radius: var(--md-shape-md);
-  background: var(--md-surface-container-low);
+  background: var(--surface-card);
   padding: 16px;
-  transition: background-color var(--md-duration-medium) var(--md-easing),
-    box-shadow var(--md-duration-medium) var(--md-easing);
+  box-shadow: var(--elevation-card);
+  transition: box-shadow var(--md-duration-medium) var(--md-easing);
 }
 
 .comment-item:hover {
-  background: var(--md-surface-container);
-  box-shadow: var(--elevation-1);
+  box-shadow: var(--elevation-card-hover);
 }
 
 .comment-meta {
@@ -159,8 +160,9 @@
   min-width: 0;
   border: 0;
   border-radius: var(--md-shape-md);
-  background: var(--md-surface-container);
+  background: var(--surface-card);
   padding: 16px;
+  box-shadow: var(--elevation-card);
 }
 
 .activity-item {
@@ -192,8 +194,9 @@
 .property-section {
   border: 0;
   border-radius: var(--md-shape-lg);
-  background: var(--md-surface-container);
+  background: var(--surface-card);
   padding: 18px;
+  box-shadow: var(--elevation-card);
 }
 
 .property-field {
@@ -207,7 +210,7 @@
 }
 
 .property-field > span {
-  padding: 0 0 6px 4px;
+  padding: 0 0 6px;
 }
 
 .property-row {

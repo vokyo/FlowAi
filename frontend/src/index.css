@@ -24,9 +24,12 @@
    --------------------------------------------------------------------------- */
 
 :root {
-  /* Feature CSS is authored in px against an 18px root, so this value rescales
-     every heading and label that doesn't set its own size. */
-  font-size: 18px;
+  /* Feature CSS is authored in px, so the root only drives rem — which is what
+     Tailwind's spacing and type scale, and so every Button size, are built on.
+     It used to be 18px: that made each rem-sized control 12.5% larger than the
+     scale intends (40px buttons, 15.75px button text), which reads as a touch
+     UI rather than a dense desktop tool. */
+  font-size: 16px;
   letter-spacing: 0;
 
   /* Only light is declared as active: nothing toggles the .dark class yet, so
@@ -39,10 +42,6 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
 
   /* === MD3 tonal palette — light =========================================== */
 
@@ -126,8 +125,10 @@
      seven steps and every consumer keeps its step — a card is still `md`, a
      dialog still `xl` — but the whole ladder is roughly halved, because a
      16-28px radius on a dense desktop tool reads soft rather than precise.
-     `full` stays for the things that really are capsules: avatars and the
-     workspace switcher. */
+     Controls — buttons, fields, chips, segmented tracks, list rows, menu items
+     — sit on `sm`: a capsule on every one of them is the single most "mobile"
+     trait MD3 has. `full` is kept for things that really are round: avatars,
+     swatches, status dots, spinners and bar tracks. */
   --md-shape-xs: 4px;
   --md-shape-sm: 6px;
   --md-shape-md: 8px;
@@ -152,6 +153,48 @@
   --elevation-4:
     0 8px 24px oklch(0 0 0 / 0.10),
     0 16px 40px oklch(0 0 0 / 0.10);
+
+  /* === Cards and hairlines =================================================
+     Resting cards and panels are white on the near-white page, and a hairline
+     ring gives them their edge. The tonal version (cards one step off the
+     page) put every surface within 1-2% lightness of its neighbour, so
+     nothing had an edge and the whole app read as grey haze.
+
+     The ring is a box-shadow rather than a border so it costs no layout, and
+     alpha black rather than a grey so it holds on any tint beneath it. */
+  --hairline: oklch(0 0 0 / 0.08);
+  --surface-card: var(--md-surface-container-lowest);
+  --elevation-card:
+    0 0 0 1px var(--hairline),
+    0 1px 2px oklch(0 0 0 / 0.04);
+  --elevation-card-hover:
+    0 0 0 1px oklch(0 0 0 / 0.12),
+    0 4px 12px oklch(0 0 0 / 0.06);
+  --elevation-menu:
+    0 0 0 1px var(--hairline),
+    0 4px 12px oklch(0 0 0 / 0.08),
+    0 12px 32px oklch(0 0 0 / 0.08);
+  /* Outline buttons and fields: just enough shadow to sit on the page. */
+  --elevation-control: 0 1px 2px oklch(0 0 0 / 0.05);
+  /* The filled button's bevel: a light top edge, and a ring a shade darker
+     than the fill so it keeps its outline on any surface. */
+  --elevation-button-primary:
+    inset 0 1px 0 oklch(1 0 0 / 0.16),
+    0 0 0 1px color-mix(in oklab, var(--md-primary), oklch(0 0 0) 22%),
+    0 1px 2px oklch(0 0 0 / 0.16);
+
+  /* === Fields ==============================================================
+     Outlined, not MD3's filled field. A grey slab with a heavy underline is a
+     touch-screen idiom; on a desktop form it looks like a disabled control.
+     Focus keeps the border in primary and adds a soft ring around it. */
+  --field-surface: var(--md-surface-container-lowest);
+  --field-border: oklch(0.8700 0 0);
+  --field-border-hover: oklch(0.7800 0 0);
+  --field-focus-ring: 0 0 0 3px color-mix(in oklab, var(--md-primary), transparent 80%);
+  /* `appearance: none` drops the native select arrow; this puts one back that
+     matches the icon set. A mid grey, because a data URI cannot follow the
+     theme through currentColor. */
+  --field-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 
   /* Brand alias. The seed *is* the brand now, so the sidebar accent and the
      MD3 primary are one colour instead of two violets a few degrees apart. */
@@ -207,11 +250,11 @@
   --background: var(--md-surface);
   --foreground: var(--md-on-surface);
 
-  /* Cards resolve to a *tonal* surface, never white. This single line is what
-     removes the "white card on white page" look across the whole app. */
-  --card: var(--md-surface-container-low);
+  /* Same surface as the feature cards, so a shadcn card or popover added later
+     lands in the white-plus-hairline family instead of a tonal grey. */
+  --card: var(--surface-card);
   --card-foreground: var(--md-on-surface);
-  --popover: var(--md-surface-container-low);
+  --popover: var(--surface-card);
   --popover-foreground: var(--md-on-surface);
 
   --primary: var(--md-primary);
@@ -448,6 +491,25 @@ p {
 
   --priority-high: oklch(0.80 0.130 62);
   --priority-medium: oklch(0.76 0.110 250);
+
+  /* Restated rather than derived: light mode separates a card with a shadow
+     under a white surface, but on a dark page a shadow has nothing to darken.
+     There a raised surface is a *lighter* one, and the edge is a light
+     hairline instead of a dark one. Cards step up to container-high so they
+     sit above the column tint (0.205) rather than sinking below it. */
+  --hairline: oklch(1 0 0 / 0.09);
+  --surface-card: var(--md-surface-container-high);
+  --elevation-card: 0 0 0 1px var(--hairline);
+  --elevation-card-hover:
+    0 0 0 1px oklch(1 0 0 / 0.16),
+    0 4px 12px oklch(0 0 0 / 0.40);
+  --elevation-menu:
+    0 0 0 1px var(--hairline),
+    0 8px 24px oklch(0 0 0 / 0.50);
+  --elevation-control: none;
+
+  --field-border: oklch(0.3400 0 0);
+  --field-border-hover: oklch(0.4400 0 0);
 }
 
 @layer base {

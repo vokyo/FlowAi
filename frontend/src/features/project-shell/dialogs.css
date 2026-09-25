@@ -3,7 +3,8 @@
    panel without bounding its height, so a tall form would overflow the viewport
    with nowhere to scroll.
 
-   Shape is MD3's extra-large (28px) — the spec's dedicated dialog radius. */
+   The dialog step of the shape scale, on the card surface: white with a
+   hairline, lifted by the strongest elevation. */
 .modal-panel {
   display: grid;
   gap: 20px;
@@ -14,8 +15,8 @@
   overflow: auto;
   border: 0;
   border-radius: var(--md-shape-xl);
-  background: var(--md-surface-container-high);
-  box-shadow: var(--elevation-4);
+  background: var(--surface-card);
+  box-shadow: 0 0 0 1px var(--hairline), var(--elevation-4);
   padding: 24px;
 }
 
@@ -98,22 +99,25 @@
   min-width: 0;
 }
 
+/* Outlined like every other field, with the border tinted toward the primary
+   container it sits in. */
 .workspace-invitation-link input {
   min-width: 0;
   flex: 1;
-  border: 0;
-  border-bottom: 2px solid color-mix(in oklab, var(--md-on-primary-container), transparent 60%);
-  border-radius: var(--md-shape-xs) var(--md-shape-xs) 0 0;
-  background: color-mix(in oklab, var(--md-surface), transparent 30%);
+  box-sizing: border-box;
+  border: 1px solid color-mix(in oklab, var(--md-on-primary-container), transparent 70%);
+  border-radius: var(--md-shape-sm);
+  background: var(--field-surface);
   color: var(--md-on-surface);
   font: inherit;
   font-size: 12px;
   outline: none;
-  padding: 10px 12px;
+  padding: 7px 10px;
 }
 
 .workspace-invitation-link input:focus {
-  border-bottom-color: var(--md-primary);
+  border-color: var(--md-primary);
+  box-shadow: var(--field-focus-ring);
 }
 
 .workspace-invitation-link small {
@@ -289,19 +293,20 @@
   min-width: 0;
 }
 
-/* MD3 input chip: pill, hairline outline, tonal on hover. */
+/* Input chip: hairline outline on the control radius, tonal on hover. Same
+   32px as a button, so a row of chips and the submit button line up. */
 .issue-modal-chip {
-  min-height: 36px;
+  min-height: 32px;
   max-width: 100%;
   gap: 6px;
   border: 1px solid var(--md-outline-variant);
-  border-radius: var(--md-shape-full);
+  border-radius: var(--md-shape-sm);
   background: transparent;
   color: var(--md-on-surface);
   font-size: 13px;
   font-weight: 500;
   line-height: 1;
-  padding: 6px 14px;
+  padding: 5px 10px;
   transition: background-color var(--md-duration-short) var(--md-easing),
     border-color var(--md-duration-short) var(--md-easing);
 }
@@ -343,7 +348,7 @@
 }
 
 .issue-modal-chip-muted {
-  width: 36px;
+  width: 32px;
   justify-content: center;
   padding-inline: 0;
 }
@@ -385,7 +390,7 @@
 .label-toggle {
   gap: 7px;
   max-width: 100%;
-  border-radius: var(--md-shape-full);
+  border-radius: var(--md-shape-sm);
   color: var(--md-on-surface);
   font-size: 12px;
   font-weight: 500;
@@ -527,24 +532,33 @@
 
 .project-member-role-select {
   min-width: 100px;
-  min-height: 36px;
+  min-height: 28px;
   box-sizing: border-box;
-  border: 0;
-  border-bottom: 2px solid var(--md-outline);
-  border-radius: var(--md-shape-xs) var(--md-shape-xs) 0 0;
-  background: var(--md-surface-container-highest);
+  border: 1px solid var(--field-border);
+  border-radius: var(--md-shape-sm);
+  appearance: none;
+  background-color: var(--field-surface);
+  background-image: var(--field-chevron);
+  background-position: right 8px center;
+  background-repeat: no-repeat;
   color: var(--md-on-surface);
   font: inherit;
   font-size: 12px;
   line-height: 1.2;
   outline: none;
-  padding: 5px 24px 5px 10px;
-  transition: border-color var(--md-duration-short) var(--md-easing);
+  padding: 4px 28px 4px 8px;
+  box-shadow: var(--elevation-control);
+  transition: border-color var(--md-duration-short) var(--md-easing),
+    box-shadow var(--md-duration-short) var(--md-easing);
+}
+
+.project-member-role-select:hover:not(:disabled) {
+  border-color: var(--field-border-hover);
 }
 
 .project-member-role-select:focus {
-  border-bottom-color: var(--md-primary);
-  box-shadow: none;
+  border-color: var(--md-primary);
+  box-shadow: var(--field-focus-ring);
 }
 
 .project-member-role-select:disabled {
@@ -556,7 +570,7 @@
   width: fit-content;
   max-width: 100%;
   border: 0;
-  border-radius: var(--md-shape-full);
+  border-radius: var(--md-shape-xs);
   background: var(--md-surface-container-high);
   color: var(--md-on-surface-variant);
   font-size: 11px;

@@ -56,16 +56,18 @@
   background: color-mix(in oklab, var(--md-tertiary), transparent 88%);
 }
 
-/* Extra-large shape (28px), per MD3's dialog and sheet spec. */
+/* The dialog shape step, and the same white-plus-hairline surface as the app's
+   cards: the ring gives the panel an edge against the pale blur shapes, the
+   shadow keeps it floating. */
 .auth-panel {
   position: relative;
   width: min(100%, 448px);
   border: 0;
   border-radius: var(--md-shape-xl);
-  background: var(--md-surface-container-low);
+  background: var(--surface-card);
   color: var(--md-on-surface);
   padding: 36px 32px;
-  box-shadow: var(--elevation-3);
+  box-shadow: 0 0 0 1px var(--hairline), var(--elevation-3);
 }
 
 .auth-panel-wide {
@@ -88,16 +90,18 @@
   text-transform: none;
 }
 
-/* Headline Medium. */
+/* Page title. Weight and tight tracking carry it, not size: at 32px it took a
+   fifth of the viewport's height before the first card, and a work tool's page
+   title is a label for the screen, not a headline. */
 .auth-title,
 .content-header h1,
 .issue-title-block h1 {
-  margin: 10px 0 0;
+  margin: 6px 0 0;
   color: var(--md-on-surface);
-  font-size: 32px;
-  font-weight: 500;
-  line-height: 1.22;
-  letter-spacing: -0.01em;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
 }
 
 .auth-form {
@@ -116,37 +120,36 @@
 }
 
 .auth-field > span {
-  padding: 0 0 7px 4px;
+  padding: 0 0 7px;
 }
 
-/* MD3 filled text field. The asymmetry is the point: rounded at the top, square
-   at the bottom, with the bottom border acting as the focus indicator. The
-   auth screen is low-density, so these get the full 56px height. */
+/* Outlined field (tokens in index.css). The auth screen is the one low-density
+   form, so it is a step taller than the 32px fields inside the app. */
 .auth-field input {
   width: 100%;
-  min-height: 56px;
+  min-height: 40px;
   box-sizing: border-box;
-  border: 0;
-  border-bottom: 2px solid var(--md-outline);
-  border-radius: var(--md-shape-sm) var(--md-shape-sm) 0 0;
-  background: var(--md-surface-container-highest);
+  border: 1px solid var(--field-border);
+  border-radius: var(--md-shape-sm);
+  background: var(--field-surface);
   color: var(--md-on-surface);
   font: inherit;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 400;
-  padding: 8px 16px;
+  padding: 8px 12px;
   outline: none;
+  box-shadow: var(--elevation-control);
   transition: border-color var(--md-duration-short) var(--md-easing),
-    background-color var(--md-duration-short) var(--md-easing);
+    box-shadow var(--md-duration-short) var(--md-easing);
 }
 
 .auth-field input:hover {
-  background: color-mix(in oklab, var(--md-surface-container-highest), var(--md-on-surface) 4%);
+  border-color: var(--field-border-hover);
 }
 
 .auth-field input:focus {
-  border-bottom-color: var(--md-primary);
-  box-shadow: none;
+  border-color: var(--md-primary);
+  box-shadow: var(--field-focus-ring);
 }
 
 .auth-submit {
@@ -232,9 +235,9 @@
   background: var(--md-surface);
 }
 
-/* Tonal separation instead of a hairline: the sidebar reads as a distinct
-   surface because it *is* a different tone, which is the whole premise of the
-   MD3 surface ramp. */
+/* A tone step *and* a hairline. The tone alone is 1% lighter than the page,
+   which is not an edge, so the sidebar used to bleed into the content beside
+   it. */
 /* Flex rather than grid so the settings entry can take `margin-top: auto` and
    sit against the bottom edge; `align-content: start` cannot be pushed off. */
 .app-sidebar {
@@ -246,7 +249,7 @@
   height: 100svh;
   min-width: 0;
   overflow-y: auto;
-  border-right: 0;
+  border-right: 1px solid var(--md-outline-variant);
   background: var(--md-surface-container-low);
   padding: 16px 12px;
 }
@@ -383,11 +386,12 @@
   gap: 10px;
 }
 
-/* Pill, like every other interactive surface in the shell. */
+/* One step rounder than the nav rows below it: it is a larger target holding
+   an avatar, not a list row. */
 button.workspace-switcher {
   width: 100%;
   border: 0;
-  border-radius: var(--md-shape-full);
+  border-radius: var(--md-shape-md);
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -435,7 +439,7 @@ button.workspace-switcher:focus-visible {
   width: 100%;
   min-width: 0;
   border: 0;
-  border-radius: var(--md-shape-full);
+  border-radius: var(--md-shape-sm);
   background: transparent;
   color: var(--md-on-surface);
   cursor: pointer;
@@ -774,16 +778,25 @@ button.workspace-switcher:focus-visible {
   gap: 8px;
 }
 
-/* MD3 segmented button: one pill-shaped track, pill-shaped segments inside. */
+/* Segmented control: a recessed track with the chosen segment raised out of it
+   as a white card. The selected segment used to be the tonal button fill,
+   0.955 against a 0.962 track — a difference nobody could see. The track's 2px
+   inset around 28px segments lands it at the 32px of the buttons beside it. */
 .issue-view-switch,
 .board-view-switch {
   display: inline-flex;
   align-items: center;
   gap: 2px;
   border: 0;
-  border-radius: var(--md-shape-full);
+  border-radius: var(--md-shape-md);
   background: var(--md-surface-container-high);
-  padding: 4px;
+  padding: 2px;
+}
+
+.issue-view-switch > [data-slot='button'][aria-pressed='true'] {
+  background: var(--surface-card);
+  color: var(--md-on-surface);
+  box-shadow: var(--elevation-card);
 }
 
 .board-view-switch {
@@ -852,11 +865,11 @@ button.workspace-switcher:focus-visible {
 }
 
 .app-field > span {
-  padding: 0 0 6px 4px;
+  padding: 0 0 6px;
 }
 
-/* The same filled text field as the auth screen, calibrated down for app
-   density: 44px instead of 56px, which still clears the 44px touch target. */
+/* The same outlined field as the auth screen (tokens in index.css), at app
+   density: 32px, level with the buttons it sits beside in a form row. */
 .app-field input,
 .app-field textarea,
 .app-field select,
@@ -866,18 +879,18 @@ button.workspace-switcher:focus-visible {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  border: 0;
-  border-bottom: 2px solid var(--md-outline);
-  border-radius: var(--md-shape-sm) var(--md-shape-sm) 0 0;
-  background: var(--md-surface-container-highest);
+  border: 1px solid var(--field-border);
+  border-radius: var(--md-shape-sm);
+  background-color: var(--field-surface);
   color: var(--md-on-surface);
   font: inherit;
   font-size: 13px;
   font-weight: 400;
   line-height: 1.4;
   outline: none;
+  box-shadow: var(--elevation-control);
   transition: border-color var(--md-duration-short) var(--md-easing),
-    background-color var(--md-duration-short) var(--md-easing);
+    box-shadow var(--md-duration-short) var(--md-easing);
 }
 
 .app-field input,
@@ -885,14 +898,25 @@ button.workspace-switcher:focus-visible {
 .issue-search-field input,
 .property-field input,
 .property-field select {
-  min-height: 44px;
-  padding: 8px 14px;
+  min-height: 32px;
+  padding: 5px 10px;
 }
 
 .app-field textarea {
   min-height: 44px;
-  padding: 12px 14px;
+  padding: 8px 10px;
   resize: vertical;
+}
+
+/* Fields set `background-color` rather than the shorthand, here and in every
+   state below: the shorthand would wipe this chevron off each select. */
+.app-field select,
+.property-field select {
+  appearance: none;
+  background-image: var(--field-chevron);
+  background-position: right 10px center;
+  background-repeat: no-repeat;
+  padding-right: 30px;
 }
 
 .app-field input:hover:not(:disabled),
@@ -900,7 +924,7 @@ button.workspace-switcher:focus-visible {
 .app-field select:hover:not(:disabled),
 .property-field input:hover:not(:disabled),
 .property-field select:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--md-surface-container-highest), var(--md-on-surface) 4%);
+  border-color: var(--field-border-hover);
 }
 
 .app-field input:disabled,
@@ -916,11 +940,10 @@ button.workspace-switcher:focus-visible {
 .app-field input:focus,
 .app-field textarea:focus,
 .app-field select:focus,
-.issue-search-field:focus-within,
 .property-field input:focus,
 .property-field select:focus {
-  border-bottom-color: var(--md-primary);
-  box-shadow: none;
+  border-color: var(--md-primary);
+  box-shadow: var(--field-focus-ring);
 }
 
 .issue-filter-bar,
@@ -935,29 +958,32 @@ button.workspace-switcher:focus-visible {
   grid-template-columns: minmax(220px, 1fr) minmax(118px, 150px) minmax(128px, 160px) minmax(140px, 170px) minmax(150px, 190px) auto;
 }
 
-/* Search is the one field that stays a pill: it is a standalone control rather
-   than a labelled form row, and MD3 gives search bars full radius. */
+/* Search carries its icon inside the frame, so the frame is the label element
+   and the input inside it goes bare. Same outline, height and focus ring as
+   the selects beside it. */
 .issue-search-field {
-  gap: 10px;
+  gap: 8px;
   align-self: end;
-  min-height: 44px;
+  min-height: 32px;
   min-width: 0;
-  border: 0;
-  border-radius: var(--md-shape-full);
-  background: var(--md-surface-container-high);
+  box-sizing: border-box;
+  border: 1px solid var(--field-border);
+  border-radius: var(--md-shape-sm);
+  background: var(--field-surface);
   color: var(--md-on-surface-variant);
-  padding: 0 16px;
-  transition: background-color var(--md-duration-short) var(--md-easing);
+  padding: 0 10px;
+  box-shadow: var(--elevation-control);
+  transition: border-color var(--md-duration-short) var(--md-easing),
+    box-shadow var(--md-duration-short) var(--md-easing);
 }
 
 .issue-search-field:hover {
-  background: color-mix(in oklab, var(--md-surface-container-high), var(--md-on-surface) 4%);
+  border-color: var(--field-border-hover);
 }
 
 .issue-search-field:focus-within {
-  background: var(--md-surface-container-high);
-  outline: 2px solid var(--md-primary);
-  outline-offset: 1px;
+  border-color: var(--md-primary);
+  box-shadow: var(--field-focus-ring);
 }
 
 .issue-search-field svg {
@@ -1007,7 +1033,8 @@ button.workspace-switcher:focus-visible {
   color: var(--md-on-error-container);
 }
 
-/* Chips and badges: full radius and a tonal fill, never an outlined white chip. */
+/* Chips and badges: a tonal fill on the control radius, never an outlined white
+   chip. */
 .app-pill,
 .priority-badge,
 .label-badge {
@@ -1015,7 +1042,7 @@ button.workspace-switcher:focus-visible {
   max-width: 100%;
   gap: 6px;
   border: 0;
-  border-radius: var(--md-shape-full);
+  border-radius: var(--md-shape-sm);
   background: var(--md-surface-container-high);
   color: var(--md-on-surface-variant);
   font-size: 12px;

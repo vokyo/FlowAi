@@ -95,15 +95,16 @@
   line-height: 1.6;
 }
 
-/* Grouping header for the list view: a tonal pill band, matching the board's
-   column headers so the two views read as the same system. */
+/* Grouping header for the list view: a tonal band, matching the board's lane
+   tone so the two views read as the same system. Squared off like the rows
+   under it — a full-width capsule read as one enormous button. */
 .status-section-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   min-height: 40px;
-  border-radius: var(--md-shape-full);
+  border-radius: var(--md-shape-sm);
   background: var(--md-surface-container-high);
   color: var(--md-on-surface);
   padding: 8px 16px;
@@ -150,8 +151,8 @@
   color: var(--status-archived);
 }
 
-/* MD3 list item: full-radius, state layer on hover, secondary container when
-   selected — the same interaction model as the sidebar nav rows. */
+/* List item: state layer on hover, secondary container when selected — the
+   same shape and interaction model as the sidebar nav rows. */
 .issue-row {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr) auto;
@@ -160,7 +161,7 @@
   width: 100%;
   min-width: 0;
   border: 0;
-  border-radius: var(--md-shape-full);
+  border-radius: var(--md-shape-sm);
   background: transparent;
   color: var(--md-on-surface);
   font: inherit;

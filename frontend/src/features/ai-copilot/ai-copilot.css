@@ -126,7 +126,7 @@
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  border-radius: var(--md-shape-full);
+  border-radius: var(--md-shape-sm);
   color: var(--md-on-surface);
   font-size: 13px;
   font-weight: 500;
@@ -166,15 +166,15 @@
   gap: 12px;
   border: 0;
   border-radius: var(--md-shape-md);
-  background: var(--md-surface-container-lowest);
+  background: var(--surface-card);
   padding: 16px;
-  box-shadow: var(--elevation-1);
+  box-shadow: var(--elevation-card);
   transition: opacity var(--md-duration-medium) var(--md-easing),
     box-shadow var(--md-duration-medium) var(--md-easing);
 }
 
 .ai-draft-item:hover {
-  box-shadow: var(--elevation-2);
+  box-shadow: var(--elevation-card-hover);
 }
 
 .ai-draft-item[data-selected='false'] {
@@ -356,9 +356,10 @@
   display: grid;
   gap: 16px;
   border-radius: var(--md-shape-lg);
-  background: var(--md-surface-container);
+  background: var(--surface-card);
   margin-bottom: 20px;
   padding: 20px;
+  box-shadow: var(--elevation-card);
 }
 
 .ai-project-summary-header {
@@ -397,26 +398,34 @@
 }
 
 .ai-project-summary-form label > span {
-  padding: 0 0 6px 4px;
+  padding: 0 0 6px;
 }
 
 .ai-project-summary-form textarea {
   width: 100%;
+  box-sizing: border-box;
   resize: vertical;
-  border: 0;
-  border-bottom: 2px solid var(--md-outline);
-  border-radius: var(--md-shape-sm) var(--md-shape-sm) 0 0;
-  background: var(--md-surface-container-highest);
-  padding: 12px 14px;
+  border: 1px solid var(--field-border);
+  border-radius: var(--md-shape-sm);
+  background: var(--field-surface);
+  padding: 8px 10px;
   color: var(--md-on-surface);
   font: inherit;
+  font-size: 13px;
   font-weight: 400;
   outline: none;
-  transition: border-color var(--md-duration-short) var(--md-easing);
+  box-shadow: var(--elevation-control);
+  transition: border-color var(--md-duration-short) var(--md-easing),
+    box-shadow var(--md-duration-short) var(--md-easing);
+}
+
+.ai-project-summary-form textarea:hover {
+  border-color: var(--field-border-hover);
 }
 
 .ai-project-summary-form textarea:focus {
-  border-bottom-color: var(--md-primary);
+  border-color: var(--md-primary);
+  box-shadow: var(--field-focus-ring);
 }
 
 .ai-project-summary-actions {

@@ -18,15 +18,30 @@
   align-items: flex-end;
 }
 
+/* Same segmented control as the Board/List switch: recessed track, chosen
+   range raised out of it as a white card. */
 .analytics-range-switch {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
   gap: 2px;
   border: 0;
-  border-radius: var(--md-shape-full);
+  border-radius: var(--md-shape-md);
   background: var(--md-surface-container-high);
-  padding: 4px;
+  padding: 2px;
+}
+
+/* `.content-header > div` hands the free space to the title block, and this
+   track is a div in that header too. At (0,1,1) against (0,1,0) that rule was
+   winning, so the three segments sat in a track stretched across half the page. */
+.content-header > .analytics-range-switch {
+  flex: 0 0 auto;
+}
+
+.analytics-range-switch > [data-slot='button'][aria-pressed='true'] {
+  background: var(--surface-card);
+  color: var(--md-on-surface);
+  box-shadow: var(--elevation-card);
 }
 
 .analytics-content,
@@ -42,7 +57,7 @@
 }
 
 /* Stat tiles: a headline number is its own form, so these carry no plot — just
-   a tonal container, the figure in text ink, and a tinted icon. */
+   a card, the figure in text ink, and a tinted icon. */
 .analytics-metric {
   display: flex;
   min-width: 0;
@@ -50,15 +65,14 @@
   gap: 14px;
   border: 0;
   border-radius: var(--md-shape-lg);
-  background: var(--md-surface-container);
+  background: var(--surface-card);
   padding: 18px;
-  transition: background-color var(--md-duration-medium) var(--md-easing),
-    box-shadow var(--md-duration-medium) var(--md-easing);
+  box-shadow: var(--elevation-card);
+  transition: box-shadow var(--md-duration-medium) var(--md-easing);
 }
 
 .analytics-metric:hover {
-  background: var(--md-surface-container-high);
-  box-shadow: var(--elevation-1);
+  box-shadow: var(--elevation-card-hover);
 }
 
 .analytics-metric-icon {
@@ -103,8 +117,9 @@
   min-width: 0;
   border: 0;
   border-radius: var(--md-shape-lg);
-  background: var(--md-surface-container);
+  background: var(--surface-card);
   padding: 22px;
+  box-shadow: var(--elevation-card);
 }
 
 .analytics-section-header {

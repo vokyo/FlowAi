@@ -45,13 +45,13 @@
   margin: 0;
 }
 
-/* Display Small — the settings page is low-density, so it gets to be
-   expressive where the app chrome cannot. */
+/* A step above the in-app page titles, because this page has no sidebar to
+   anchor it — but a title, not a 44px display line. */
 .settings-header h1 {
-  font-size: clamp(32px, 4vw, 44px);
-  font-weight: 500;
+  font-size: 26px;
+  font-weight: 600;
   letter-spacing: -0.02em;
-  line-height: 1.15;
+  line-height: 1.2;
 }
 
 .settings-header > div > p:last-child,
@@ -86,14 +86,14 @@
   gap: 20px;
   border: 0;
   border-radius: var(--md-shape-lg);
-  background: var(--md-surface-container);
+  background: var(--surface-card);
   padding: 26px;
-  box-shadow: var(--elevation-1);
+  box-shadow: var(--elevation-card);
   transition: box-shadow var(--md-duration-medium) var(--md-easing);
 }
 
 .settings-card:hover {
-  box-shadow: var(--elevation-2);
+  box-shadow: var(--elevation-card-hover);
 }
 
 .settings-card-wide {
@@ -140,7 +140,7 @@
 }
 
 /* `.settings-card` is a grid, so a button dropped straight into it stretches to
-   the full column. Pills read as controls only at their natural width. */
+   the full column. Buttons read as controls only at their natural width. */
 .settings-form > button,
 .settings-inline-form > button,
 .settings-card > button {
@@ -158,10 +158,10 @@
 }
 
 .settings-field > span {
-  padding: 0 0 6px 4px;
+  padding: 0 0 6px;
 }
 
-/* Filled text field, consistent with the rest of the app. */
+/* Outlined field, consistent with the rest of the app (tokens in index.css). */
 .settings-field input,
 .settings-field textarea,
 .settings-field select,
@@ -171,25 +171,39 @@
 .settings-inline-form select,
 .settings-migration-action select {
   min-width: 0;
-  min-height: 44px;
+  min-height: 32px;
   box-sizing: border-box;
-  border: 0;
-  border-bottom: 2px solid var(--md-outline);
-  border-radius: var(--md-shape-sm) var(--md-shape-sm) 0 0;
-  background: var(--md-surface-container-highest);
+  border: 1px solid var(--field-border);
+  border-radius: var(--md-shape-sm);
+  background-color: var(--field-surface);
   color: var(--md-on-surface);
-  padding: 10px 14px;
+  padding: 5px 10px;
   font: inherit;
+  font-size: 13px;
   font-weight: 400;
   outline: none;
+  box-shadow: var(--elevation-control);
   transition: border-color var(--md-duration-short) var(--md-easing),
-    background-color var(--md-duration-short) var(--md-easing);
+    box-shadow var(--md-duration-short) var(--md-easing);
+}
+
+/* `background-color` above rather than the shorthand, so nothing wipes the
+   chevron. */
+.settings-field select,
+.settings-list-row select,
+.settings-inline-form select,
+.settings-migration-action select {
+  appearance: none;
+  background-image: var(--field-chevron);
+  background-position: right 10px center;
+  background-repeat: no-repeat;
+  padding-right: 30px;
 }
 
 .settings-field input:hover:not(:disabled),
 .settings-field textarea:hover:not(:disabled),
 .settings-field select:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--md-surface-container-highest), var(--md-on-surface) 4%);
+  border-color: var(--field-border-hover);
 }
 
 .settings-field input:focus,
@@ -200,7 +214,8 @@
 .settings-inline-form input:focus,
 .settings-inline-form select:focus,
 .settings-migration-action select:focus {
-  border-bottom-color: var(--md-primary);
+  border-color: var(--md-primary);
+  box-shadow: var(--field-focus-ring);
 }
 
 .settings-field textarea {
@@ -281,14 +296,14 @@
   flex: 0 0 auto;
 }
 
-/* A role picker in a list row is not a form field. On the shared filled-field
-   treatment above it inherits the 18px root, so the control outweighs the 13px
-   name it belongs to. Same compact sizing as the project members dialog. */
+/* A role picker in a list row is not a form field: sized down so the control
+   does not outweigh the 13px name it belongs to. Same compact sizing as the
+   project members dialog. */
 .settings-list-row select {
   min-width: 100px;
-  min-height: 36px;
-  border-radius: var(--md-shape-xs) var(--md-shape-xs) 0 0;
-  padding: 5px 24px 5px 10px;
+  min-height: 28px;
+  padding: 4px 28px 4px 8px;
+  background-position: right 8px center;
   font-size: 12px;
   line-height: 1.2;
 }
