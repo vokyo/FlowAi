@@ -1,12 +1,19 @@
-import {useEffect, useState} from 'react'
+import {useEffect, useRef, useState} from 'react'
 import {
+  type Active,
+  closestCenter,
   closestCorners,
+  type CollisionDetection,
   DndContext,
   type DragEndEvent,
   DragOverlay,
+  type DragOverEvent,
   type DragStartEvent,
+  type DropAnimation,
   KeyboardSensor,
+  type Over,
   PointerSensor,
+  pointerWithin,
   useDroppable,
   useSensor,
   useSensors,
@@ -26,11 +33,14 @@ import type {CursorPage} from '@/api/pagination'
 import {type BoardColumn, type IssueSummary, type ProjectBoard, type ProjectWorkflowState,} from '@/api/work-api'
 import {
   boardEmptyColumnLabel,
+  type BoardDropTarget,
   boardIssueNeighbors,
   type BoardIssueView,
   buildOptimisticBoard,
   findBoardIssue,
+  issueColumnId,
   kanbanColumnId,
+  moveIssueOver,
 } from '@/domain/board-utils'
 import {
   type CreateIssueDialogSeed,
@@ -46,6 +56,74 @@ import {useBoardColumnPagination} from './useBoardColumnPagination'
 type KanbanDragData = {
   type: 'column' | 'issue'
   workflowStateId: string
+}
+
+/**
+ * A board as the drag has rearranged it, and the board prop it was derived from.
+ * It is shown only while `base` is still the current prop — see `shownBoard`.
+ */
+type BoardPreview = {
+  base: ProjectBoard
+  board: ProjectBoard
+}
+
+/**
+ * The column under the pointer decides where the card is going; within that
+ * column, the card nearest the dragged card's centre decides the slot.
+ *
+ * `closestCorners` over every droppable at once lets a column's own rect compete
+ * with the cards of its neighbour, and once the drag preview moves a card
+ * between columns — changing both columns' heights — that competition can flip
+ * back and forth. Choosing the column by pointer first keeps the target steady.
+ * Outside every column (a header, the gutter) and for keyboard drags, which
+ * have no pointer, it falls back to `closestCorners`.
+ */
+const boardCollisionDetection: CollisionDetection = (args) => {
+  const columns = args.droppableContainers.filter(
+    (container) => (container.data.current as KanbanDragData | undefined)?.type === 'column',
+  )
+  const [columnHit] = pointerWithin({...args, droppableContainers: columns})
+  const column = columns.find((container) => container.id === columnHit?.id)
+  if (!columnHit || !column) {
+    return closestCorners(args)
+  }
+
+  const {workflowStateId} = column.data.current as KanbanDragData
+  const cards = args.droppableContainers.filter((container) => {
+    const data = container.data.current as KanbanDragData | undefined
+    return data?.type === 'issue' && data.workflowStateId === workflowStateId
+  })
+  const [cardHit] = closestCenter({...args, droppableContainers: cards})
+  return [cardHit ?? columnHit]
+}
+
+/**
+ * Lands the overlay on the card's slot — which the preview has already moved to
+ * its new column — on the app's emphasised-decelerate curve, levelling out the
+ * tilt it carries while dragging so the hand-off to the real card has no snap.
+ */
+const dropAnimation: DropAnimation = {
+  duration: 200,
+  easing: 'cubic-bezier(0.2, 0, 0, 1)',
+  keyframes: ({transform}) => [
+    {transform: CSS.Transform.toString(transform.initial), rotate: '-1.5deg'},
+    {transform: CSS.Transform.toString(transform.final), rotate: '0deg'},
+  ],
+}
+
+function dropTarget(active: Active, over: Over | null): BoardDropTarget | null {
+  const data = over?.data.current as KanbanDragData | undefined
+  if (!over || !data) {
+    return null
+  }
+  const dragged = active.rect.current.translated
+  return {
+    workflowStateId: data.workflowStateId,
+    issueId: data.type === 'issue' ? String(over.id) : null,
+    after: Boolean(
+      dragged && dragged.top + dragged.height / 2 > over.rect.top + over.rect.height / 2,
+    ),
+  }
 }
 
 export function BoardFeature({
@@ -94,6 +172,11 @@ export function BoardFeature({
   ) => void
 }) {
   const [activeIssueId, setActiveIssueId] = useState<string | null>(null)
+  const [preview, setPreview] = useState<BoardPreview | null>(null)
+  // The drag handlers read the preview from here rather than from state: dnd-kit
+  // can deliver drag end before React has rendered the last drag-over update,
+  // and the drop has to commit the arrangement that was actually on screen.
+  const previewRef = useRef<BoardPreview | null>(null)
   const [composerWorkflowStateId, setComposerWorkflowStateId] = useState<string | null>(null)
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -103,7 +186,24 @@ export function BoardFeature({
       coordinateGetter: sortableKeyboardCoordinates,
     }),
   )
-  const activeIssue = activeIssueId ? findBoardIssue(board, activeIssueId) : null
+  // A preview is finished with for good once the board prop moves on from the
+  // one it was built on — the optimistic update landing, or a newer fetch. It
+  // is dropped, not merely hidden: a failed save rolls the cache back to the
+  // *same* board object, and an identity check alone would bring the preview
+  // back for as long as the rollback's refetches take. Adjusting state during
+  // render is React's pattern for this; an effect would paint the stale frame
+  // first.
+  if (preview && preview.base !== board) {
+    setPreview(null)
+  }
+  const shownBoard = preview?.base === board ? preview.board : board
+  const activeIssue = activeIssueId ? findBoardIssue(shownBoard, activeIssueId) : null
+  // The column a drag would drop into, once it is not the one the card came
+  // from. dnd-kit's own `isOver` is true only while the pointer is over the
+  // column's empty space, so it flickered off over every card — and, with the
+  // preview putting the card into the column, off entirely.
+  const dropColumnId = activeIssueId ? issueColumnId(shownBoard, activeIssueId) : null
+  const originColumnId = activeIssueId ? issueColumnId(board, activeIssueId) : null
   const defaultAssigneeUserId =
     boardIssueView === 'MINE' ? (currentUserId ?? undefined) : undefined
   const emptyColumnLabel = boardEmptyColumnLabel(boardIssueView)
@@ -179,52 +279,66 @@ export function BoardFeature({
     })
   }
 
-  function handleDragStart(event: DragStartEvent) {
-    setActiveIssueId(String(event.active.id))
+  function updatePreview(next: BoardPreview | null) {
+    previewRef.current = next
+    setPreview(next)
   }
 
-  async function handleDragEnd(event: DragEndEvent) {
+  function handleDragStart(event: DragStartEvent) {
+    setActiveIssueId(String(event.active.id))
+    updatePreview({base: board, board})
+  }
+
+  // Moves the card into a column as soon as the drag crosses into it, so that
+  // column opens a gap and animates its cards aside. dnd-kit only displaces
+  // items in a SortableContext that already holds the dragged one, so without
+  // this the target column sat still until the drop. Moves within a column need
+  // no state: the sortable strategy previews those itself.
+  function handleDragOver({active, over}: DragOverEvent) {
+    // Rebuilt from the prop if the board was refetched mid-drag.
+    const current =
+      previewRef.current?.base === board ? previewRef.current : {base: board, board}
+    const target = dropTarget(active, over)
+    const issueId = String(active.id)
+    if (!target || issueColumnId(current.board, issueId) === target.workflowStateId) {
+      return
+    }
+    updatePreview({...current, board: moveIssueOver(current.board, issueId, target)})
+  }
+
+  function handleDragCancel() {
     setActiveIssueId(null)
-    if (!event.over || isReordering) {
+    updatePreview(null)
+  }
+
+  async function handleDragEnd({active, over}: DragEndEvent) {
+    setActiveIssueId(null)
+    const issueId = String(active.id)
+    const target = dropTarget(active, over)
+    const current = previewRef.current
+    const arranged = current?.base === board ? current.board : board
+    const shown = target ? moveIssueOver(arranged, issueId, target) : arranged
+    const optimisticBoard =
+      target && !isReordering ? buildOptimisticBoard(completeBoard, shown, issueId) : null
+    const workflowStateId = issueColumnId(shown, issueId)
+    const neighbors =
+      optimisticBoard && workflowStateId
+        ? boardIssueNeighbors(optimisticBoard, workflowStateId, issueId)
+        : null
+    if (!optimisticBoard || !workflowStateId || !neighbors) {
+      updatePreview(null)
       return
     }
 
-    const overData = event.over.data.current as KanbanDragData | undefined
-    if (!overData) {
-      return
-    }
-
-    const issueId = String(event.active.id)
-    const overIssueId = overData.type === 'issue' ? String(event.over.id) : null
-    const optimisticBoard = buildOptimisticBoard(
-      completeBoard,
-      issueId,
-      overData.workflowStateId,
-      overIssueId,
-    )
-    if (!optimisticBoard) {
-      return
-    }
-
-    const targetColumn = optimisticBoard.columns.find(
-      (column) => column.workflowState.id === overData.workflowStateId,
-    )
-    if (!targetColumn) {
-      return
-    }
-    const neighbors = boardIssueNeighbors(
-      optimisticBoard,
-      overData.workflowStateId,
-      issueId,
-    )
-    if (!neighbors) {
-      return
-    }
-
+    // Keep showing the drop until the board prop catches up with it. The
+    // mutation writes the optimistic board in its async onMutate, and React
+    // Query hands that to React on a later task; letting go of the preview now
+    // would paint the card back in its old column for a few frames first.
+    updatePreview({base: board, board: shown})
     try {
       await onReorder({
         issueId,
-        workflowStateId: overData.workflowStateId,
+        workflowStateId,
         ...neighbors,
         optimisticBoard,
       })
@@ -238,6 +352,7 @@ export function BoardFeature({
       className="kanban-board-region"
       aria-label="Project board"
       aria-busy={isReordering || isQuickCreating}
+      data-dragging={activeIssueId !== null}
     >
       {reorderError ? <ErrorState error={reorderError}/> : null}
       {isReordering ? (
@@ -248,20 +363,24 @@ export function BoardFeature({
       ) : null}
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCorners}
+        collisionDetection={boardCollisionDetection}
         onDragStart={handleDragStart}
-        onDragCancel={() => setActiveIssueId(null)}
+        onDragOver={handleDragOver}
+        onDragCancel={handleDragCancel}
         onDragEnd={handleDragEnd}
       >
         <div className="kanban-board-scroll">
           <div className="kanban-board">
-            {board.columns.map((column) => (
+            {shownBoard.columns.map((column) => (
               <KanbanColumn
                 column={column}
                 defaultAssigneeUserId={defaultAssigneeUserId}
                 emptyLabel={emptyColumnLabel}
                 isReordering={isReordering}
                 isComposerOpen={composerWorkflowStateId === column.workflowState.id}
+                isDropTarget={
+                  dropColumnId === column.workflowState.id && dropColumnId !== originColumnId
+                }
                 isQuickCreating={isQuickCreating}
                 quickCreateError={
                   composerWorkflowStateId === column.workflowState.id
@@ -282,7 +401,7 @@ export function BoardFeature({
             ))}
           </div>
         </div>
-        <DragOverlay>
+        <DragOverlay className="kanban-drag-overlay" dropAnimation={dropAnimation}>
           {activeIssue ? (
             <article className="kanban-card kanban-card-overlay">
               <KanbanIssueCardContent issue={activeIssue}/>
@@ -301,6 +420,7 @@ function KanbanColumn({
                         selectedIssueId,
                         isReordering,
                         isComposerOpen,
+                        isDropTarget,
                         isQuickCreating,
                         quickCreateError,
                         onIssueSelect,
@@ -318,6 +438,7 @@ function KanbanColumn({
   selectedIssueId: string | null
   isReordering: boolean
   isComposerOpen: boolean
+  isDropTarget: boolean
   isQuickCreating: boolean
   quickCreateError: Error | null
   onIssueSelect: (issueId: string) => void
@@ -341,7 +462,7 @@ function KanbanColumn({
     workspaceId,
     onPageLoaded,
   })
-  const {isOver, setNodeRef} = useDroppable({
+  const {setNodeRef} = useDroppable({
     id: kanbanColumnId(column.workflowState.id),
     data: {
       type: 'column',
@@ -374,7 +495,7 @@ function KanbanColumn({
           <Plus aria-hidden="true"/>
         </Button>
       </header>
-      <div className="kanban-column-body" data-over={isOver} ref={setNodeRef}>
+      <div className="kanban-column-body" data-over={isDropTarget} ref={setNodeRef}>
         <SortableContext
           items={displayedIssues.map((issue) => issue.id)}
           strategy={verticalListSortingStrategy}

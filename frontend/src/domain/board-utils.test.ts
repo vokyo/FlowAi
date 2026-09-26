@@ -6,6 +6,7 @@ import {
   boardIssueNeighbors,
   buildOptimisticBoard,
   filterProjectBoard,
+  moveIssueOver,
 } from './board-utils'
 
 const todo: ProjectWorkflowState = {
@@ -65,7 +66,12 @@ describe('filtered board reordering', () => {
       [],
     ])
 
-    const optimisticBoard = buildOptimisticBoard(board, 'mine', 'doing', null)
+    const shownBoard = moveIssueOver(visibleBoard!, 'mine', {
+      workflowStateId: 'doing',
+      issueId: null,
+      after: false,
+    })
+    const optimisticBoard = buildOptimisticBoard(board, shownBoard, 'mine')
     expect(optimisticBoard?.columns.map((column) => column.issues.map(({ id }) => id))).toEqual([
       ['other'],
       ['hidden-target', 'mine'],
@@ -81,7 +87,12 @@ describe('filtered board reordering', () => {
       ],
     }
 
-    const optimisticBoard = buildOptimisticBoard(board, 'unassigned', 'doing', null)
+    const shownBoard = moveIssueOver(filterProjectBoard(board, 'UNASSIGNED', 'me')!, 'unassigned', {
+      workflowStateId: 'doing',
+      issueId: null,
+      after: false,
+    })
+    const optimisticBoard = buildOptimisticBoard(board, shownBoard, 'unassigned')
     expect(optimisticBoard?.columns[1].issues.map(({ id }) => id)).toEqual([
       'assigned',
       'unassigned',
@@ -114,7 +125,12 @@ describe('filtered board reordering', () => {
         nextCursor: null,
       }],
     }
-    const optimisticBoard = buildOptimisticBoard(board, 'three', todo.id, 'two')
+    const shownBoard = moveIssueOver(board, 'three', {
+      workflowStateId: todo.id,
+      issueId: 'two',
+      after: false,
+    })
+    const optimisticBoard = buildOptimisticBoard(board, shownBoard, 'three')
 
     expect(optimisticBoard?.columns[0].issues.map(({ id }) => id)).toEqual([
       'one',
@@ -125,6 +141,72 @@ describe('filtered board reordering', () => {
       previousIssueId: 'one',
       nextIssueId: 'two',
     })
+  })
+
+  it('previews a cross-column move before or after the hovered card, by which half it is over', () => {
+    const board: ProjectBoard = {
+      projectId: 'project-1',
+      columns: [
+        { workflowState: todo, issues: [issue('dragged', todo)], nextCursor: null },
+        { workflowState: doing, issues: [issue('x', doing), issue('y', doing)], nextCursor: null },
+      ],
+    }
+
+    const upperHalf = moveIssueOver(board, 'dragged', { workflowStateId: 'doing', issueId: 'x', after: false })
+    const lowerHalf = moveIssueOver(board, 'dragged', { workflowStateId: 'doing', issueId: 'x', after: true })
+
+    expect(upperHalf.columns.map((column) => column.issues.map(({ id }) => id))).toEqual([
+      [],
+      ['dragged', 'x', 'y'],
+    ])
+    expect(lowerHalf.columns[1].issues.map(({ id }) => id)).toEqual(['x', 'dragged', 'y'])
+    expect(upperHalf.columns[1].issues[0].workflowState.id).toBe('doing')
+    expect(upperHalf.columns[1].issues[0].status).toBe('IN_PROGRESS')
+  })
+
+  it('anchors a filtered drop to the visible card above it, leaving hidden issues where they were', () => {
+    const board: ProjectBoard = {
+      projectId: 'project-1',
+      columns: [
+        { workflowState: todo, issues: [issue('mine-new', todo, 'me')], nextCursor: null },
+        {
+          workflowState: doing,
+          issues: [issue('mine-a', doing, 'me'), issue('hidden', doing, 'other'), issue('mine-b', doing, 'me')],
+          nextCursor: null,
+        },
+      ],
+    }
+
+    // Dropped between the two visible cards of My issues.
+    const shownBoard = moveIssueOver(filterProjectBoard(board, 'MINE', 'me')!, 'mine-new', {
+      workflowStateId: 'doing',
+      issueId: 'mine-b',
+      after: false,
+    })
+    const optimisticBoard = buildOptimisticBoard(board, shownBoard, 'mine-new')
+
+    expect(optimisticBoard?.columns[1].issues.map(({ id }) => id)).toEqual([
+      'mine-a',
+      'mine-new',
+      'hidden',
+      'mine-b',
+    ])
+    expect(boardIssueNeighbors(optimisticBoard!, 'doing', 'mine-new')).toEqual({
+      previousIssueId: 'mine-a',
+      nextIssueId: 'hidden',
+    })
+  })
+
+  it('treats a drop that leaves the issue in place as no move at all', () => {
+    const board: ProjectBoard = {
+      projectId: 'project-1',
+      columns: [{ workflowState: todo, issues: [issue('one', todo), issue('two', todo)], nextCursor: null }],
+    }
+
+    const shownBoard = moveIssueOver(board, 'one', { workflowStateId: todo.id, issueId: 'one', after: false })
+
+    expect(shownBoard).toBe(board)
+    expect(buildOptimisticBoard(board, shownBoard, 'one')).toBeNull()
   })
 
   it('applies the server board position without replacing loaded columns', () => {

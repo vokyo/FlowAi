@@ -125,76 +125,141 @@ export function findBoardIssue(board: ProjectBoard, issueId: string) {
   return null
 }
 
-export function buildOptimisticBoard(
-  board: ProjectBoard,
-  issueId: string,
-  targetWorkflowStateId: string,
-  overIssueId: string | null,
-) {
-  const sourceColumnIndex = board.columns.findIndex((column) =>
+/** Where the pointer is during a drag, in board terms. */
+export type BoardDropTarget = {
+  workflowStateId: string
+  /** The card being hovered, or null when the pointer is over the column itself. */
+  issueId: string | null
+  /** Whether the dragged card's centre is below the hovered card's centre. */
+  after: boolean
+}
+
+export function issueColumnId(board: ProjectBoard, issueId: string) {
+  return (
+    board.columns.find((column) => column.issues.some((issue) => issue.id === issueId))
+      ?.workflowState.id ?? null
+  )
+}
+
+/**
+ * Moves the dragged issue to the drop target on the board as displayed. This is
+ * what the drag preview and the final drop both run.
+ *
+ * Within one column it is a sortable move: the issue takes the index of the
+ * card it is over, so dragging down lands it after that card and dragging up
+ * before it — the rule dnd-kit's vertical strategy animates during the drag.
+ * Across columns it goes before or after the hovered card, by which half the
+ * dragged card is over, or to the end when the pointer is over the column.
+ *
+ * Returns the same board when nothing moves, so callers can compare by identity.
+ */
+export function moveIssueOver(board: ProjectBoard, issueId: string, target: BoardDropTarget) {
+  const sourceColumn = board.columns.find((column) =>
     column.issues.some((issue) => issue.id === issueId),
   )
-  const targetColumnIndex = board.columns.findIndex(
-    (column) => column.workflowState.id === targetWorkflowStateId,
+  const targetColumn = board.columns.find(
+    (column) => column.workflowState.id === target.workflowStateId,
   )
-  if (sourceColumnIndex < 0 || targetColumnIndex < 0) {
-    return null
+  if (!sourceColumn || !targetColumn) {
+    return board
   }
 
-  const sourceColumn = board.columns[sourceColumnIndex]
-  const targetColumn = board.columns[targetColumnIndex]
-  const sourceIssueIndex = sourceColumn.issues.findIndex((issue) => issue.id === issueId)
-  const draggedIssue = sourceColumn.issues[sourceIssueIndex]
-  if (!draggedIssue) {
-    return null
-  }
+  const sourceIndex = sourceColumn.issues.findIndex((issue) => issue.id === issueId)
+  const overIndex = target.issueId
+    ? targetColumn.issues.findIndex((issue) => issue.id === target.issueId)
+    : -1
 
-  if (sourceColumnIndex === targetColumnIndex) {
-    const targetIssueIndex = overIssueId
-      ? sourceColumn.issues.findIndex((issue) => issue.id === overIssueId)
-      : sourceColumn.issues.length - 1
-    if (targetIssueIndex < 0 || targetIssueIndex === sourceIssueIndex) {
-      return null
+  if (sourceColumn === targetColumn) {
+    const targetIndex = target.issueId ? overIndex : targetColumn.issues.length - 1
+    if (targetIndex < 0 || targetIndex === sourceIndex) {
+      return board
     }
-
-    const reorderedIssues = withTemporaryMovedIssuePosition(
-      arrayMove(sourceColumn.issues, sourceIssueIndex, targetIssueIndex),
-      issueId,
-    )
-    return {
-      ...board,
-      columns: board.columns.map((column, index) =>
-        index === sourceColumnIndex ? { ...column, issues: reorderedIssues } : column,
-      ),
-    }
+    return replaceColumnIssues(board, {
+      [targetColumn.workflowState.id]: arrayMove(targetColumn.issues, sourceIndex, targetIndex),
+    })
   }
 
-  const targetIssueIndex = overIssueId
-    ? targetColumn.issues.findIndex((issue) => issue.id === overIssueId)
-    : targetColumn.issues.length
-  if (targetIssueIndex < 0) {
-    return null
-  }
-
-  const nextTargetIssues = [...targetColumn.issues]
-  nextTargetIssues.splice(targetIssueIndex, 0, {
-    ...draggedIssue,
+  const targetIndex = overIndex >= 0 ? overIndex + (target.after ? 1 : 0) : targetColumn.issues.length
+  const targetIssues = [...targetColumn.issues]
+  targetIssues.splice(targetIndex, 0, {
+    ...sourceColumn.issues[sourceIndex],
     status: targetColumn.workflowState.category,
     workflowState: targetColumn.workflowState,
   })
-  const reorderedTargetIssues = withTemporaryMovedIssuePosition(nextTargetIssues, issueId)
-  const nextSourceIssues = sourceColumn.issues.filter((issue) => issue.id !== issueId)
+  return replaceColumnIssues(board, {
+    [sourceColumn.workflowState.id]: sourceColumn.issues.filter((issue) => issue.id !== issueId),
+    [targetColumn.workflowState.id]: targetIssues,
+  })
+}
 
+/**
+ * The optimistic *complete* board for a drop that left `issueId` where it sits
+ * on `shownBoard`.
+ *
+ * The two boards differ when a My issues or Unassigned filter hides cards. The
+ * issue is anchored to its visible neighbours — just after the card shown above
+ * it, else just before the card shown below it, else at the end of the column —
+ * so the hidden issues keep their places around it and the reorder request
+ * names its real neighbours.
+ *
+ * Returns null when the issue would land exactly where it already is.
+ */
+export function buildOptimisticBoard(
+  completeBoard: ProjectBoard,
+  shownBoard: ProjectBoard,
+  issueId: string,
+) {
+  const shownColumn = shownBoard.columns.find((column) =>
+    column.issues.some((issue) => issue.id === issueId),
+  )
+  const sourceColumn = completeBoard.columns.find((column) =>
+    column.issues.some((issue) => issue.id === issueId),
+  )
+  const targetColumn = completeBoard.columns.find(
+    (column) => column.workflowState.id === shownColumn?.workflowState.id,
+  )
+  if (!shownColumn || !sourceColumn || !targetColumn) {
+    return null
+  }
+
+  const shownIndex = shownColumn.issues.findIndex((issue) => issue.id === issueId)
+  const shownAboveId = shownColumn.issues[shownIndex - 1]?.id
+  const shownBelowId = shownColumn.issues[shownIndex + 1]?.id
+  const remaining = targetColumn.issues.filter((issue) => issue.id !== issueId)
+  const aboveIndex = shownAboveId ? remaining.findIndex((issue) => issue.id === shownAboveId) : -1
+  const belowIndex = shownBelowId ? remaining.findIndex((issue) => issue.id === shownBelowId) : -1
+  const insertIndex =
+    aboveIndex >= 0 ? aboveIndex + 1 : belowIndex >= 0 ? belowIndex : remaining.length
+
+  if (
+    sourceColumn === targetColumn &&
+    insertIndex === sourceColumn.issues.findIndex((issue) => issue.id === issueId)
+  ) {
+    return null
+  }
+
+  const movedIssue = sourceColumn.issues.find((issue) => issue.id === issueId)!
+  remaining.splice(insertIndex, 0, {
+    ...movedIssue,
+    status: targetColumn.workflowState.category,
+    workflowState: targetColumn.workflowState,
+  })
+  return replaceColumnIssues(completeBoard, {
+    [sourceColumn.workflowState.id]: sourceColumn.issues.filter((issue) => issue.id !== issueId),
+    // Listed second so a same-column move keeps the reordered list.
+    [targetColumn.workflowState.id]: withTemporaryMovedIssuePosition(remaining, issueId),
+  })
+}
+
+function replaceColumnIssues(
+  board: ProjectBoard,
+  issuesByWorkflowStateId: Record<string, IssueSummary[]>,
+) {
   return {
     ...board,
-    columns: board.columns.map((column, index) => {
-      if (index === sourceColumnIndex) {
-        return { ...column, issues: nextSourceIssues }
-      }
-      if (index === targetColumnIndex) {
-        return { ...column, issues: reorderedTargetIssues }
-      }
-      return column
+    columns: board.columns.map((column) => {
+      const issues = issuesByWorkflowStateId[column.workflowState.id]
+      return issues ? { ...column, issues } : column
     }),
   }
 }

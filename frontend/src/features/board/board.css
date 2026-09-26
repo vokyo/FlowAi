@@ -8,18 +8,39 @@
   min-width: 0;
 }
 
+/* While a card is in flight nothing else on the board reacts to the pointer:
+   cards passing under the overlay would otherwise light up one after another. */
+.kanban-board-region[data-dragging='true'],
+.kanban-board-region[data-dragging='true'] * {
+  cursor: grabbing;
+}
+
+.kanban-board-region[data-dragging='true'] .kanban-card:hover:not([data-active='true']) {
+  box-shadow: var(--elevation-card);
+}
+
+/* A floating status, not a row in the board's grid: in the flow it pushed every
+   column down while the save was in flight and pulled them back up when it
+   finished — a jump at the end of every drop. It also waits 300ms before it
+   fades in, so a save that is quick enough never flashes it at all. */
 .kanban-save-state {
+  position: fixed;
+  z-index: 30;
+  right: 24px;
+  bottom: 24px;
   display: inline-flex;
   width: fit-content;
   align-items: center;
   gap: 6px;
   margin: 0;
   border-radius: var(--md-shape-sm);
-  background: var(--md-surface-container-high);
+  background: var(--surface-card);
   color: var(--md-on-surface-variant);
   font-size: 12px;
   font-weight: 600;
   padding: 6px 12px;
+  box-shadow: var(--elevation-menu);
+  animation: kanban-save-state-in var(--md-duration-medium) var(--md-easing) 300ms both;
 }
 
 .kanban-save-state svg {
@@ -227,8 +248,14 @@
   opacity: 0.98;
   padding: 10px;
   pointer-events: none;
-  rotate: -1.5deg;
   box-shadow: 0 0 0 1px var(--hairline), var(--elevation-4);
+}
+
+/* The tilt sits on dnd-kit's overlay wrapper rather than on the card, because
+   the wrapper is the element the drop animation drives — its keyframes level
+   the tilt out as the card lands. */
+.kanban-drag-overlay {
+  rotate: -1.5deg;
 }
 
 .kanban-drag-handle,
@@ -377,6 +404,13 @@
 
 .kanban-inline-composer-actions > span {
   gap: 4px;
+}
+
+@keyframes kanban-save-state-in {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
 }
 
 @keyframes kanban-loading-pulse {
