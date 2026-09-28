@@ -22,4 +22,4 @@ async def create_run(
     request: RunRequest, model: Annotated[BaseChatModel, Depends(get_chat_model)]
 ) -> dict[str, str]:
     reply = await model.ainvoke(request.goal)
-    return {"status": "mock", "goal": reply.text}
+    return {"status": "mock", "reply": reply.text}
