@@ -27,7 +27,7 @@ dev = [
 ]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B"]
+select = ["E", "F", "I", "B", "ASYNC"]
 
 [tool.pyright]
 typeCheckingMode = "strict"

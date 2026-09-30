@@ -13,6 +13,7 @@ import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -23,6 +24,7 @@ public class JwtService {
     private static final String WORKSPACE_ID_CLAIM = "workspaceId";
     private static final String MEMBERSHIP_ID_CLAIM = "membershipId";
     private static final String ROLE_CLAIM = "role";
+    public static final String API_AUDIENCE = "flowai-api";
 
     private final JwtEncoder jwtEncoder;
     private final JwtDecoder jwtDecoder;
@@ -39,6 +41,7 @@ public class JwtService {
 
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .issuer(ISSUER)
+                .audience(List.of(API_AUDIENCE))
                 .issuedAt(now)
                 .expiresAt(now.plus(jwtProperties.accessTokenTtl()))
                 .subject(user.getId().toString())
