@@ -202,6 +202,20 @@ class AiSuggestionControllerTests {
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
     }
 
+    @Test
+    void rejectsAnApplyWhoseItemListContainsNull() throws Exception {
+        mockMvc.perform(post(
+                        "/api/ai/suggestions/{suggestionId}/apply",
+                        UUID.randomUUID()
+                ).with(jwt())
+                        .contentType("application/json")
+                        .content("""
+                                { "idempotencyKey": "%s", "items": [null] }
+                                """.formatted(UUID.randomUUID())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
     private AiSuggestionResponse response(
             UUID suggestionId,
             AiSuggestionStatus status,

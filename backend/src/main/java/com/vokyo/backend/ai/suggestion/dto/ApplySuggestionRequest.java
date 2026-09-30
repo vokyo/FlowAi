@@ -17,7 +17,7 @@ import java.util.UUID;
  */
 public record ApplySuggestionRequest(
         @NotNull UUID idempotencyKey,
-        @Size(max = 8) List<@Valid Item> items
+        @Size(max = 8) List<@Valid @NotNull Item> items
 ) {
 
     public record Item(
