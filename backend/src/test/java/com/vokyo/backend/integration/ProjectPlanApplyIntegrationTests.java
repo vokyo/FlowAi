@@ -46,6 +46,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.sql.Date;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -153,6 +154,20 @@ class ProjectPlanApplyIntegrationTests extends AbstractMockMvcIntegrationTest {
         assertThat(creations.get()).isEqualTo(3);
         assertThat(issueRepository.count()).isZero();
         assertThat(statusOf(suggestion)).isEqualTo(AiSuggestionStatus.DRAFT);
+    }
+
+    @Test
+    void aPlanStaysApprovableAfterOneOfItsDueDatesHasPassed() throws Exception {
+        Graph graph = graph("late-approval");
+        LocalDate dueOnGenerationDay = LocalDate.now(ZoneOffset.UTC);
+        AiSuggestion suggestion = savePlan(graph, null, dueOnGenerationDay);
+        // Three days later: still inside the seven-day TTL, but past item-2's due date.
+        clock.pinTo(Instant.now().plus(Duration.ofDays(3)));
+
+        apply(graph, suggestion, UUID.randomUUID())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("APPLIED"))
+                .andExpect(jsonPath("$.createdIssueIds.length()").value(3));
     }
 
     @Test

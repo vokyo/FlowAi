@@ -28,17 +28,18 @@ public class ProjectPlanValidator {
 
     /**
      * @param activeMemberUserIds the users who can be assigned: the project's active members right now
-     * @param today the earliest day a due date may fall on
+     * @param referenceDate the day due dates are judged from: today when the plan is
+     *                      generated, and the day it was generated when it is approved
      * @return the same plan with its text trimmed
      * @throws ProjectPlanValidationException naming the first rule the plan breaks
      */
     public ProjectPlan validate(
             ProjectPlan plan,
             Set<UUID> activeMemberUserIds,
-            LocalDate today
+            LocalDate referenceDate
     ) {
         Objects.requireNonNull(activeMemberUserIds, "activeMemberUserIds is required");
-        Objects.requireNonNull(today, "today is required");
+        Objects.requireNonNull(referenceDate, "referenceDate is required");
         if (plan == null) {
             invalid("Plan is required");
         }
@@ -60,7 +61,13 @@ public class ProjectPlanValidator {
             if (item == null) {
                 invalid("Item at index " + index + " is missing");
             }
-            normalizedItems.add(validateItem(item, index, clientItemIds, activeMemberUserIds, today));
+            normalizedItems.add(validateItem(
+                    item,
+                    index,
+                    clientItemIds,
+                    activeMemberUserIds,
+                    referenceDate
+            ));
         }
 
         return new ProjectPlan(overview, List.copyOf(normalizedItems));
@@ -71,7 +78,7 @@ public class ProjectPlanValidator {
             int index,
             Set<String> clientItemIds,
             Set<UUID> activeMemberUserIds,
-            LocalDate today
+            LocalDate referenceDate
     ) {
         String clientItemId = requireText(item.clientItemId(), "clientItemId at item index " + index);
         if (clientItemId.length() > MAX_CLIENT_ITEM_ID_LENGTH) {
@@ -104,10 +111,10 @@ public class ProjectPlanValidator {
         }
 
         LocalDate dueDate = item.dueDate();
-        if (dueDate != null && dueDate.isBefore(today)) {
+        if (dueDate != null && dueDate.isBefore(referenceDate)) {
             invalid("dueDate of item " + clientItemId + " is in the past");
         }
-        if (dueDate != null && dueDate.isAfter(today.plusDays(MAX_DAYS_AHEAD))) {
+        if (dueDate != null && dueDate.isAfter(referenceDate.plusDays(MAX_DAYS_AHEAD))) {
             invalid("dueDate of item " + clientItemId + " is more than "
                     + MAX_DAYS_AHEAD + " days away");
         }

@@ -242,11 +242,15 @@ public class AiSuggestionApplyService {
                 .filter(member -> member.getStatus() == MembershipStatus.ACTIVE)
                 .map(member -> member.getUser().getId())
                 .collect(Collectors.toUnmodifiableSet());
+        // Membership is judged as of now, but dates from the day the plan was
+        // generated: a due date passing while the plan waits for approval must not
+        // make it impossible to approve.
+        LocalDate generatedOn = LocalDate.ofInstant(suggestion.getCreatedAt(), clock.getZone());
         try {
             return projectPlanValidator.validate(
                     savedPlan,
                     activeMemberUserIds,
-                    LocalDate.now(clock)
+                    generatedOn
             );
         } catch (ProjectPlanValidationException exception) {
             throw AiFeatureException.suggestionInvalid(exception.getMessage());
