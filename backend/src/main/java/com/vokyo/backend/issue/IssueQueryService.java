@@ -8,6 +8,7 @@ import com.vokyo.backend.issue.dto.IssueListItemResponse;
 import com.vokyo.backend.pagination.CursorCodec;
 import com.vokyo.backend.pagination.CursorPage;
 import com.vokyo.backend.pagination.CursorPagination;
+import com.vokyo.backend.project.Project;
 import com.vokyo.backend.project.ProjectAccessService;
 import com.vokyo.backend.project.WorkflowStateCategory;
 import com.vokyo.backend.workspace.CurrentWorkspaceContext;
@@ -34,6 +35,8 @@ import java.util.UUID;
 
 @Service
 public class IssueQueryService {
+
+    private static final Sort NEWEST_FIRST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
 
     private final IssueRepository issueRepository;
     private final IssueCommentRepository issueCommentRepository;
@@ -108,10 +111,9 @@ public class IssueQueryService {
             normalizedQuery,
             decodedCursor
         );
-        Sort sort = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
         List<Issue> issues = issueRepository.findBy(
             specification,
-            fluentQuery -> fluentQuery.sortBy(sort).limit(limit + 1).all()
+            fluentQuery -> fluentQuery.sortBy(NEWEST_FIRST).limit(limit + 1).all()
         );
         Map<UUID, Long> commentCounts = commentCountQuery.load(issues);
         Set<UUID> watchedIds = issueWatchQuery.loadWatchedIssueIds(issues, context.user().getId());
@@ -124,6 +126,31 @@ public class IssueQueryService {
                 commentCounts.getOrDefault(issue.getId(), 0L),
                 watchedIds.contains(issue.getId())),
             issue -> cursorCodec.encodeTime(cursorScope, issue.getCreatedAt(), issue.getId())
+        );
+    }
+
+    /**
+     * Same filter as the issue list with no status filter: active issues of one
+     * project, newest first, optionally matched on title or description. It does
+     * not check access, so callers must already have resolved the project through
+     * an access check.
+     */
+    @Transactional(readOnly = true)
+    public List<Issue> searchActiveIssues(Project project, String query, int maxResults) {
+        Specification<Issue> specification = issueListSpecification(
+            project.getWorkspace().getId(),
+            project.getId(),
+            null,
+            null,
+            null,
+            null,
+            null,
+            normalizeOptionalText(query),
+            null
+        );
+        return issueRepository.findBy(
+            specification,
+            fluentQuery -> fluentQuery.sortBy(NEWEST_FIRST).limit(maxResults).all()
         );
     }
 
