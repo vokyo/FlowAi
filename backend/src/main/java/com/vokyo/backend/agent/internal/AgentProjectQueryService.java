@@ -2,10 +2,14 @@ package com.vokyo.backend.agent.internal;
 
 import com.vokyo.backend.agent.AgentAccessService;
 import com.vokyo.backend.agent.internal.dto.AgentIssueSearchResponse;
+import com.vokyo.backend.agent.internal.dto.AgentProjectMembersResponse;
 import com.vokyo.backend.issue.Issue;
 import com.vokyo.backend.issue.IssueQueryService;
 import com.vokyo.backend.project.Project;
+import com.vokyo.backend.project.ProjectAccessService;
+import com.vokyo.backend.project.ProjectMember;
 import com.vokyo.backend.user.User;
+import com.vokyo.backend.workspace.MembershipStatus;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
@@ -24,16 +28,20 @@ public class AgentProjectQueryService {
 
     static final int MAX_ISSUE_RESULTS = 20;
     static final int MAX_QUERY_LENGTH = 100;
+    static final int MAX_MEMBER_RESULTS = 50;
 
     private final AgentAccessService agentAccessService;
     private final IssueQueryService issueQueryService;
+    private final ProjectAccessService projectAccessService;
 
     public AgentProjectQueryService(
         AgentAccessService agentAccessService,
-        IssueQueryService issueQueryService
+        IssueQueryService issueQueryService,
+        ProjectAccessService projectAccessService
     ) {
         this.agentAccessService = agentAccessService;
         this.issueQueryService = issueQueryService;
+        this.projectAccessService = projectAccessService;
     }
 
     @Transactional(readOnly = true)
@@ -49,6 +57,18 @@ public class AgentProjectQueryService {
         return new AgentIssueSearchResponse(
             issues.stream().limit(limit).map(this::toIssueItem).toList(),
             issues.size() > limit
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public AgentProjectMembersResponse listMembers(Jwt agentJwt) {
+        Project project = agentAccessService.requireAccessibleProject(agentJwt);
+        List<ProjectMember> activeMembers = projectAccessService.listProjectMembers(project).stream()
+            .filter(member -> member.getStatus() == MembershipStatus.ACTIVE)
+            .toList();
+        return new AgentProjectMembersResponse(
+            activeMembers.stream().limit(MAX_MEMBER_RESULTS).map(this::toMemberItem).toList(),
+            activeMembers.size() > MAX_MEMBER_RESULTS
         );
     }
 
@@ -72,6 +92,14 @@ public class AgentProjectQueryService {
             issue.getPriority(),
             assignee == null ? null : assignee.getId(),
             assignee == null ? null : assignee.getDisplayName()
+        );
+    }
+
+    private AgentProjectMembersResponse.Item toMemberItem(ProjectMember member) {
+        return new AgentProjectMembersResponse.Item(
+            member.getUser().getId(),
+            member.getUser().getDisplayName(),
+            member.getRole()
         );
     }
 

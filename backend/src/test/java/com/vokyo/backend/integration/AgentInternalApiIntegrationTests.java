@@ -42,6 +42,8 @@ import java.util.UUID;
 
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -52,6 +54,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class AgentInternalApiIntegrationTests {
 
     private static final String ISSUES = "/api/internal/agent/project/issues";
+    private static final String MEMBERS = "/api/internal/agent/project/members";
 
     @Autowired private MockMvc mockMvc;
     @Autowired private JwtEncoder jwtEncoder;
@@ -107,12 +110,16 @@ class AgentInternalApiIntegrationTests {
         ProjectFixture other = project(tenant, "Other");
         issue(tenant, bound, "Bound login issue", bound.todo(), null, IssuePriority.HIGH);
         issue(tenant, other, "Other login issue", other.todo(), null, IssuePriority.HIGH);
+        member(tenant, other.project(), "Only In Other");
         String token = agentToken(tenant, bound.project());
         String otherProjectId = other.project().getId().toString();
 
         asAgent(token, get(ISSUES).param("q", "login").param("projectId", otherProjectId))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.items[*].title", contains("Bound login issue")));
+        asAgent(token, get(MEMBERS).param("projectId", otherProjectId))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.items[*].displayName", not(hasItem("Only In Other"))));
     }
 
     @Test
@@ -124,6 +131,7 @@ class AgentInternalApiIntegrationTests {
         String token = agentToken(mine, theirProject.project());
 
         asAgent(token, get(ISSUES)).andExpect(status().isNotFound());
+        asAgent(token, get(MEMBERS)).andExpect(status().isNotFound());
     }
 
     @Test
@@ -139,6 +147,7 @@ class AgentInternalApiIntegrationTests {
         projectMemberRepository.saveAndFlush(membership);
 
         asAgent(token, get(ISSUES)).andExpect(status().isNotFound());
+        asAgent(token, get(MEMBERS)).andExpect(status().isNotFound());
     }
 
     @Test
@@ -197,6 +206,42 @@ class AgentInternalApiIntegrationTests {
             .andExpect(status().isOk());
     }
 
+    @Test
+    void membersListsOnlyActiveMembersAndLeavesOutEmails() throws Exception {
+        Tenant tenant = tenant("members");
+        ProjectFixture fixture = project(tenant, "Members");
+        User active = member(tenant, fixture.project(), "Active Member");
+        User removed = member(tenant, fixture.project(), "Removed Member");
+        ProjectMember removedMembership = projectMemberRepository.findByWorkspace_IdAndProject_IdAndUser_Id(
+            tenant.workspace().getId(), fixture.project().getId(), removed.getId()).orElseThrow();
+        removedMembership.disable();
+        projectMemberRepository.saveAndFlush(removedMembership);
+
+        asAgent(agentToken(tenant, fixture.project()), get(MEMBERS))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.truncated").value(false))
+            .andExpect(jsonPath("$.items[*].displayName",
+                containsInAnyOrder(tenant.owner().getDisplayName(), "Active Member")))
+            .andExpect(jsonPath("$.items[?(@.displayName == 'Active Member')].userId")
+                .value(active.getId().toString()))
+            .andExpect(jsonPath("$.items[?(@.displayName == 'Active Member')].role").value("MEMBER"))
+            .andExpect(jsonPath("$.items[*].email").doesNotExist());
+    }
+
+    @Test
+    void memberListIsCappedAndSaysWhenItCutResultsOff() throws Exception {
+        Tenant tenant = tenant("crowded");
+        ProjectFixture fixture = project(tenant, "Crowded");
+        for (int number = 1; number <= 50; number++) {
+            member(tenant, fixture.project(), "Member " + number);
+        }
+
+        asAgent(agentToken(tenant, fixture.project()), get(MEMBERS))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.items.length()").value(50))
+            .andExpect(jsonPath("$.truncated").value(true));
+    }
+
     private ResultActions asAgent(String token, MockHttpServletRequestBuilder request) throws Exception {
         return mockMvc.perform(request.header("Authorization", "Bearer " + token));
     }
@@ -244,6 +289,14 @@ class AgentInternalApiIntegrationTests {
         ProjectWorkflowState done = workflowStateRepository.save(new ProjectWorkflowState(
             tenant.workspace(), project, "Done", WorkflowStateCategory.DONE, 20_000));
         return new ProjectFixture(project, todo, done);
+    }
+
+    private User member(Tenant tenant, Project project, String displayName) {
+        User user = userRepository.save(new User(
+            "member-" + System.nanoTime() + "@example.com", "password-hash", displayName));
+        membershipRepository.save(new WorkspaceMembership(tenant.workspace(), user, WorkspaceRole.MEMBER));
+        projectMemberRepository.save(new ProjectMember(tenant.workspace(), project, user, ProjectRole.MEMBER));
+        return user;
     }
 
     private Issue issue(

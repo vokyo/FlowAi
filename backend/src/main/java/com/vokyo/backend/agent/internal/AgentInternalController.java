@@ -1,6 +1,7 @@
 package com.vokyo.backend.agent.internal;
 
 import com.vokyo.backend.agent.internal.dto.AgentIssueSearchResponse;
+import com.vokyo.backend.agent.internal.dto.AgentProjectMembersResponse;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -29,5 +30,10 @@ public class AgentInternalController {
             @RequestParam(defaultValue = "" + AgentProjectQueryService.MAX_ISSUE_RESULTS) int limit
     ) {
         return queryService.searchIssues(jwt, q, limit);
+    }
+
+    @GetMapping("/members")
+    public AgentProjectMembersResponse listMembers(@AuthenticationPrincipal Jwt jwt) {
+        return queryService.listMembers(jwt);
     }
 }
