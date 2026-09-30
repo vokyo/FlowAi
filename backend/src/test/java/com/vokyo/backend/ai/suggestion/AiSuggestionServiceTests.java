@@ -24,6 +24,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -159,6 +160,19 @@ class AiSuggestionServiceTests {
         assertThatThrownBy(() -> service.createDraft(createCommand(project, sourceIssue)))
                 .isInstanceOfSatisfying(AiFeatureException.class, exception ->
                         assertThat(exception.code()).isEqualTo("AI_SUGGESTION_INVALID"));
+    }
+
+    @Test
+    void refusesToMarkASuggestionAppliedOnceItHasExpired() {
+        AiSuggestion expired = suggestionExpiringAt(NOW);
+
+        assertThatThrownBy(() -> service.markApplied(
+                expired,
+                UUID.randomUUID(),
+                List.of(UUID.randomUUID())
+        )).isInstanceOfSatisfying(AiFeatureException.class, exception ->
+                assertThat(exception.code()).isEqualTo("AI_SUGGESTION_NOT_DRAFT"));
+        assertThat(expired.getStatus()).isNotEqualTo(AiSuggestionStatus.APPLIED);
     }
 
     @Test

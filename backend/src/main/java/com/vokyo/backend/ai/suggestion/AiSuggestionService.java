@@ -193,9 +193,11 @@ public class AiSuggestionService {
 
         Instant now = clock.instant();
 
+        // The deadline can pass while the caller is creating issues. Throwing rolls
+        // those issues back with the transaction; returning would commit them with
+        // nothing recording that this suggestion created them.
         if (suggestion.isExpiredAt(now)) {
-            suggestion.expire(now);
-            return suggestion;
+            throw AiFeatureException.suggestionNotDraft();
         }
 
         suggestion.apply(idempotencyKey, createdIssueIds, now);

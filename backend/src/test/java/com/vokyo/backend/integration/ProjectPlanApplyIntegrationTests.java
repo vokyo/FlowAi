@@ -29,11 +29,15 @@ import com.vokyo.backend.workspace.WorkspaceMembershipRepository;
 import com.vokyo.backend.workspace.WorkspaceRepository;
 import com.vokyo.backend.workspace.WorkspaceRole;
 import io.micrometer.core.instrument.MeterRegistry;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -41,7 +45,10 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.sql.Date;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
@@ -51,10 +58,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@Import(TestcontainersConfiguration.class)
+@Import({
+        TestcontainersConfiguration.class,
+        ProjectPlanApplyIntegrationTests.ClockConfiguration.class
+})
 @AutoConfigureMockMvc
 @SpringBootTest(properties = "spring.ai.openai.api-key=dummy")
 class ProjectPlanApplyIntegrationTests extends AbstractMockMvcIntegrationTest {
@@ -71,8 +82,14 @@ class ProjectPlanApplyIntegrationTests extends AbstractMockMvcIntegrationTest {
     @Autowired private JwtService jwtService;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private MeterRegistry meterRegistry;
+    @Autowired private SteerableClock clock;
 
     @MockitoSpyBean private IssueCreationService issueCreationService;
+
+    @AfterEach
+    void releaseClock() {
+        clock.followSystemTime();
+    }
 
     @Test
     void approvingAPlanCreatesEveryTaskOnceAndReplaysTheSameKey() throws Exception {
@@ -136,6 +153,36 @@ class ProjectPlanApplyIntegrationTests extends AbstractMockMvcIntegrationTest {
         assertThat(creations.get()).isEqualTo(3);
         assertThat(issueRepository.count()).isZero();
         assertThat(statusOf(suggestion)).isEqualTo(AiSuggestionStatus.DRAFT);
+    }
+
+    @Test
+    void aPlanThatExpiresWhileItsIssuesAreBeingCreatedLeavesNoIssuesBehind() throws Exception {
+        Graph graph = graph("expires-mid-apply");
+        AiSuggestion suggestion = savePlan(graph, null, null);
+        Instant expiresAt = suggestion.getExpiresAt();
+        clock.pinTo(expiresAt.minusSeconds(1));
+        AtomicInteger creations = new AtomicInteger();
+        doAnswer(invocation -> {
+            Object created = invocation.callRealMethod();
+            if (creations.incrementAndGet() == 3) {
+                // The deadline passes after the last issue is written and
+                // before the suggestion is marked applied.
+                clock.pinTo(expiresAt.plusMillis(1));
+            }
+            return created;
+        }).when(issueCreationService).create(any(), any(), any());
+
+        apply(graph, suggestion, UUID.randomUUID())
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("AI_SUGGESTION_NOT_DRAFT"));
+
+        assertThat(creations.get()).isEqualTo(3);
+        assertThat(issueRepository.count()).isZero();
+        mockMvc.perform(get("/api/ai/suggestions/{id}", suggestion.getId())
+                        .header("Authorization", bearer(graph.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("EXPIRED"))
+                .andExpect(jsonPath("$.createdIssueIds.length()").value(0));
     }
 
     @Test
@@ -319,6 +366,49 @@ class ProjectPlanApplyIntegrationTests extends AbstractMockMvcIntegrationTest {
                 project,
                 jwtService.generateAccessToken(owner, membership)
         );
+    }
+
+    @TestConfiguration(proxyBeanMethods = false)
+    static class ClockConfiguration {
+
+        @Bean
+        @Primary
+        SteerableClock steerableClock() {
+            return new SteerableClock();
+        }
+    }
+
+    /**
+     * Follows the system clock until a test pins it, so the other tests in this
+     * class still see real time.
+     */
+    static final class SteerableClock extends Clock {
+
+        private volatile Instant pinned;
+
+        void pinTo(Instant instant) {
+            pinned = instant;
+        }
+
+        void followSystemTime() {
+            pinned = null;
+        }
+
+        @Override
+        public Instant instant() {
+            Instant current = pinned;
+            return current == null ? Instant.now() : current;
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            throw new UnsupportedOperationException("These tests only need UTC");
+        }
     }
 
     private record Graph(
