@@ -7,7 +7,7 @@ import com.vokyo.backend.ai.suggestion.AiSuggestionApplyService;
 import com.vokyo.backend.ai.suggestion.AiSuggestionStatus;
 import com.vokyo.backend.ai.suggestion.AiSuggestionType;
 import com.vokyo.backend.ai.suggestion.dto.AiSuggestionResponse;
-import com.vokyo.backend.ai.suggestion.dto.ApplyIssueBreakdownRequest;
+import com.vokyo.backend.ai.suggestion.dto.ApplySuggestionRequest;
 import com.vokyo.backend.ai.suggestion.dto.ApplySuggestionResponse;
 import com.vokyo.backend.security.SecurityConfiguration;
 import com.vokyo.backend.security.ratelimit.RateLimitFilter;
@@ -171,6 +171,37 @@ class AiSuggestionControllerTests {
                 .andExpect(jsonPath("$.appliedAt").value(appliedAt.toString()));
     }
 
+    @Test
+    void acceptsAnApplyThatCarriesOnlyTheIdempotencyKey() throws Exception {
+        UUID suggestionId = UUID.randomUUID();
+        applyService.response = new ApplySuggestionResponse(
+                suggestionId,
+                AiSuggestionStatus.APPLIED,
+                List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()),
+                Instant.parse("2026-07-21T03:00:00Z")
+        );
+
+        mockMvc.perform(post(
+                        "/api/ai/suggestions/{suggestionId}/apply",
+                        suggestionId
+                ).with(jwt())
+                        .contentType("application/json")
+                        .content("""
+                                { "idempotencyKey": "%s" }
+                                """.formatted(UUID.randomUUID())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.createdIssueIds.length()").value(3));
+
+        mockMvc.perform(post(
+                        "/api/ai/suggestions/{suggestionId}/apply",
+                        suggestionId
+                ).with(jwt())
+                        .contentType("application/json")
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
     private AiSuggestionResponse response(
             UUID suggestionId,
             AiSuggestionStatus status,
@@ -255,14 +286,14 @@ class AiSuggestionControllerTests {
         private ApplySuggestionResponse response;
 
         private TestSuggestionApplyService() {
-            super(null, null, null, null, null, null, null, null);
+            super(null, null, null, null, null, null, null, null, null, null);
         }
 
         @Override
         public ApplySuggestionResponse apply(
                 Jwt jwt,
                 UUID suggestionId,
-                ApplyIssueBreakdownRequest request
+                ApplySuggestionRequest request
         ) {
             return response;
         }

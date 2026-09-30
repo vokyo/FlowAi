@@ -321,6 +321,30 @@ class IssueBreakdownIntegrationTests extends AbstractMockMvcIntegrationTest {
     }
 
     @Test
+    void applyingABreakdownStillRequiresItsItems() throws Exception {
+        TenantGraph graph = createTenantGraph("apply-without-items");
+        postJson(
+                "/api/ai/issues/%s/breakdown".formatted(graph.issue().getId()),
+                "{}",
+                graph.accessToken()
+        ).andExpect(status().isOk());
+
+        var suggestion = suggestionRepository.findAll().getFirst();
+        postJson(
+                "/api/ai/suggestions/%s/apply".formatted(suggestion.getId()),
+                """
+                        { "idempotencyKey": "%s" }
+                        """.formatted(UUID.randomUUID()),
+                graph.accessToken()
+        ).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("AI_REQUEST_INVALID"));
+
+        assertThat(issueRepository.findAll())
+                .extracting(Issue::getId)
+                .containsExactly(graph.issue().getId());
+    }
+
+    @Test
     void concurrentApplyWithTheSameKeyCreatesIssuesOnlyOnce() throws Exception {
         TenantGraph graph = createTenantGraph("apply-concurrent");
         postJson(

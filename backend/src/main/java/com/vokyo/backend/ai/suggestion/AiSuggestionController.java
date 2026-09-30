@@ -1,7 +1,7 @@
 package com.vokyo.backend.ai.suggestion;
 
 import com.vokyo.backend.ai.suggestion.dto.AiSuggestionResponse;
-import com.vokyo.backend.ai.suggestion.dto.ApplyIssueBreakdownRequest;
+import com.vokyo.backend.ai.suggestion.dto.ApplySuggestionRequest;
 import com.vokyo.backend.ai.suggestion.dto.ApplySuggestionResponse;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -50,7 +50,7 @@ public class AiSuggestionController {
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID suggestionId,
             @Valid @org.springframework.web.bind.annotation.RequestBody
-            ApplyIssueBreakdownRequest request
+            ApplySuggestionRequest request
     ) {
         return suggestionApplyService.apply(jwt, suggestionId, request);
     }

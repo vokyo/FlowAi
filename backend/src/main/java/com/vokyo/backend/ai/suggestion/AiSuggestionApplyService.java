@@ -5,7 +5,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vokyo.backend.ai.AiFeatureException;
 import com.vokyo.backend.ai.AiMetrics;
 import com.vokyo.backend.ai.breakdown.IssueBreakdownResult;
-import com.vokyo.backend.ai.suggestion.dto.ApplyIssueBreakdownRequest;
+import com.vokyo.backend.ai.plan.ProjectPlan;
+import com.vokyo.backend.ai.plan.ProjectPlanValidationException;
+import com.vokyo.backend.ai.plan.ProjectPlanValidator;
+import com.vokyo.backend.ai.suggestion.dto.ApplySuggestionRequest;
 import com.vokyo.backend.ai.suggestion.dto.ApplySuggestionResponse;
 import com.vokyo.backend.issue.Issue;
 import com.vokyo.backend.issue.IssueCreationCommand;
@@ -14,6 +17,7 @@ import com.vokyo.backend.issue.IssueRepository;
 import com.vokyo.backend.project.Project;
 import com.vokyo.backend.project.ProjectAccessService;
 import com.vokyo.backend.workspace.CurrentWorkspaceContext;
+import com.vokyo.backend.workspace.MembershipStatus;
 import com.vokyo.backend.workspace.WorkspaceAccessService;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -22,6 +26,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Clock;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -30,6 +36,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class AiSuggestionApplyService {
@@ -44,6 +51,8 @@ public class AiSuggestionApplyService {
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
     private final AiMetrics metrics;
+    private final ProjectPlanValidator projectPlanValidator;
+    private final Clock clock;
 
     public AiSuggestionApplyService(
             WorkspaceAccessService workspaceAccessService,
@@ -53,7 +62,9 @@ public class AiSuggestionApplyService {
             IssueCreationService issueCreationService,
             ObjectMapper objectMapper,
             PlatformTransactionManager transactionManager,
-            AiMetrics metrics
+            AiMetrics metrics,
+            ProjectPlanValidator projectPlanValidator,
+            Clock clock
     ) {
         this.workspaceAccessService = workspaceAccessService;
         this.suggestionService = suggestionService;
@@ -63,12 +74,14 @@ public class AiSuggestionApplyService {
         this.objectMapper = objectMapper;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.metrics = metrics;
+        this.projectPlanValidator = projectPlanValidator;
+        this.clock = clock;
     }
 
     public ApplySuggestionResponse apply(
             Jwt jwt,
             UUID suggestionId,
-            ApplyIssueBreakdownRequest request
+            ApplySuggestionRequest request
     ) {
         ApplyOutcome outcome = transactionTemplate.execute(status ->
                 applyInTransaction(jwt, suggestionId, request)
@@ -96,7 +109,7 @@ public class AiSuggestionApplyService {
     private ApplyOutcome applyInTransaction(
             Jwt jwt,
             UUID suggestionId,
-            ApplyIssueBreakdownRequest request
+            ApplySuggestionRequest request
     ) {
         CurrentWorkspaceContext context =
                 workspaceAccessService.requireCurrentContext(jwt);
@@ -112,9 +125,31 @@ public class AiSuggestionApplyService {
         if (suggestion.getStatus() == AiSuggestionStatus.EXPIRED) {
             return ApplyOutcome.expiredOutcome(suggestion.getType());
         }
-        if (suggestion.getType() != AiSuggestionType.ISSUE_BREAKDOWN) {
-            throw AiFeatureException.suggestionInvalid(
-                    "Only issue breakdown suggestions can be applied"
+
+        List<UUID> createdIssueIds = switch (suggestion.getType()) {
+            case ISSUE_BREAKDOWN -> applyIssueBreakdown(context, suggestion, request);
+            case PROJECT_PLAN -> applyProjectPlan(context, suggestion, request);
+            case ISSUE_SUMMARY, PROJECT_SUMMARY -> throw AiFeatureException.suggestionInvalid(
+                    "Only issue breakdown and project plan suggestions can be applied"
+            );
+        };
+
+        AiSuggestion applied = suggestionService.markApplied(
+                suggestion,
+                request.idempotencyKey(),
+                createdIssueIds
+        );
+        return ApplyOutcome.success(applied.getType(), toResponse(applied));
+    }
+
+    private List<UUID> applyIssueBreakdown(
+            CurrentWorkspaceContext context,
+            AiSuggestion suggestion,
+            ApplySuggestionRequest request
+    ) {
+        if (request.items() == null || request.items().isEmpty()) {
+            throw AiFeatureException.requestInvalid(
+                    "Issue breakdown apply must include the suggestion's items"
             );
         }
 
@@ -138,26 +173,98 @@ public class AiSuggestionApplyService {
 
         List<UUID> createdIssueIds = new ArrayList<>();
         for (SelectedItem selectedItem : selectedItems) {
-            try {
-                Issue created = issueCreationService.create(
-                        context,
-                        project,
-                        toCreationCommand(selectedItem)
-                );
-                createdIssueIds.add(created.getId());
-            } catch (ResponseStatusException exception) {
-                throw AiFeatureException.suggestionInvalid(
-                        applyValidationMessage(exception)
-                );
-            }
+            createdIssueIds.add(createIssue(
+                    context,
+                    project,
+                    toCreationCommand(selectedItem)
+            ));
+        }
+        return createdIssueIds;
+    }
+
+    /**
+     * A project plan is approved as a whole: every saved task becomes an issue, or
+     * none does. The plan is re-validated here because assignees may have left the
+     * project since it was generated.
+     */
+    private List<UUID> applyProjectPlan(
+            CurrentWorkspaceContext context,
+            AiSuggestion suggestion,
+            ApplySuggestionRequest request
+    ) {
+        if (request.items() != null && !request.items().isEmpty()) {
+            throw AiFeatureException.requestInvalid(
+                    "Project plans are applied as saved and take no items"
+            );
         }
 
-        AiSuggestion applied = suggestionService.markApplied(
-                suggestion,
-                request.idempotencyKey(),
-                createdIssueIds
+        Project project = projectAccessService.requireAccessibleProjectForUpdate(
+                suggestion.getProject().getId(),
+                context
         );
-        return ApplyOutcome.success(applied.getType(), toResponse(applied));
+        if (project.getArchivedAt() != null) {
+            throw AiFeatureException.requestInvalid(
+                    "Archived projects cannot apply project plans"
+            );
+        }
+
+        ProjectPlan plan = revalidateProjectPlan(suggestion, project);
+        List<UUID> createdIssueIds = new ArrayList<>();
+        for (ProjectPlan.Item item : plan.items()) {
+            createdIssueIds.add(createIssue(context, project, new IssueCreationCommand(
+                    item.title(),
+                    item.description(),
+                    List.of(),
+                    item.suggestedAssigneeUserId(),
+                    null,
+                    null,
+                    item.priority(),
+                    item.dueDate()
+            )));
+        }
+        return createdIssueIds;
+    }
+
+    private ProjectPlan revalidateProjectPlan(AiSuggestion suggestion, Project project) {
+        ProjectPlan savedPlan;
+        try {
+            savedPlan = objectMapper.treeToValue(
+                    suggestion.getContent(),
+                    ProjectPlan.class
+            );
+        } catch (JsonProcessingException | IllegalArgumentException exception) {
+            throw AiFeatureException.suggestionInvalid(
+                    "Saved project plan content is invalid"
+            );
+        }
+
+        Set<UUID> activeMemberUserIds = projectAccessService.listProjectMembers(project).stream()
+                .filter(member -> member.getStatus() == MembershipStatus.ACTIVE)
+                .map(member -> member.getUser().getId())
+                .collect(Collectors.toUnmodifiableSet());
+        try {
+            return projectPlanValidator.validate(
+                    savedPlan,
+                    activeMemberUserIds,
+                    LocalDate.now(clock)
+            );
+        } catch (ProjectPlanValidationException exception) {
+            throw AiFeatureException.suggestionInvalid(exception.getMessage());
+        }
+    }
+
+    private UUID createIssue(
+            CurrentWorkspaceContext context,
+            Project project,
+            IssueCreationCommand command
+    ) {
+        try {
+            return issueCreationService.create(context, project, command).getId();
+        } catch (ResponseStatusException exception) {
+            throw AiFeatureException.suggestionInvalid(
+                    applyValidationMessage(exception)
+            );
+        }
     }
 
     private Issue requireActiveSourceIssue(
@@ -197,7 +304,7 @@ public class AiSuggestionApplyService {
 
     private List<SelectedItem> validateAndSelect(
             IssueBreakdownResult original,
-            List<ApplyIssueBreakdownRequest.Item> requestedItems
+            List<ApplySuggestionRequest.Item> requestedItems
     ) {
         if (original == null || original.items() == null
                 || original.items().isEmpty()) {
@@ -219,7 +326,7 @@ public class AiSuggestionApplyService {
 
         Set<String> requestedIds = new LinkedHashSet<>();
         List<SelectedItem> selected = new ArrayList<>();
-        for (ApplyIssueBreakdownRequest.Item requested : requestedItems) {
+        for (ApplySuggestionRequest.Item requested : requestedItems) {
             String itemId = requested.clientItemId().trim();
             if (!requestedIds.add(itemId)) {
                 throw AiFeatureException.suggestionInvalid(
@@ -251,7 +358,7 @@ public class AiSuggestionApplyService {
     }
 
     private IssueCreationCommand toCreationCommand(SelectedItem selectedItem) {
-        ApplyIssueBreakdownRequest.Item request = selectedItem.request();
+        ApplySuggestionRequest.Item request = selectedItem.request();
         return new IssueCreationCommand(
                 request.title(),
                 appendAcceptanceCriteria(
@@ -314,7 +421,7 @@ public class AiSuggestionApplyService {
     }
 
     private record SelectedItem(
-            ApplyIssueBreakdownRequest.Item request,
+            ApplySuggestionRequest.Item request,
             IssueBreakdownResult.Item saved
     ) {
     }
