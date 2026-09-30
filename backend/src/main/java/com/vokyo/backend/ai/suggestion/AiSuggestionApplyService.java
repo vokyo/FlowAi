@@ -78,7 +78,7 @@ public class AiSuggestionApplyService {
         }
         if (outcome.expired()) {
             if (metrics != null) {
-                metrics.recordSuggestion(AiSuggestionType.ISSUE_BREAKDOWN, AiSuggestionStatus.EXPIRED);
+                metrics.recordSuggestion(outcome.type(), AiSuggestionStatus.EXPIRED);
                 metrics.recordApply("expired", 0);
             }
             throw AiFeatureException.suggestionNotDraft();
@@ -87,7 +87,7 @@ public class AiSuggestionApplyService {
             String result = outcome.replay() ? "idempotent_replay" : "success";
             metrics.recordApply(result, outcome.response().createdIssueIds().size());
             if (!outcome.replay()) {
-                metrics.recordSuggestion(AiSuggestionType.ISSUE_BREAKDOWN, AiSuggestionStatus.APPLIED);
+                metrics.recordSuggestion(outcome.type(), AiSuggestionStatus.APPLIED);
             }
         }
         return outcome.response();
@@ -107,10 +107,10 @@ public class AiSuggestionApplyService {
         );
 
         if (suggestion.wasAppliedWith(request.idempotencyKey())) {
-            return ApplyOutcome.replay(toResponse(suggestion));
+            return ApplyOutcome.replay(suggestion.getType(), toResponse(suggestion));
         }
         if (suggestion.getStatus() == AiSuggestionStatus.EXPIRED) {
-            return ApplyOutcome.expiredOutcome();
+            return ApplyOutcome.expiredOutcome(suggestion.getType());
         }
         if (suggestion.getType() != AiSuggestionType.ISSUE_BREAKDOWN) {
             throw AiFeatureException.suggestionInvalid(
@@ -157,7 +157,7 @@ public class AiSuggestionApplyService {
                 request.idempotencyKey(),
                 createdIssueIds
         );
-        return ApplyOutcome.success(toResponse(applied));
+        return ApplyOutcome.success(applied.getType(), toResponse(applied));
     }
 
     private Issue requireActiveSourceIssue(
@@ -320,20 +320,21 @@ public class AiSuggestionApplyService {
     }
 
     private record ApplyOutcome(
+            AiSuggestionType type,
             ApplySuggestionResponse response,
             boolean expired,
             boolean replay
     ) {
-        private static ApplyOutcome success(ApplySuggestionResponse response) {
-            return new ApplyOutcome(response, false, false);
+        private static ApplyOutcome success(AiSuggestionType type, ApplySuggestionResponse response) {
+            return new ApplyOutcome(type, response, false, false);
         }
 
-        private static ApplyOutcome replay(ApplySuggestionResponse response) {
-            return new ApplyOutcome(response, false, true);
+        private static ApplyOutcome replay(AiSuggestionType type, ApplySuggestionResponse response) {
+            return new ApplyOutcome(type, response, false, true);
         }
 
-        private static ApplyOutcome expiredOutcome() {
-            return new ApplyOutcome(null, true, false);
+        private static ApplyOutcome expiredOutcome(AiSuggestionType type) {
+            return new ApplyOutcome(type, null, true, false);
         }
     }
 }
