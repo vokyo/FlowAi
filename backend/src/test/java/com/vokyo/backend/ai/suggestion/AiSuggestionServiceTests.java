@@ -161,7 +161,34 @@ class AiSuggestionServiceTests {
                         assertThat(exception.code()).isEqualTo("AI_SUGGESTION_INVALID"));
     }
 
+    @Test
+    void createsProjectPlanDraftsOnlyWithoutASourceIssue() {
+        AiSuggestion created = service.createDraft(
+                createCommand(AiSuggestionType.PROJECT_PLAN, project, null)
+        );
+        assertThat(created.getType()).isEqualTo(AiSuggestionType.PROJECT_PLAN);
+        assertThat(created.getSourceIssue()).isNull();
+
+        repositoryStub.saved = null;
+        assertThatThrownBy(() -> service.createDraft(
+                createCommand(AiSuggestionType.PROJECT_PLAN, project, sourceIssue)
+        )).isInstanceOfSatisfying(AiFeatureException.class, exception -> {
+            assertThat(exception.code()).isEqualTo("AI_SUGGESTION_INVALID");
+            assertThat(exception.getMessage())
+                    .isEqualTo("Project suggestion cannot have a source issue");
+        });
+        assertThat(repositoryStub.saved).isNull();
+    }
+
     private AiSuggestionService.CreateDraftCommand createCommand(
+            Project commandProject,
+            Issue commandIssue
+    ) {
+        return createCommand(AiSuggestionType.ISSUE_BREAKDOWN, commandProject, commandIssue);
+    }
+
+    private AiSuggestionService.CreateDraftCommand createCommand(
+            AiSuggestionType type,
             Project commandProject,
             Issue commandIssue
     ) {
@@ -169,7 +196,7 @@ class AiSuggestionServiceTests {
                 context,
                 commandProject,
                 commandIssue,
-                AiSuggestionType.ISSUE_BREAKDOWN,
+                type,
                 JsonNodeFactory.instance.objectNode().put("overview", "Plan"),
                 "issue-breakdown-v1",
                 "fake",

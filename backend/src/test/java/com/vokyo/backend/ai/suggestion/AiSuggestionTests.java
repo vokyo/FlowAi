@@ -78,7 +78,42 @@ class AiSuggestionTests {
                 null,
                 EXPIRES_AT
         )).isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Project summary cannot have a source issue");
+                .hasMessage("Project suggestion cannot have a source issue");
+
+        assertThatThrownBy(() -> new AiSuggestion(
+                fixture.workspace,
+                fixture.project,
+                fixture.issue,
+                fixture.user,
+                AiSuggestionType.PROJECT_PLAN,
+                JsonNodeFactory.instance.objectNode(),
+                "planning-agent-v1",
+                "fake",
+                "fake-model",
+                INPUT_HASH,
+                null,
+                null,
+                EXPIRES_AT
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Project suggestion cannot have a source issue");
+
+        AiSuggestion projectPlan = new AiSuggestion(
+                fixture.workspace,
+                fixture.project,
+                null,
+                fixture.user,
+                AiSuggestionType.PROJECT_PLAN,
+                JsonNodeFactory.instance.objectNode(),
+                "planning-agent-v1",
+                "fake",
+                "fake-model",
+                INPUT_HASH,
+                null,
+                null,
+                EXPIRES_AT
+        );
+        assertThat(projectPlan.getSourceIssue()).isNull();
+        assertThat(projectPlan.getStatus()).isEqualTo(AiSuggestionStatus.DRAFT);
 
         assertThatThrownBy(() -> new AiSuggestion(
                 fixture.workspace,

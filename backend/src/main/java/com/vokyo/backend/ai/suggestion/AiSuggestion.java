@@ -315,20 +315,15 @@ public class AiSuggestion {
             AiSuggestionType type,
             Issue sourceIssue
     ) {
-        boolean issueSuggestion =
-                type == AiSuggestionType.ISSUE_BREAKDOWN
-                        || type == AiSuggestionType.ISSUE_SUMMARY;
-
-        if (issueSuggestion && sourceIssue == null) {
+        if (type.requiresSourceIssue() && sourceIssue == null) {
             throw new IllegalArgumentException(
                     "Issue suggestion requires a source issue"
             );
         }
 
-        if (type == AiSuggestionType.PROJECT_SUMMARY
-                && sourceIssue != null) {
+        if (!type.requiresSourceIssue() && sourceIssue != null) {
             throw new IllegalArgumentException(
-                    "Project summary cannot have a source issue"
+                    "Project suggestion cannot have a source issue"
             );
         }
     }

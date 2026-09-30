@@ -28,6 +28,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Instant;
 
@@ -67,6 +68,9 @@ class AiSuggestionPersistenceIntegrationTests {
 
     @Autowired
     private EntityManager entityManager;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @BeforeEach
     void setUp() {
@@ -166,6 +170,54 @@ class AiSuggestionPersistenceIntegrationTests {
 
         assertThatThrownBy(() -> suggestionRepository.saveAndFlush(invalidCreator))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void persistsAProjectPlanWithoutASourceIssue() {
+        TenantGraph graph = createTenantGraph("plan");
+
+        AiSuggestion saved = suggestionRepository.saveAndFlush(projectPlan(graph));
+        entityManager.clear();
+
+        AiSuggestion reloaded = suggestionRepository.findById(saved.getId()).orElseThrow();
+        assertThat(reloaded.getType()).isEqualTo(AiSuggestionType.PROJECT_PLAN);
+        assertThat(reloaded.getSourceIssue()).isNull();
+        assertThat(reloaded.getStatus()).isEqualTo(AiSuggestionStatus.DRAFT);
+        assertThat(reloaded.getContent().get("overview").asText())
+                .isEqualTo("Clear the login module's technical debt");
+    }
+
+    @Test
+    void databaseRejectsAProjectPlanThatPointsAtASourceIssue() {
+        TenantGraph graph = createTenantGraph("plan-source");
+        AiSuggestion saved = suggestionRepository.saveAndFlush(projectPlan(graph));
+
+        // The entity refuses this combination, so write it directly to reach the constraint.
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                "update ai_suggestions set source_issue_id = ? where id = ?",
+                graph.issue().getId(),
+                saved.getId()
+        )).isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("ck_ai_suggestions_source");
+    }
+
+    private AiSuggestion projectPlan(TenantGraph graph) {
+        return new AiSuggestion(
+                graph.workspace(),
+                graph.project(),
+                null,
+                graph.user(),
+                AiSuggestionType.PROJECT_PLAN,
+                objectMapper.createObjectNode()
+                        .put("overview", "Clear the login module's technical debt"),
+                "planning-agent-v1",
+                "fake",
+                "fake-model",
+                "d".repeat(64),
+                null,
+                null,
+                Instant.now().plusSeconds(3600)
+        );
     }
 
     private TenantGraph createTenantGraph(String suffix) {

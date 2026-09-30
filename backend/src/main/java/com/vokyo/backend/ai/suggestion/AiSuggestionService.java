@@ -261,22 +261,15 @@ public class AiSuggestionService {
             }
         }
 
-        boolean issueSuggestion =
-                command.type()
-                        == AiSuggestionType.ISSUE_BREAKDOWN
-                        || command.type()
-                        == AiSuggestionType.ISSUE_SUMMARY;
-
-        if (issueSuggestion && sourceIssue == null) {
+        if (command.type().requiresSourceIssue() && sourceIssue == null) {
             throw AiFeatureException.suggestionInvalid(
                     "Issue suggestion requires a source issue"
             );
         }
 
-        if (command.type() == AiSuggestionType.PROJECT_SUMMARY
-                && sourceIssue != null) {
+        if (!command.type().requiresSourceIssue() && sourceIssue != null) {
             throw AiFeatureException.suggestionInvalid(
-                    "Project summary cannot have a source issue"
+                    "Project suggestion cannot have a source issue"
             );
         }
     }
