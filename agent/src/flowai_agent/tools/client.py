@@ -1,6 +1,17 @@
+from typing import Literal
+
 import httpx2
 
 from flowai_agent.models.project import IssueSearchResponse, ProjectMemberResponse
+
+
+class BackendError(Exception):
+    def __init__(
+        self, kind: Literal["invalid_argument", "fatal", "retryable"], message: str
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.message = message
 
 
 class BackendClient:
@@ -21,14 +32,28 @@ class BackendClient:
         params: dict[str, str | int] = {"limit": limit}
         if q is not None:
             params["q"] = q
-        response = await self._http.get(
-            "/api/internal/agent/project/issues", params=params
-        )
+        response = await self._get("/api/internal/agent/project/issues", params)
         return IssueSearchResponse.model_validate(response.json())
 
     async def list_members(self) -> ProjectMemberResponse:
-        response = await self._http.get("/api/internal/agent/project/members")
+        response = await self._get("/api/internal/agent/project/members")
         return ProjectMemberResponse.model_validate(response.json())
 
     async def aclose(self) -> None:
         await self._http.aclose()
+
+    async def _get(
+        self, path: str, params: dict[str, str | int] | None = None
+    ) -> httpx2.Response:
+        try:
+            response = await self._http.get(path, params=params)
+        except httpx2.TransportError as e:
+            raise BackendError("retryable", f"backend request failed:{e}") from e
+        status = response.status_code
+        if status == 400:
+            raise BackendError("invalid_argument", response.text)
+        if 400 < status < 500:
+            raise BackendError("fatal", response.text)
+        if status >= 500:
+            raise BackendError("retryable", response.text)
+        return response
