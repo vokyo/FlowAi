@@ -29,10 +29,10 @@ class BackendClient:
             transport=transport,
         )
 
-    async def search_issues(self, q: str | None, limit: int) -> IssueSearchResponse:
+    async def search_issues(self, query: str | None, limit: int) -> IssueSearchResponse:
         params: dict[str, str | int] = {"limit": limit}
-        if q is not None:
-            params["q"] = q
+        if query is not None:
+            params["q"] = query
         response = await self._get("/api/internal/agent/project/issues", params)
         try:
             return IssueSearchResponse.model_validate_json(response.content)
