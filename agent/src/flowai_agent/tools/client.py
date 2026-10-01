@@ -1,6 +1,7 @@
 from typing import Literal
 
 import httpx2
+from pydantic import ValidationError
 
 from flowai_agent.models.project import IssueSearchResponse, ProjectMemberResponse
 
@@ -33,11 +34,21 @@ class BackendClient:
         if q is not None:
             params["q"] = q
         response = await self._get("/api/internal/agent/project/issues", params)
-        return IssueSearchResponse.model_validate(response.json())
+        try:
+            return IssueSearchResponse.model_validate_json(response.content)
+        except ValidationError as e:
+            raise BackendError(
+                "fatal", "backend returned an unexpected response"
+            ) from e
 
     async def list_members(self) -> ProjectMemberResponse:
         response = await self._get("/api/internal/agent/project/members")
-        return ProjectMemberResponse.model_validate(response.json())
+        try:
+            return ProjectMemberResponse.model_validate_json(response.content)
+        except ValidationError as e:
+            raise BackendError(
+                "fatal", "backend returned an unexpected response"
+            ) from e
 
     async def aclose(self) -> None:
         await self._http.aclose()

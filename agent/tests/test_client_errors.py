@@ -82,3 +82,29 @@ async def test_an_unreachable_backend_is_retryable() -> None:
     await client.aclose()
 
     assert caught.value.kind == "retryable"
+
+
+@pytest.mark.anyio
+async def test_a_success_response_in_the_wrong_shape_is_fatal() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(200, json={"unexpected": True})
+
+    client = BackendClient("http://backend", TOKEN, httpx2.MockTransport(handler))
+    with pytest.raises(BackendError) as caught:
+        await client.search_issues("login", 5)
+    await client.aclose()
+
+    assert caught.value.kind == "fatal"
+
+
+@pytest.mark.anyio
+async def test_a_success_response_that_is_not_json_is_fatal() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(200, text="<html>maintenance page</html>")
+
+    client = BackendClient("http://backend", TOKEN, httpx2.MockTransport(handler))
+    with pytest.raises(BackendError) as caught:
+        await client.list_members()
+    await client.aclose()
+
+    assert caught.value.kind == "fatal"
