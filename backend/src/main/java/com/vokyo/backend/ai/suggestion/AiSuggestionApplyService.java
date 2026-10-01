@@ -17,7 +17,6 @@ import com.vokyo.backend.issue.IssueRepository;
 import com.vokyo.backend.project.Project;
 import com.vokyo.backend.project.ProjectAccessService;
 import com.vokyo.backend.workspace.CurrentWorkspaceContext;
-import com.vokyo.backend.workspace.MembershipStatus;
 import com.vokyo.backend.workspace.WorkspaceAccessService;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -238,8 +237,7 @@ public class AiSuggestionApplyService {
             );
         }
 
-        Set<UUID> activeMemberUserIds = projectAccessService.listProjectMembers(project).stream()
-                .filter(member -> member.getStatus() == MembershipStatus.ACTIVE)
+        Set<UUID> activeMemberUserIds = projectAccessService.listActiveProjectMembers(project).stream()
                 .map(member -> member.getUser().getId())
                 .collect(Collectors.toUnmodifiableSet());
         // Membership is judged as of now, but dates from the day the plan was

@@ -109,6 +109,17 @@ public class ProjectAccessService {
         );
     }
 
+    /**
+     * The members who can be assigned work in the project right now. The planning
+     * agent lists them, and a project plan is checked against them when it is saved
+     * and again when it is approved.
+     */
+    public List<ProjectMember> listActiveProjectMembers(Project project) {
+        return listProjectMembers(project).stream()
+                .filter(member -> member.getStatus() == MembershipStatus.ACTIVE)
+                .toList();
+    }
+
     public ProjectMember requireProjectMember(Project project, UUID memberId) {
         return projectMemberRepository.findByWorkspace_IdAndProject_IdAndId(
                         project.getWorkspace().getId(),

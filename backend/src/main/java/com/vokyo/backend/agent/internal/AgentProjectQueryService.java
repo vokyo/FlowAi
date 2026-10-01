@@ -9,7 +9,6 @@ import com.vokyo.backend.project.Project;
 import com.vokyo.backend.project.ProjectAccessService;
 import com.vokyo.backend.project.ProjectMember;
 import com.vokyo.backend.user.User;
-import com.vokyo.backend.workspace.MembershipStatus;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
@@ -63,9 +62,7 @@ public class AgentProjectQueryService {
     @Transactional(readOnly = true)
     public AgentProjectMembersResponse listMembers(Jwt agentJwt) {
         Project project = agentAccessService.requireAccessibleProject(agentJwt);
-        List<ProjectMember> activeMembers = projectAccessService.listProjectMembers(project).stream()
-            .filter(member -> member.getStatus() == MembershipStatus.ACTIVE)
-            .toList();
+        List<ProjectMember> activeMembers = projectAccessService.listActiveProjectMembers(project);
         return new AgentProjectMembersResponse(
             activeMembers.stream().limit(MAX_MEMBER_RESULTS).map(this::toMemberItem).toList(),
             activeMembers.size() > MAX_MEMBER_RESULTS
