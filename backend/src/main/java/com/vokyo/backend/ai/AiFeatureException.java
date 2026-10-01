@@ -70,6 +70,50 @@ public class AiFeatureException extends RuntimeException {
         );
     }
 
+    public static AiFeatureException agentUnavailable(Throwable cause) {
+        return new AiFeatureException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "AI_AGENT_UNAVAILABLE",
+                "Planning agent is unavailable",
+                cause
+        );
+    }
+
+    public static AiFeatureException agentTimeout(Throwable cause) {
+        return new AiFeatureException(
+                HttpStatus.GATEWAY_TIMEOUT,
+                "AI_AGENT_TIMEOUT",
+                "Planning agent did not answer in time",
+                cause
+        );
+    }
+
+    public static AiFeatureException agentRunFailed() {
+        return agentRunFailed(null);
+    }
+
+    public static AiFeatureException agentRunFailed(Throwable cause) {
+        return new AiFeatureException(
+                HttpStatus.BAD_GATEWAY,
+                "AI_AGENT_RUN_FAILED",
+                "Planning agent could not finish the run",
+                cause
+        );
+    }
+
+    public static AiFeatureException agentInvalidResponse(String message) {
+        return agentInvalidResponse(message, null);
+    }
+
+    public static AiFeatureException agentInvalidResponse(String message, Throwable cause) {
+        return new AiFeatureException(
+                HttpStatus.BAD_GATEWAY,
+                "AI_AGENT_INVALID_RESPONSE",
+                message,
+                cause
+        );
+    }
+
     public HttpStatus status() {
         return status;
     }

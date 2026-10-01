@@ -50,6 +50,12 @@ app:
       enabled: ${AI_RATE_LIMIT_ENABLED:true}
       capacity: ${AI_RATE_LIMIT_CAPACITY:10}
       window: ${AI_RATE_LIMIT_WINDOW:1m}
+  # The planning agent is a separate Python service reached only from the backend.
+  # A run is a synchronous call, so the read timeout caps how long a request waits.
+  agent:
+    base-url: ${AGENT_BASE_URL:http://localhost:8000}
+    connect-timeout: ${AGENT_CONNECT_TIMEOUT:2s}
+    read-timeout: ${AGENT_READ_TIMEOUT:60s}
   # Seeds a worked-in demo workspace on startup. Off unless the deployment asks
   # for it, so developer machines and real deployments are untouched. Moving the
   # demo to another platform is a matter of setting DEMO_SEED_ENABLED there.

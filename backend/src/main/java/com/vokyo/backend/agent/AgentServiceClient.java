@@ -1,0 +1,96 @@
+package com.vokyo.backend.agent;
+
+import com.vokyo.backend.ai.AiFeatureException;
+import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
+import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
+
+import java.net.http.HttpConnectTimeoutException;
+import java.net.http.HttpTimeoutException;
+import java.time.LocalDate;
+import java.util.UUID;
+
+/**
+ * Calls the planning agent's POST /runs. The agent is a separate Python service that
+ * reads project data through the internal endpoints with the run's agent token; this
+ * call is the only thing the backend sends it, and it is never retried, since a run
+ * makes several model calls and its result differs from one attempt to the next.
+ */
+@Component
+public class AgentServiceClient {
+
+    private final RestClient restClient;
+
+    public AgentServiceClient(RestClient.Builder restClientBuilder, AgentProperties properties) {
+        // The JDK client is chosen explicitly so that a slow agent surfaces as an
+        // HttpTimeoutException whatever other HTTP libraries are on the classpath.
+        this.restClient = restClientBuilder
+            .baseUrl(properties.baseUrl())
+            .requestFactory(ClientHttpRequestFactoryBuilder.jdk().build(
+                ClientHttpRequestFactorySettings.defaults()
+                    .withConnectTimeout(properties.connectTimeout())
+                    .withReadTimeout(properties.readTimeout())
+            ))
+            .build();
+    }
+
+    public AgentRunResult run(String agentToken, UUID runId, String goal, LocalDate today) {
+        AgentRunResult result;
+        try {
+            result = restClient.post()
+                .uri("/runs")
+                .headers(headers -> headers.setBearerAuth(agentToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(new RunRequest(runId, goal, today.toString()))
+                .retrieve()
+                .body(AgentRunResult.class);
+        } catch (RestClientResponseException exception) {
+            // 503 is the agent saying it cannot run at all, for example without a model
+            // key. Any other non-2xx means the request itself was refused.
+            if (exception.getStatusCode().value() == 503) {
+                throw AiFeatureException.agentUnavailable(exception);
+            }
+            throw AiFeatureException.agentRunFailed(exception);
+        } catch (ResourceAccessException exception) {
+            if (isReadTimeout(exception)) {
+                throw AiFeatureException.agentTimeout(exception);
+            }
+            throw AiFeatureException.agentUnavailable(exception);
+        } catch (RestClientException exception) {
+            throw AiFeatureException.agentInvalidResponse(
+                "Planning agent returned a response that does not follow the contract",
+                exception
+            );
+        }
+        if (result == null || result.status() == null) {
+            throw AiFeatureException.agentInvalidResponse("Planning agent returned no run status");
+        }
+        return result;
+    }
+
+    private static boolean isReadTimeout(Throwable exception) {
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            // A connect timeout is an HttpTimeoutException too, but it means the agent
+            // was not reachable, which is reported as unavailable instead.
+            if (cause instanceof HttpConnectTimeoutException) {
+                return false;
+            }
+            if (cause instanceof HttpTimeoutException) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The request body of POST /runs. {@code today} is the UTC date as YYYY-MM-DD: the
+     * model schedules from it and the backend validates the plan's dates against it.
+     */
+    record RunRequest(UUID runId, String goal, String today) {
+    }
+}
