@@ -7,6 +7,7 @@ from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
+from langchain_core.utils.function_calling import convert_to_openai_tool
 
 
 class FakeChatModel(BaseChatModel):
@@ -14,7 +15,7 @@ class FakeChatModel(BaseChatModel):
 
     replies: list[AIMessage]
     received: list[list[BaseMessage]] = []
-    bound_tool_names: list[str] = []
+    bound_tools: list[list[str]] = []
 
     @property
     def _llm_type(self) -> str:
@@ -38,7 +39,6 @@ class FakeChatModel(BaseChatModel):
         tool_choice: str | None = None,
         **kwargs: Any,
     ) -> Runnable[LanguageModelInput, AIMessage]:
-        self.bound_tool_names = [
-            tool.name for tool in tools if isinstance(tool, BaseTool)
-        ]
+        names = [convert_to_openai_tool(tool)["function"]["name"] for tool in tools]
+        self.bound_tools.append(names)
         return self

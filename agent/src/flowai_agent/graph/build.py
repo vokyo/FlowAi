@@ -14,18 +14,22 @@ def route_after_model(state: AgentState) -> str:
     if last.tool_calls:
         return "run_tools"
     else:
-        return END
+        return "generate_plan"
 
 
 def build_graph(nodes: PlanningNodes):
     builder = StateGraph(AgentState)
     builder.add_node("write_prompt", nodes.write_prompt)
     builder.add_node("ask_model", nodes.ask_model)
+    builder.add_node("generate_plan", nodes.generate_plan)
     builder.add_node("run_tools", nodes.run_tools)
     builder.add_edge(START, "write_prompt")
     builder.add_edge("write_prompt", "ask_model")
-    builder.add_conditional_edges("ask_model", route_after_model, ["run_tools", END])
+    builder.add_conditional_edges(
+        "ask_model", route_after_model, ["run_tools", "generate_plan"]
+    )
     builder.add_edge("run_tools", "ask_model")
+    builder.add_edge("generate_plan", END)
     return builder.compile()
 
 

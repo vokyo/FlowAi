@@ -5,11 +5,11 @@ import httpx2
 import pytest
 from fake_chat_model import FakeChatModel
 from langchain_core.messages import AIMessage, ToolCall, ToolMessage
-from langgraph.graph import END
 
 from flowai_agent.graph.build import route_after_model, run_graph
 from flowai_agent.graph.nodes import PlanningNodes
 from flowai_agent.graph.state import AgentState
+from flowai_agent.models.plan import Plan
 from flowai_agent.tools.client import BackendClient
 from flowai_agent.tools.definitions import build_tools
 
@@ -33,6 +33,31 @@ MEMBERS: dict[str, object] = {
     ],
     "truncated": False,
 }
+
+
+PLAN: dict[str, object] = {
+    "overview": "Rate-limit login, then make token expiry configurable.",
+    "items": [
+        {
+            "clientItemId": "item-1",
+            "title": "Rate-limit the login endpoint",
+            "priority": "HIGH",
+        },
+        {
+            "clientItemId": "item-2",
+            "title": "Make token expiry configurable",
+            "priority": "MEDIUM",
+        },
+        {
+            "clientItemId": "item-3",
+            "title": "Remove the remember-me code",
+            "priority": "LOW",
+        },
+    ],
+}
+WRITE_PLAN = AIMessage(
+    "", tool_calls=[{"name": "Plan", "args": PLAN, "id": "call_plan"}]
+)
 
 
 def search(query: str, call_id: str) -> ToolCall:
@@ -62,7 +87,9 @@ def backend(sent: list[httpx2.Request], truncated_queries: set[str]) -> BackendC
             "run_tools",
             id="asks for a tool",
         ),
-        pytest.param(AIMessage("I know enough to plan."), END, id="asks for nothing"),
+        pytest.param(
+            AIMessage("I know enough to plan."), "generate_plan", id="asks for nothing"
+        ),
     ],
 )
 def test_the_models_last_reply_decides_where_the_graph_goes(
@@ -81,6 +108,7 @@ async def test_the_loop_stops_once_the_model_has_what_it_needs() -> None:
                 "", tool_calls=[search("login", "call_1"), list_members("call_2")]
             ),
             AIMessage("I know enough to plan."),
+            WRITE_PLAN,
         ]
     )
     sent: list[httpx2.Request] = []
@@ -98,7 +126,8 @@ async def test_the_loop_stops_once_the_model_has_what_it_needs() -> None:
         "AIMessage",
     ]
     assert final.messages[-1].text == "I know enough to plan."
-    assert len(model.received) == 2
+    assert len(model.received) == 3
+    assert final.plan == Plan.model_validate(PLAN)
     assert final.decision_rounds_used == 2
     assert final.tool_calls_used == 2
     assert [request.url.path.rsplit("/", 1)[-1] for request in sent] == [
@@ -116,6 +145,7 @@ async def test_a_truncated_search_reaches_the_model_before_it_searches_again() -
             ),
             AIMessage("", tool_calls=[search("login timeout", "call_3")]),
             AIMessage("I know enough to plan."),
+            WRITE_PLAN,
         ]
     )
     sent: list[httpx2.Request] = []
@@ -135,5 +165,6 @@ async def test_a_truncated_search_reaches_the_model_before_it_searches_again() -
         for request in sent
         if request.url.path.endswith("/issues")
     ] == ["login", "login timeout"]
+    assert final.plan == Plan.model_validate(PLAN)
     assert final.decision_rounds_used == 3
     assert final.tool_calls_used == 3

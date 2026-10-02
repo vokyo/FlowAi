@@ -15,6 +15,7 @@ from langchain_core.messages import (
 
 from flowai_agent.graph.nodes import PlanningNodes
 from flowai_agent.graph.state import AgentState
+from flowai_agent.models.plan import Plan
 from flowai_agent.tools.client import BackendClient
 from flowai_agent.tools.definitions import build_tools
 
@@ -49,6 +50,28 @@ SEARCH_LOGIN: ToolCall = {
     "id": "call_A",
 }
 LIST_MEMBERS: ToolCall = {"name": "get_project_members", "args": {}, "id": "call_B"}
+PLAN: dict[str, object] = {
+    "overview": "Rate-limit login, then make token expiry configurable.",
+    "items": [
+        {
+            "clientItemId": "item-1",
+            "title": "Rate-limit the login endpoint",
+            "priority": "HIGH",
+            "suggestedAssigneeUserId": "7d1f3e9a-2c4b-4e8f-9a6d-1b2c3d4e5f60",
+            "dueDate": "2026-10-08",
+        },
+        {
+            "clientItemId": "item-2",
+            "title": "Make token expiry configurable",
+            "priority": "MEDIUM",
+        },
+        {
+            "clientItemId": "item-3",
+            "title": "Remove the remember-me code",
+            "priority": "LOW",
+        },
+    ],
+}
 
 
 def backend(sent: list[httpx2.Request]) -> BackendClient:
@@ -99,7 +122,7 @@ async def test_ask_model_sends_the_whole_conversation_with_both_tools() -> None:
     update = await nodes.ask_model(state_with(conversation, decision_rounds_used=1))
     await client.aclose()
 
-    assert model.bound_tool_names == ["search_project_issues", "get_project_members"]
+    assert ["search_project_issues", "get_project_members"] in model.bound_tools
     assert model.received == [conversation]
     assert update["messages"][0].tool_calls == reply.tool_calls
     assert update["decision_rounds_used"] == 2
@@ -146,3 +169,25 @@ async def test_run_tools_leaves_calls_from_earlier_rounds_alone() -> None:
         "/api/internal/agent/project/members"
     ]
     assert update["tool_calls_used"] == 2
+
+
+@pytest.mark.anyio
+async def test_generate_plan_asks_for_a_plan_under_the_rules_for_today() -> None:
+    plan_call: ToolCall = {"name": "Plan", "args": PLAN, "id": "call_plan"}
+    model = FakeChatModel(replies=[AIMessage("", tool_calls=[plan_call])])
+    client = backend([])
+    nodes = PlanningNodes(model, build_tools(client))
+    conversation: list[AnyMessage] = [
+        SystemMessage("rules"),
+        HumanMessage(GOAL),
+        AIMessage("I know enough to plan."),
+    ]
+
+    update = await nodes.generate_plan(state_with(conversation))
+    await client.aclose()
+
+    assert update["plan"] == Plan.model_validate(PLAN)
+    sent = model.received[0]
+    assert sent[:3] == conversation
+    assert "2026-10-04" in sent[-1].text
+    assert ["Plan"] in model.bound_tools
