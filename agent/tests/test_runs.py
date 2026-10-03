@@ -1,39 +1,253 @@
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
+from typing import Any
 
+import httpx2
 import pytest
+from fake_chat_model import FakeChatModel
 from fastapi.testclient import TestClient
-from langchain_core.language_models.fake_chat_models import FakeListChatModel
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage, BaseMessage, ToolCall
+from langchain_core.outputs import ChatResult
 
-from flowai_agent.main import app, get_chat_model
+from flowai_agent.config import Settings
+from flowai_agent.main import app, get_backend_transport, get_chat_model, get_settings
+from flowai_agent.models.plan import Plan
 
-GOAL = "clean the tech backlog in 2 weeks"
+TOKEN = "agent-token"
+HEADERS = {"Authorization": f"Bearer {TOKEN}"}
+BODY: dict[str, object] = {
+    "runId": "4f2a8e1c-9b3d-4c5e-8f7a-1b2c3d4e5f60",
+    "goal": "Clear the login tech debt within two weeks",
+    "today": "2026-10-04",
+}
+ISSUES: dict[str, object] = {"items": [], "truncated": False}
+MEMBERS: dict[str, object] = {
+    "items": [
+        {
+            "userId": "7d1f3e9a-2c4b-4e8f-9a6d-1b2c3d4e5f60",
+            "displayName": "Ann",
+            "role": "OWNER",
+        }
+    ],
+    "truncated": False,
+}
+PLAN: dict[str, object] = {
+    "overview": "Rate-limit login, then make token expiry configurable.",
+    "items": [
+        {
+            "clientItemId": "item-1",
+            "title": "Rate-limit the login endpoint",
+            "priority": "HIGH",
+            "suggestedAssigneeUserId": "7d1f3e9a-2c4b-4e8f-9a6d-1b2c3d4e5f60",
+            "dueDate": "2026-10-08",
+        },
+        {
+            "clientItemId": "item-2",
+            "title": "Make expiry configurable",
+            "priority": "LOW",
+        },
+        {
+            "clientItemId": "item-3",
+            "title": "Remove remember-me code",
+            "priority": "LOW",
+        },
+    ],
+}
+SEARCH: ToolCall = {
+    "name": "search_project_issues",
+    "args": {"query": "login"},
+    "id": "c1",
+}
+MEMBERS_CALL: ToolCall = {"name": "get_project_members", "args": {}, "id": "c2"}
+WRITE_PLAN: ToolCall = {"name": "Plan", "args": PLAN, "id": "c3"}
+
+Handler = Callable[[httpx2.Request], httpx2.Response]
 
 
-@pytest.fixture
-def client() -> Iterator[TestClient]:
-    fake_model = FakeListChatModel(responses=["fake plan"])
-    app.dependency_overrides[get_chat_model] = lambda: fake_model
-    yield TestClient(app)
+def healthy_backend(sent: list[httpx2.Request]) -> Handler:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        sent.append(request)
+        if request.url.path.endswith("/issues"):
+            return httpx2.Response(200, json=ISSUES)
+        return httpx2.Response(200, json=MEMBERS)
+
+    return handler
+
+
+def serve(model: BaseChatModel, handler: Handler, **settings: Any) -> TestClient:
+    app.dependency_overrides[get_chat_model] = lambda: model
+    app.dependency_overrides[get_backend_transport] = lambda: httpx2.MockTransport(
+        handler
+    )
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        backend_base_url="http://backend", **settings
+    )
+    return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def clear_overrides() -> Iterator[None]:
+    yield
     app.dependency_overrides.clear()
 
 
-def test_valid_goal_returns_mock_result(client: TestClient) -> None:
-    response = client.post("/runs", json={"goal": GOAL})
+def test_a_run_with_enough_information_returns_the_plan() -> None:
+    model = FakeChatModel(
+        replies=[
+            AIMessage("", tool_calls=[SEARCH, MEMBERS_CALL]),
+            AIMessage("I know enough to plan."),
+            AIMessage("", tool_calls=[WRITE_PLAN]),
+        ]
+    )
+    sent: list[httpx2.Request] = []
+
+    response = serve(model, healthy_backend(sent)).post(
+        "/runs", json=BODY, headers=HEADERS
+    )
+
     assert response.status_code == 200
-    assert response.json() == {"status": "mock", "reply": "fake plan"}
+    body = response.json()
+    assert body["status"] == "PLANNED"
+    assert body["plan"] == Plan.model_validate(PLAN).model_dump(mode="json")
+    assert body["stats"] == {"decisionRounds": 2, "toolCalls": 2}
+    assert [request.headers["Authorization"] for request in sent] == [
+        f"Bearer {TOKEN}"
+    ] * 2
 
 
-def test_blank_goal_is_rejected(client: TestClient) -> None:
-    response = client.post("/runs", json={"goal": "  "})
+def test_a_run_out_of_budget_says_what_is_missing() -> None:
+    model = FakeChatModel(replies=[AIMessage("", tool_calls=[SEARCH])])
+    sent: list[httpx2.Request] = []
+
+    response = serve(model, healthy_backend(sent), max_decision_rounds=1).post(
+        "/runs", json=BODY, headers=HEADERS
+    )
+
+    body = response.json()
+    assert body["status"] == "INSUFFICIENT_INFO"
+    assert len(body["missing"]) == 1
+    assert body["plan"] is None
+    assert body["stats"] == {"decisionRounds": 1, "toolCalls": 0}
+    assert sent == []
+
+
+def test_a_refused_tool_call_fails_the_run_with_its_reason() -> None:
+    model = FakeChatModel(replies=[AIMessage("", tool_calls=[SEARCH])])
+
+    def refusing(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(401, json={"code": "UNAUTHORIZED", "message": "expired"})
+
+    response = serve(model, refusing).post("/runs", json=BODY, headers=HEADERS)
+
+    body = response.json()
+    assert body["status"] == "FAILED"
+    assert "search_project_issues" in body["reason"]
+    assert body["stats"] == {"decisionRounds": 1, "toolCalls": 1}
+
+
+def test_an_unexpected_error_fails_the_run_instead_of_crashing() -> None:
+    model = FakeChatModel(replies=[])
+
+    response = serve(model, healthy_backend([])).post(
+        "/runs", json=BODY, headers=HEADERS
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "FAILED"
+    assert "IndexError" in body["reason"]
+
+
+class SlowModel(FakeChatModel):
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: Any = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        time.sleep(0.5)
+        return super()._generate(messages, stop, run_manager, **kwargs)
+
+
+def test_a_run_that_takes_too_long_fails_before_the_backend_gives_up() -> None:
+    model = SlowModel(replies=[AIMessage("I know enough to plan.")])
+
+    response = serve(model, healthy_backend([]), run_timeout_seconds=0.1).post(
+        "/runs", json=BODY, headers=HEADERS
+    )
+
+    body = response.json()
+    assert body["status"] == "FAILED"
+    assert "longer than" in body["reason"]
+
+
+def test_a_run_without_an_agent_token_is_refused() -> None:
+    model = FakeChatModel(replies=[])
+
+    response = serve(model, healthy_backend([])).post("/runs", json=BODY)
+
+    assert response.status_code == 401
+    assert model.received == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param({**BODY, "goal": "  "}, id="blank goal"),
+        pytest.param({k: v for k, v in BODY.items() if k != "today"}, id="no today"),
+        pytest.param({**BODY, "runId": "not-a-uuid"}, id="bad run id"),
+    ],
+)
+def test_a_request_that_breaks_the_contract_is_rejected(
+    body: dict[str, object],
+) -> None:
+    response = serve(FakeChatModel(replies=[]), healthy_backend([])).post(
+        "/runs", json=body, headers=HEADERS
+    )
+
     assert response.status_code == 422
 
 
-def test_missing_goal_is_rejected(client: TestClient) -> None:
-    response = client.post("/runs", json={})
-    assert response.status_code == 422
+class ClosableTransport(httpx2.MockTransport):
+    closed = False
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+@pytest.mark.parametrize(
+    "replies",
+    [
+        pytest.param(
+            [
+                AIMessage("I know enough to plan."),
+                AIMessage("", tool_calls=[WRITE_PLAN]),
+            ],
+            id="run planned",
+        ),
+        pytest.param([], id="run failed"),
+    ],
+)
+def test_the_backend_connection_is_closed_however_the_run_ends(
+    replies: list[AIMessage],
+) -> None:
+    transport = ClosableTransport(healthy_backend([]))
+    app.dependency_overrides[get_chat_model] = lambda: FakeChatModel(replies=replies)
+    app.dependency_overrides[get_backend_transport] = lambda: transport
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        backend_base_url="http://backend"
+    )
+
+    TestClient(app).post("/runs", json=BODY, headers=HEADERS)
+
+    assert transport.closed
 
 
 def test_runs_fail_clearly_without_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    response = TestClient(app).post("/runs", json={"goal": GOAL})
+
+    response = TestClient(app).post("/runs", json=BODY, headers=HEADERS)
+
     assert response.status_code == 503
