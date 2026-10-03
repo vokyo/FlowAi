@@ -15,3 +15,8 @@ class AgentState(BaseModel):
     decision_rounds_used: int = 0
     tool_calls_used: int = 0
     plan: Plan | None = None
+    max_decision_rounds: int = 4
+    max_tool_calls: int = 8
+    argument_fixes_used: int = 0
+    missing: list[str] = []
+    failure_reason: str | None = None

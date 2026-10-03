@@ -50,6 +50,11 @@ SEARCH_LOGIN: ToolCall = {
     "id": "call_A",
 }
 LIST_MEMBERS: ToolCall = {"name": "get_project_members", "args": {}, "id": "call_B"}
+SEARCH_TOO_MANY: ToolCall = {
+    "name": "search_project_issues",
+    "args": {"query": "login", "limit": 50},
+    "id": "call_A",
+}
 PLAN: dict[str, object] = {
     "overview": "Rate-limit login, then make token expiry configurable.",
     "items": [
@@ -80,6 +85,22 @@ def backend(sent: list[httpx2.Request]) -> BackendClient:
         if request.url.path.endswith("/issues"):
             return httpx2.Response(200, json=ISSUES)
         return httpx2.Response(200, json=MEMBERS)
+
+    return BackendClient("http://backend", "agent-token", httpx2.MockTransport(handler))
+
+
+def flaky_backend(
+    sent: list[httpx2.Request], outcomes: list[int | Exception]
+) -> BackendClient:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        sent.append(request)
+        outcome = outcomes[min(len(sent), len(outcomes)) - 1]
+        if isinstance(outcome, Exception):
+            raise outcome
+        if outcome == 200:
+            return httpx2.Response(200, json=ISSUES)
+        error: dict[str, object] = {"code": "X", "message": f"status {outcome}"}
+        return httpx2.Response(outcome, json=error)
 
     return BackendClient("http://backend", "agent-token", httpx2.MockTransport(handler))
 
@@ -191,3 +212,168 @@ async def test_generate_plan_asks_for_a_plan_under_the_rules_for_today() -> None
     assert sent[:3] == conversation
     assert "2026-10-04" in sent[-1].text
     assert ["Plan"] in model.bound_tools
+
+
+@pytest.mark.anyio
+async def test_report_insufficient_lists_at_most_five_wanted_calls() -> None:
+    client = backend([])
+    nodes = PlanningNodes(FakeChatModel(replies=[]), build_tools(client))
+    wanted: list[ToolCall] = [
+        {
+            "name": "search_project_issues",
+            "args": {"query": f"topic {n}"},
+            "id": f"c{n}",
+        }
+        for n in range(1, 8)
+    ]
+
+    update = await nodes.report_insufficient(
+        state_with([HumanMessage(GOAL), AIMessage("", tool_calls=wanted)])
+    )
+    await client.aclose()
+
+    missing = update["missing"]
+    assert len(missing) == 5
+    assert "search_project_issues" in missing[0]
+    assert "topic 1" in missing[0]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status", [401, 403, 404])
+async def test_run_tools_stops_at_once_when_the_backend_refuses_access(
+    status: int,
+) -> None:
+    sent: list[httpx2.Request] = []
+    client = flaky_backend(sent, [status])
+    nodes = PlanningNodes(FakeChatModel(replies=[]), build_tools(client))
+    reply = AIMessage("", tool_calls=[SEARCH_LOGIN, LIST_MEMBERS])
+
+    update = await nodes.run_tools(state_with([HumanMessage(GOAL), reply]))
+    await client.aclose()
+
+    assert len(sent) == 1
+    assert "search_project_issues" in update["failure_reason"]
+    assert f"status {status}" in update["failure_reason"]
+    assert update["tool_calls_used"] == 1
+
+
+@pytest.mark.anyio
+async def test_run_tools_retries_a_failing_backend_and_counts_every_attempt() -> None:
+    sent: list[httpx2.Request] = []
+    client = flaky_backend(sent, [503, 503, 200])
+    nodes = PlanningNodes(FakeChatModel(replies=[]), build_tools(client))
+    reply = AIMessage("", tool_calls=[SEARCH_LOGIN])
+
+    update = await nodes.run_tools(state_with([HumanMessage(GOAL), reply]))
+    await client.aclose()
+
+    assert len(sent) == 3
+    assert json.loads(update["messages"][0].content) == ISSUES
+    assert update["tool_calls_used"] == 3
+    assert "failure_reason" not in update
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        pytest.param(503, id="server error"),
+        pytest.param(httpx2.ConnectError("refused"), id="backend unreachable"),
+    ],
+)
+async def test_run_tools_gives_up_after_two_retries(outcome: int | Exception) -> None:
+    sent: list[httpx2.Request] = []
+    client = flaky_backend(sent, [outcome])
+    nodes = PlanningNodes(FakeChatModel(replies=[]), build_tools(client))
+    reply = AIMessage("", tool_calls=[SEARCH_LOGIN])
+
+    update = await nodes.run_tools(state_with([HumanMessage(GOAL), reply]))
+    await client.aclose()
+
+    assert len(sent) == 3
+    assert "search_project_issues" in update["failure_reason"]
+    assert update["tool_calls_used"] == 3
+
+
+@pytest.mark.anyio
+async def test_run_tools_does_not_retry_past_the_tool_call_budget() -> None:
+    sent: list[httpx2.Request] = []
+    client = flaky_backend(sent, [503])
+    nodes = PlanningNodes(FakeChatModel(replies=[]), build_tools(client))
+    reply = AIMessage("", tool_calls=[SEARCH_LOGIN])
+    state = AgentState(goal=GOAL, today=TODAY, messages=[reply], max_tool_calls=2)
+
+    update = await nodes.run_tools(state)
+    await client.aclose()
+
+    assert len(sent) == 2
+    assert update["tool_calls_used"] == 2
+    assert "failure_reason" in update
+
+
+@pytest.mark.anyio
+async def test_run_tools_hands_invalid_arguments_back_to_the_model_once() -> None:
+    sent: list[httpx2.Request] = []
+    client = backend(sent)
+    nodes = PlanningNodes(FakeChatModel(replies=[]), build_tools(client))
+    reply = AIMessage("", tool_calls=[SEARCH_TOO_MANY])
+
+    update = await nodes.run_tools(state_with([HumanMessage(GOAL), reply]))
+    await client.aclose()
+
+    assert sent == []
+    [result] = update["messages"]
+    assert result.tool_call_id == "call_A"
+    assert "limit" in result.content
+    assert update["argument_fixes_used"] == 1
+    assert "failure_reason" not in update
+
+
+@pytest.mark.anyio
+async def test_run_tools_hands_a_request_the_backend_rejected_back_to_the_model() -> (
+    None
+):
+    sent: list[httpx2.Request] = []
+    client = flaky_backend(sent, [400])
+    nodes = PlanningNodes(FakeChatModel(replies=[]), build_tools(client))
+    reply = AIMessage("", tool_calls=[SEARCH_LOGIN])
+
+    update = await nodes.run_tools(state_with([HumanMessage(GOAL), reply]))
+    await client.aclose()
+
+    assert len(sent) == 1
+    [result] = update["messages"]
+    assert "status 400" in result.content
+    assert update["argument_fixes_used"] == 1
+    assert "failure_reason" not in update
+
+
+@pytest.mark.anyio
+async def test_run_tools_stops_when_the_arguments_are_invalid_a_second_time() -> None:
+    client = backend([])
+    nodes = PlanningNodes(FakeChatModel(replies=[]), build_tools(client))
+    reply = AIMessage("", tool_calls=[SEARCH_TOO_MANY])
+    state = AgentState(goal=GOAL, today=TODAY, messages=[reply], argument_fixes_used=1)
+
+    update = await nodes.run_tools(state)
+    await client.aclose()
+
+    assert "invalid arguments again" in update["failure_reason"]
+
+
+@pytest.mark.anyio
+async def test_one_bad_call_does_not_stop_the_other_calls_in_the_round() -> None:
+    sent: list[httpx2.Request] = []
+    client = backend(sent)
+    nodes = PlanningNodes(FakeChatModel(replies=[]), build_tools(client))
+    reply = AIMessage("", tool_calls=[SEARCH_TOO_MANY, LIST_MEMBERS])
+
+    update = await nodes.run_tools(state_with([HumanMessage(GOAL), reply]))
+    await client.aclose()
+
+    error, members = update["messages"]
+    assert error.tool_call_id == "call_A"
+    assert "limit" in error.content
+    assert members.tool_call_id == "call_B"
+    assert json.loads(members.content) == MEMBERS
+    assert update["argument_fixes_used"] == 1
