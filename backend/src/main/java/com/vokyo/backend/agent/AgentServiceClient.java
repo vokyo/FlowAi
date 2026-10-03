@@ -10,6 +10,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
+import java.net.http.HttpClient;
 import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
 import java.time.LocalDate;
@@ -29,13 +30,15 @@ public class AgentServiceClient {
     public AgentServiceClient(RestClient.Builder restClientBuilder, AgentProperties properties) {
         // The JDK client is chosen explicitly so that a slow agent surfaces as an
         // HttpTimeoutException whatever other HTTP libraries are on the classpath.
+        // It is held to HTTP/1.1: by default it offers an h2c upgrade on plain http,
+        // which the agent's server does not support and answers by dropping the body.
         this.restClient = restClientBuilder
             .baseUrl(properties.baseUrl())
-            .requestFactory(ClientHttpRequestFactoryBuilder.jdk().build(
-                ClientHttpRequestFactorySettings.defaults()
+            .requestFactory(ClientHttpRequestFactoryBuilder.jdk()
+                .withHttpClientCustomizer(client -> client.version(HttpClient.Version.HTTP_1_1))
+                .build(ClientHttpRequestFactorySettings.defaults()
                     .withConnectTimeout(properties.connectTimeout())
-                    .withReadTimeout(properties.readTimeout())
-            ))
+                    .withReadTimeout(properties.readTimeout())))
             .build();
     }
 

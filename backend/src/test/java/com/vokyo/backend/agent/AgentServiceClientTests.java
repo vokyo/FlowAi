@@ -53,6 +53,7 @@ class AgentServiceClientTests {
                 exchange.getRequestMethod(),
                 exchange.getRequestHeaders().getFirst("Authorization"),
                 exchange.getRequestHeaders().getFirst("Content-Type"),
+                exchange.getRequestHeaders().getFirst("Upgrade"),
                 new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)
             ));
             responder.get().respond(exchange);
@@ -117,6 +118,18 @@ class AgentServiceClientTests {
         assertThat(result.status()).isEqualTo(AgentRunStatus.INSUFFICIENT_INFO);
         assertThat(result.missing()).containsExactly("No login issues exist yet");
         assertThat(result.plan()).isNull();
+    }
+
+    @Test
+    void speaksPlainHttp11BecauseTheAgentsServerCannotUpgradeToHttp2() {
+        respondWith(200, """
+            {"status": "INSUFFICIENT_INFO", "missing": ["No login issues exist yet"],
+             "stats": {"decisionRounds": 4, "toolCalls": 5}}
+            """);
+
+        client(Duration.ofSeconds(5)).run("agent-token", RUN_ID, "Goal", TODAY);
+
+        assertThat(recorded.get().upgrade()).isNull();
     }
 
     @Test
@@ -210,6 +223,12 @@ class AgentServiceClientTests {
         void respond(HttpExchange exchange) throws IOException;
     }
 
-    private record Recorded(String method, String authorization, String contentType, String body) {
+    private record Recorded(
+        String method,
+        String authorization,
+        String contentType,
+        String upgrade,
+        String body
+    ) {
     }
 }
