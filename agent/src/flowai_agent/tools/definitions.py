@@ -8,7 +8,10 @@ class SearchProjectIssuesArgs(BaseModel):
     query: str | None = Field(
         default=None,
         max_length=100,
-        description="One keyword matched against issue titles and descriptions.",
+        description=(
+            "One short word. It must appear exactly, ignoring case, in an issue's "
+            "title or description, so a phrase rarely matches."
+        ),
     )
     limit: int = Field(
         default=20, ge=1, le=20, description="How many issues to return."
@@ -35,8 +38,10 @@ def build_tools(client: BackendClient) -> list[BaseTool]:
             description=(
                 "Search the issues that already exist in the current project. Use it "
                 "to find out whether some work is already being done, so the plan "
-                "does not duplicate it. If truncated is true, there are more matches: "
-                "search again with a narrower keyword."
+                "does not duplicate it. The keyword is matched as one exact piece of "
+                "text, so an empty result only means no issue contains that text, not "
+                "that the work is missing. If truncated is true, there are more "
+                "matches: search again with a narrower keyword."
             ),
             args_schema=SearchProjectIssuesArgs,
         ),

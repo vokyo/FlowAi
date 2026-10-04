@@ -15,6 +15,13 @@ MAX_ARGUMENT_FIXES = 1
 SYSTEM_PROMPT = """You plan work for one software project. Today is {today}.
 Before planning, find out what the project already has: the issues that exist,
 so the plan does not repeat them, and the members who can be assigned.
+Search one word at a time, and make several calls in the same reply: start with
+two or three different words that cover the goal, such as synonyms or the
+singular and plural form, and get the members in that reply too. If a search
+finds nothing, try another word before you decide the work does not exist; the
+issues may be written in a different language from the goal.
+You can call tools in at most {tool_rounds} replies and at most {max_tool_calls}
+times in total.
 When you know enough to plan, reply without calling any tool."""
 
 PLAN_PROMPT = """Now write the plan for the goal, following these rules:
@@ -35,7 +42,13 @@ class PlanningNodes:
     async def write_prompt(self, state: AgentState) -> dict[str, Any]:
         return {
             "messages": [
-                SystemMessage(SYSTEM_PROMPT.format(today=state.today.isoformat())),
+                SystemMessage(
+                    SYSTEM_PROMPT.format(
+                        today=state.today.isoformat(),
+                        tool_rounds=state.max_decision_rounds - 1,
+                        max_tool_calls=state.max_tool_calls,
+                    )
+                ),
                 HumanMessage(state.goal),
             ]
         }

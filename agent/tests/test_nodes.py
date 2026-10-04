@@ -122,12 +122,16 @@ async def test_write_prompt_opens_with_the_rules_for_today_and_the_goal() -> Non
     client = backend([])
     nodes = PlanningNodes(FakeChatModel(replies=[]), build_tools(client))
 
-    update = await nodes.write_prompt(AgentState(goal=GOAL, today=TODAY))
+    update = await nodes.write_prompt(
+        AgentState(goal=GOAL, today=TODAY, max_decision_rounds=3, max_tool_calls=5)
+    )
     await client.aclose()
 
     rules, goal = update["messages"]
     assert isinstance(rules, SystemMessage)
     assert "2026-10-04" in rules.content
+    # The last round must not call tools, or the run ends without a plan.
+    assert "at most 2 replies and at most 5" in rules.content
     assert isinstance(goal, HumanMessage)
     assert goal.content == GOAL
 
