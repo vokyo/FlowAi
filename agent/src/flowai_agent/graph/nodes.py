@@ -1,4 +1,5 @@
 from typing import Any
+from uuid import UUID
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -7,6 +8,7 @@ from pydantic import ValidationError
 
 from flowai_agent.graph.state import AgentState
 from flowai_agent.models.plan import Plan
+from flowai_agent.models.project import ProjectMemberResponse
 from flowai_agent.tools.client import BackendError
 
 MAX_RETRIES = 2
@@ -115,6 +117,37 @@ class PlanningNodes:
         plan_prompt = HumanMessage(PLAN_PROMPT.format(today=state.today.isoformat()))
         response = await self._planner.ainvoke([*state.messages, plan_prompt])
         return {"plan": response}
+
+    async def check_plan(self, state: AgentState) -> dict[str, Any]:
+        plan = state.plan
+        assert plan is not None
+        member_call_ids = {
+            call["id"]
+            for message in state.messages
+            if isinstance(message, AIMessage)
+            for call in message.tool_calls
+            if call["name"] == "get_project_members"
+        }
+        members: set[UUID] = set()
+        for message in state.messages:
+            if (
+                not isinstance(message, ToolMessage)
+                or message.tool_call_id not in member_call_ids
+            ):
+                continue
+            try:
+                result = ProjectMemberResponse.model_validate_json(str(message.content))
+            except ValidationError:
+                continue
+            members.update(member.userId for member in result.items)
+        items = [
+            item
+            if item.suggestedAssigneeUserId is None
+            or item.suggestedAssigneeUserId in members
+            else item.model_copy(update={"suggestedAssigneeUserId": None})
+            for item in plan.items
+        ]
+        return {"plan": plan.model_copy(update={"items": items})}
 
     async def report_insufficient(self, state: AgentState) -> dict[str, Any]:
         last = state.messages[-1]

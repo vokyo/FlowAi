@@ -1,5 +1,6 @@
 import json
 from datetime import date
+from uuid import UUID
 
 import httpx2
 import pytest
@@ -50,6 +51,8 @@ SEARCH_LOGIN: ToolCall = {
     "id": "call_A",
 }
 LIST_MEMBERS: ToolCall = {"name": "get_project_members", "args": {}, "id": "call_B"}
+ANN = "7d1f3e9a-2c4b-4e8f-9a6d-1b2c3d4e5f60"
+STRANGER = "5e0c1a2b-3d4e-4f60-8a7b-9c0d1e2f3a4b"
 SEARCH_TOO_MANY: ToolCall = {
     "name": "search_project_issues",
     "args": {"query": "login", "limit": 50},
@@ -381,3 +384,80 @@ async def test_one_bad_call_does_not_stop_the_other_calls_in_the_round() -> None
     assert members.tool_call_id == "call_B"
     assert json.loads(members.content) == MEMBERS
     assert update["argument_fixes_used"] == 1
+
+
+def plan_assigned_to(*owners: str | None) -> Plan:
+    return Plan.model_validate(
+        {
+            "overview": "Rate-limit login, then make token expiry configurable.",
+            "items": [
+                {
+                    "clientItemId": f"item-{n}",
+                    "title": f"Task {n}",
+                    "priority": "MEDIUM",
+                    "suggestedAssigneeUserId": owner,
+                }
+                for n, owner in enumerate(owners, start=1)
+            ],
+        }
+    )
+
+
+@pytest.mark.anyio
+async def test_check_plan_clears_assignees_who_are_not_in_the_member_list() -> None:
+    client = backend([])
+    nodes = PlanningNodes(FakeChatModel(replies=[]), build_tools(client))
+    state = AgentState(
+        goal=GOAL,
+        today=TODAY,
+        messages=[
+            AIMessage("", tool_calls=[LIST_MEMBERS]),
+            ToolMessage(json.dumps(MEMBERS), tool_call_id="call_B"),
+        ],
+        plan=plan_assigned_to(ANN, STRANGER, None),
+    )
+
+    update = await nodes.check_plan(state)
+    await client.aclose()
+
+    owners = [item.suggestedAssigneeUserId for item in update["plan"].items]
+    assert owners == [UUID(ANN), None, None]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "conversation",
+    [
+        pytest.param(
+            [
+                AIMessage("", tool_calls=[SEARCH_LOGIN]),
+                ToolMessage(json.dumps(ISSUES), tool_call_id="call_A"),
+            ],
+            id="never asked for members",
+        ),
+        pytest.param(
+            [
+                AIMessage("", tool_calls=[LIST_MEMBERS]),
+                ToolMessage("Error: boom", tool_call_id="call_B"),
+            ],
+            id="the member call returned an error",
+        ),
+    ],
+)
+async def test_check_plan_clears_every_assignee_without_a_member_list(
+    conversation: list[AnyMessage],
+) -> None:
+    client = backend([])
+    nodes = PlanningNodes(FakeChatModel(replies=[]), build_tools(client))
+    state = AgentState(
+        goal=GOAL,
+        today=TODAY,
+        messages=conversation,
+        plan=plan_assigned_to(ANN, STRANGER, None),
+    )
+
+    update = await nodes.check_plan(state)
+    await client.aclose()
+
+    owners = [item.suggestedAssigneeUserId for item in update["plan"].items]
+    assert owners == [None, None, None]

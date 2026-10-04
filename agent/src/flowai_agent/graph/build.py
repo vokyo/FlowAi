@@ -31,6 +31,7 @@ def build_graph(nodes: PlanningNodes):
     builder.add_node("write_prompt", nodes.write_prompt)
     builder.add_node("ask_model", nodes.ask_model)
     builder.add_node("generate_plan", nodes.generate_plan)
+    builder.add_node("check_plan", nodes.check_plan)
     builder.add_node("report_insufficient", nodes.report_insufficient)
     builder.add_node("run_tools", nodes.run_tools)
     builder.add_edge(START, "write_prompt")
@@ -41,7 +42,8 @@ def build_graph(nodes: PlanningNodes):
         ["run_tools", "generate_plan", "report_insufficient"],
     )
     builder.add_conditional_edges("run_tools", route_after_tools, ["ask_model", END])
-    builder.add_edge("generate_plan", END)
+    builder.add_edge("generate_plan", "check_plan")
+    builder.add_edge("check_plan", END)
     builder.add_edge("report_insufficient", END)
     return builder.compile()
 

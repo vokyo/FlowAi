@@ -1,5 +1,6 @@
 import json
 from datetime import date
+from uuid import UUID
 
 import httpx2
 import pytest
@@ -59,6 +60,30 @@ PLAN: dict[str, object] = {
 WRITE_PLAN = AIMessage(
     "", tool_calls=[{"name": "Plan", "args": PLAN, "id": "call_plan"}]
 )
+ANN = "7d1f3e9a-2c4b-4e8f-9a6d-1b2c3d4e5f60"
+STRANGER = "5e0c1a2b-3d4e-4f60-8a7b-9c0d1e2f3a4b"
+ASSIGNED_PLAN: dict[str, object] = {
+    "overview": "Rate-limit login, then make token expiry configurable.",
+    "items": [
+        {
+            "clientItemId": "item-1",
+            "title": "Rate-limit the login endpoint",
+            "priority": "HIGH",
+            "suggestedAssigneeUserId": ANN,
+        },
+        {
+            "clientItemId": "item-2",
+            "title": "Make token expiry configurable",
+            "priority": "MEDIUM",
+            "suggestedAssigneeUserId": STRANGER,
+        },
+        {
+            "clientItemId": "item-3",
+            "title": "Remove the remember-me code",
+            "priority": "LOW",
+        },
+    ],
+}
 
 
 def search(query: str, call_id: str) -> ToolCall:
@@ -350,3 +375,29 @@ async def test_a_model_that_keeps_sending_invalid_arguments_ends_the_run() -> No
     assert final.failure_reason is not None
     assert "invalid arguments again" in final.failure_reason
     assert final.plan is None
+
+
+@pytest.mark.anyio
+async def test_the_final_plan_keeps_only_assignees_from_the_member_list() -> None:
+    model = FakeChatModel(
+        replies=[
+            AIMessage(
+                "", tool_calls=[search("login", "call_1"), list_members("call_2")]
+            ),
+            AIMessage("I know enough to plan."),
+            AIMessage(
+                "",
+                tool_calls=[{"name": "Plan", "args": ASSIGNED_PLAN, "id": "call_plan"}],
+            ),
+        ]
+    )
+    client = backend([], truncated_queries=set())
+
+    final = await run_graph(
+        PlanningNodes(model, build_tools(client)), AgentState(goal=GOAL, today=TODAY)
+    )
+    await client.aclose()
+
+    assert final.plan is not None
+    owners = [item.suggestedAssigneeUserId for item in final.plan.items]
+    assert owners == [UUID(ANN), None, None]
