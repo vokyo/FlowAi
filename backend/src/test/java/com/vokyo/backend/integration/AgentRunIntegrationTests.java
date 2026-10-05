@@ -9,7 +9,12 @@ import com.vokyo.backend.ai.suggestion.AiSuggestion;
 import com.vokyo.backend.ai.suggestion.AiSuggestionRepository;
 import com.vokyo.backend.ai.suggestion.AiSuggestionStatus;
 import com.vokyo.backend.ai.suggestion.AiSuggestionType;
+import com.vokyo.backend.issue.Issue;
+import com.vokyo.backend.issue.IssueCreationCommand;
+import com.vokyo.backend.issue.IssueCreationService;
+import com.vokyo.backend.issue.IssuePriority;
 import com.vokyo.backend.issue.IssueRepository;
+import com.vokyo.backend.issue.IssueStatus;
 import com.vokyo.backend.project.Project;
 import com.vokyo.backend.project.ProjectMember;
 import com.vokyo.backend.project.ProjectMemberRepository;
@@ -86,6 +91,7 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
     @Autowired private ProjectMemberRepository projectMemberRepository;
     @Autowired private ProjectWorkflowStateRepository workflowStateRepository;
     @Autowired private IssueRepository issueRepository;
+    @Autowired private IssueCreationService issueCreationService;
     @Autowired private AiSuggestionRepository suggestionRepository;
     @Autowired private JwtService jwtService;
     @Autowired private AgentTokenService agentTokenService;
@@ -147,6 +153,91 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
             UUID.class,
             "Add refresh token tests"
         )).isEqualTo(graph.teammate().getId());
+    }
+
+    @Test
+    void aPlanCanNameExistingIssuesAndApprovingItCreatesOnlyTheNewTasks() throws Exception {
+        Graph graph = graph("reuse");
+        Issue csvExport = existingIssue(graph, graph.project(), "Export a project's issues as CSV");
+        AGENT.answer(request -> plannedReusing(csvExport.getId(), ONE_NEW_TASK));
+
+        JsonNode response = readJson(startRun(graph, graph.project().getId(), "Ship CSV export")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("PLANNED"))
+            .andExpect(jsonPath("$.plan.existingIssues[0].issueId").value(csvExport.getId().toString()))
+            .andExpect(jsonPath("$.plan.existingIssues[0].reason").value("This is the CSV export"))
+            .andExpect(jsonPath("$.plan.items.length()").value(1)));
+
+        postJson(
+            "/api/ai/suggestions/%s/apply".formatted(response.get("suggestionId").asText()),
+            "{ \"idempotencyKey\": \"%s\" }".formatted(UUID.randomUUID()),
+            graph.accessToken()
+        )
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.createdIssueIds.length()").value(1));
+        assertThat(issueRepository.count()).isEqualTo(2);
+        assertThat(issueRepository.findById(csvExport.getId()).orElseThrow().getTitle())
+            .isEqualTo("Export a project's issues as CSV");
+    }
+
+    @Test
+    void aPlanNamingAnIssueOfAnotherProjectIsRejected() throws Exception {
+        Graph graph = graph("foreign-issue");
+        Project other = projectRepository.save(new Project(
+            graph.workspace(), graph.owner(), "Other project", "Another project in the same workspace"));
+        workflowStateRepository.save(new ProjectWorkflowState(
+            graph.workspace(), other, "Todo", WorkflowStateCategory.TODO, 10_000));
+        Issue foreign = existingIssue(graph, other, "Export a project's issues as CSV");
+        AGENT.answer(request -> plannedReusing(foreign.getId(), ONE_NEW_TASK));
+
+        startRun(graph, graph.project().getId(), "Ship CSV export")
+            .andExpect(status().isBadGateway())
+            .andExpect(jsonPath("$.code").value("AI_AGENT_INVALID_RESPONSE"))
+            .andExpect(jsonPath("$.message").value(containsString("is not an active issue of this project")));
+        assertThat(suggestionRepository.count()).isZero();
+    }
+
+    @Test
+    void aPlanThatOnlyNamesExistingIssuesIsSavedButHasNothingToApprove() throws Exception {
+        Graph graph = graph("nothing-new");
+        Issue csvExport = existingIssue(graph, graph.project(), "Export a project's issues as CSV");
+        AGENT.answer(request -> plannedReusing(csvExport.getId(), "[]"));
+
+        JsonNode response = readJson(startRun(graph, graph.project().getId(), "Ship CSV export")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("PLANNED"))
+            .andExpect(jsonPath("$.plan.items.length()").value(0)));
+
+        postJson(
+            "/api/ai/suggestions/%s/apply".formatted(response.get("suggestionId").asText()),
+            "{ \"idempotencyKey\": \"%s\" }".formatted(UUID.randomUUID()),
+            graph.accessToken()
+        )
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.message").value(containsString("dismiss it instead")));
+        assertThat(issueRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void approvingAPlanWhoseExistingIssueWasArchivedSinceIsRejected() throws Exception {
+        Graph graph = graph("archived-since");
+        Issue csvExport = existingIssue(graph, graph.project(), "Export a project's issues as CSV");
+        AGENT.answer(request -> plannedReusing(csvExport.getId(), ONE_NEW_TASK));
+        JsonNode response = readJson(startRun(graph, graph.project().getId(), "Ship CSV export")
+            .andExpect(status().isOk()));
+
+        Issue archived = issueRepository.findById(csvExport.getId()).orElseThrow();
+        archived.archive();
+        issueRepository.saveAndFlush(archived);
+
+        postJson(
+            "/api/ai/suggestions/%s/apply".formatted(response.get("suggestionId").asText()),
+            "{ \"idempotencyKey\": \"%s\" }".formatted(UUID.randomUUID()),
+            graph.accessToken()
+        )
+            .andExpect(status().isUnprocessableEntity())
+            .andExpect(jsonPath("$.message").value(containsString("is not an active issue of this project")));
+        assertThat(issueRepository.count()).isEqualTo(1);
     }
 
     @Test
@@ -281,6 +372,34 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
               "stats": {"decisionRounds": 2, "toolCalls": 3}
             }
             """.formatted(assignee, dueDate));
+    }
+
+    private static final String ONE_NEW_TASK = """
+        [{"clientItemId": "item-1", "title": "Add tests for the CSV export",
+          "description": null, "priority": "MEDIUM",
+          "suggestedAssigneeUserId": null, "dueDate": null}]
+        """;
+
+    private static AgentStandIn.Reply plannedReusing(UUID existingIssueId, String items) {
+        return ok("""
+            {
+              "status": "PLANNED",
+              "plan": {
+                "overview": "Ship CSV export",
+                "existingIssues": [{"issueId": "%s", "reason": "  This is the CSV export  "}],
+                "items": %s
+              },
+              "stats": {"decisionRounds": 2, "toolCalls": 2}
+            }
+            """.formatted(existingIssueId, items));
+    }
+
+    private Issue existingIssue(Graph graph, Project project, String title) {
+        return issueCreationService.create(
+            new CurrentWorkspaceContext(graph.owner(), graph.workspace(), graph.membership()),
+            project,
+            new IssueCreationCommand(title, null, List.of(), null, null, IssueStatus.TODO, IssuePriority.LOW, null)
+        );
     }
 
     private static AgentStandIn.Reply ok(String body) {

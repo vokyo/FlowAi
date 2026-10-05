@@ -19,6 +19,9 @@ class ProjectPlanValidatorTests {
     private final ProjectPlanValidator validator = new ProjectPlanValidator();
     private final UUID member = UUID.randomUUID();
     private final Set<UUID> activeMembers = Set.of(member);
+    private final UUID csvExport = UUID.randomUUID();
+    private final UUID savedFilters = UUID.randomUUID();
+    private final Set<UUID> activeIssues = Set.of(csvExport, savedFilters);
 
     @Test
     void acceptsAValidPlanAndTrimsItsText() {
@@ -31,9 +34,10 @@ class ProjectPlanValidatorTests {
                 )
         );
 
-        ProjectPlan validated = validator.validate(plan, activeMembers, TODAY);
+        ProjectPlan validated = validator.validate(plan, activeMembers, activeIssues, TODAY);
 
         assertThat(validated.overview()).isEqualTo("Clear the login debt");
+        assertThat(validated.existingIssues()).isEmpty();
         assertThat(validated.items())
                 .extracting(ProjectPlan.Item::clientItemId)
                 .containsExactly("item-1", "item-2", "item-3");
@@ -42,11 +46,82 @@ class ProjectPlanValidatorTests {
     }
 
     @Test
-    void requiresThreeToFiveItems() {
-        assertInvalid(planWithItems(2), "Plan must contain between 3 and 5 items");
-        assertInvalid(planWithItems(6), "Plan must contain between 3 and 5 items");
-        assertInvalid(new ProjectPlan("Overview", null), "Plan must contain between 3 and 5 items");
-        assertThat(validator.validate(planWithItems(5), activeMembers, TODAY).items()).hasSize(5);
+    void allowsUpToFiveItems() {
+        assertInvalid(planWithItems(6), "Plan must contain at most 5 items");
+        assertInvalid(new ProjectPlan("Overview", null), "items is required");
+        assertThat(validator.validate(planWithItems(5), activeMembers, activeIssues, TODAY).items()).hasSize(5);
+        assertThat(validator.validate(planWithItems(1), activeMembers, activeIssues, TODAY).items()).hasSize(1);
+    }
+
+    @Test
+    void acceptsAPlanThatOnlyReusesExistingIssuesAndTrimsTheReasons() {
+        ProjectPlan plan = new ProjectPlan(
+                "Both parts already exist",
+                List.of(
+                        existing(csvExport, "  This is the CSV export  "),
+                        existing(savedFilters, "This is the saved filter views")
+                ),
+                List.of()
+        );
+
+        ProjectPlan validated = validator.validate(plan, activeMembers, activeIssues, TODAY);
+
+        assertThat(validated.items()).isEmpty();
+        assertThat(validated.existingIssues())
+                .containsExactly(
+                        existing(csvExport, "This is the CSV export"),
+                        existing(savedFilters, "This is the saved filter views")
+                );
+    }
+
+    @Test
+    void readsAMissingExistingIssuesListAsNone() {
+        ProjectPlan saved = new ProjectPlan("Overview", null, planWithItems(1).items());
+
+        assertThat(validator.validate(saved, activeMembers, activeIssues, TODAY).existingIssues()).isEmpty();
+    }
+
+    @Test
+    void rejectsAPlanWithNeitherExistingIssuesNorItems() {
+        assertInvalid(
+                new ProjectPlan("Overview", List.of(), List.of()),
+                "Plan must reuse an existing issue or add at least one item"
+        );
+    }
+
+    @Test
+    void existingIssuesMustBeActiveIssuesOfThisProjectNamedOnce() {
+        UUID elsewhere = UUID.randomUUID();
+
+        assertInvalid(
+                reusing(existing(elsewhere, "Made up or from another project")),
+                "existing issue " + elsewhere + " is not an active issue of this project"
+        );
+        assertInvalid(
+                reusing(existing(csvExport, "First"), existing(csvExport, "Again")),
+                "existingIssues must not name issue " + csvExport + " twice"
+        );
+        assertInvalid(
+                reusing(existing(null, "No id")),
+                "issueId at existing issue index 0 is required"
+        );
+    }
+
+    @Test
+    void existingIssueReasonsAreRequiredAndBounded() {
+        assertInvalid(reusing(existing(csvExport, " ")), "reason at existing issue index 0 is required");
+        assertInvalid(
+                reusing(existing(csvExport, "x".repeat(501))),
+                "reason at existing issue index 0 exceeds 500 characters"
+        );
+        List<ProjectPlan.ExistingIssue> eleven = new ArrayList<>();
+        for (int index = 0; index < 11; index++) {
+            eleven.add(existing(csvExport, "Reason"));
+        }
+        assertInvalid(
+                new ProjectPlan("Overview", eleven, List.of()),
+                "Plan must name at most 10 existing issues"
+        );
     }
 
     @Test
@@ -105,12 +180,13 @@ class ProjectPlanValidatorTests {
         assertThat(validator.validate(
                 withItem(0, item("item-1", "Title", null, TODAY.plusDays(365))),
                 activeMembers,
+                activeIssues,
                 TODAY
         ).items().getFirst().dueDate()).isEqualTo(TODAY.plusDays(365));
     }
 
     private void assertInvalid(ProjectPlan plan, String message) {
-        assertThatThrownBy(() -> validator.validate(plan, activeMembers, TODAY))
+        assertThatThrownBy(() -> validator.validate(plan, activeMembers, activeIssues, TODAY))
                 .isInstanceOf(ProjectPlanValidationException.class)
                 .hasMessage(message);
     }
@@ -127,6 +203,14 @@ class ProjectPlanValidatorTests {
             items.add(item("item-" + number, "Task " + number, null, null));
         }
         return new ProjectPlan("Overview", items);
+    }
+
+    private ProjectPlan reusing(ProjectPlan.ExistingIssue... existingIssues) {
+        return new ProjectPlan("Overview", List.of(existingIssues), planWithItems(1).items());
+    }
+
+    private ProjectPlan.ExistingIssue existing(UUID issueId, String reason) {
+        return new ProjectPlan.ExistingIssue(issueId, reason);
     }
 
     private ProjectPlan.Item item(String clientItemId, String title, UUID assignee, LocalDate dueDate) {

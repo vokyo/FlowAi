@@ -18,8 +18,9 @@ import java.util.UUID;
 @Component
 public class ProjectPlanValidator {
 
-    static final int MIN_ITEMS = 3;
     static final int MAX_ITEMS = 5;
+    static final int MAX_EXISTING_ISSUES = 10;
+    static final int MAX_REASON_LENGTH = 500;
     static final int MAX_OVERVIEW_LENGTH = 2_000;
     static final int MAX_CLIENT_ITEM_ID_LENGTH = 100;
     static final int MAX_TITLE_LENGTH = 240;
@@ -28,6 +29,8 @@ public class ProjectPlanValidator {
 
     /**
      * @param activeMemberUserIds the users who can be assigned: the project's active members right now
+     * @param activeIssueIds which of the issues the plan names as existing are active issues of
+     *                       this project right now; any other id the plan names is rejected
      * @param referenceDate the day due dates are judged from: today when the plan is
      *                      generated, and the day it was generated when it is approved
      * @return the same plan with its text trimmed
@@ -36,9 +39,11 @@ public class ProjectPlanValidator {
     public ProjectPlan validate(
             ProjectPlan plan,
             Set<UUID> activeMemberUserIds,
+            Set<UUID> activeIssueIds,
             LocalDate referenceDate
     ) {
         Objects.requireNonNull(activeMemberUserIds, "activeMemberUserIds is required");
+        Objects.requireNonNull(activeIssueIds, "activeIssueIds is required");
         Objects.requireNonNull(referenceDate, "referenceDate is required");
         if (plan == null) {
             invalid("Plan is required");
@@ -49,9 +54,20 @@ public class ProjectPlanValidator {
             invalid("overview exceeds " + MAX_OVERVIEW_LENGTH + " characters");
         }
 
+        List<ProjectPlan.ExistingIssue> existingIssues = validateExistingIssues(
+                plan.existingIssues(),
+                activeIssueIds
+        );
+
         List<ProjectPlan.Item> items = plan.items();
-        if (items == null || items.size() < MIN_ITEMS || items.size() > MAX_ITEMS) {
-            invalid("Plan must contain between " + MIN_ITEMS + " and " + MAX_ITEMS + " items");
+        if (items == null) {
+            invalid("items is required");
+        }
+        if (items.size() > MAX_ITEMS) {
+            invalid("Plan must contain at most " + MAX_ITEMS + " items");
+        }
+        if (items.isEmpty() && existingIssues.isEmpty()) {
+            invalid("Plan must reuse an existing issue or add at least one item");
         }
 
         Set<String> clientItemIds = new HashSet<>();
@@ -70,7 +86,43 @@ public class ProjectPlanValidator {
             ));
         }
 
-        return new ProjectPlan(overview, List.copyOf(normalizedItems));
+        return new ProjectPlan(overview, existingIssues, List.copyOf(normalizedItems));
+    }
+
+    // Older saved plans have no existingIssues at all, which reads as none.
+    private List<ProjectPlan.ExistingIssue> validateExistingIssues(
+            List<ProjectPlan.ExistingIssue> existingIssues,
+            Set<UUID> activeIssueIds
+    ) {
+        if (existingIssues == null) {
+            return List.of();
+        }
+        if (existingIssues.size() > MAX_EXISTING_ISSUES) {
+            invalid("Plan must name at most " + MAX_EXISTING_ISSUES + " existing issues");
+        }
+        Set<UUID> seen = new HashSet<>();
+        List<ProjectPlan.ExistingIssue> normalized = new ArrayList<>();
+        for (int index = 0; index < existingIssues.size(); index++) {
+            ProjectPlan.ExistingIssue existing = existingIssues.get(index);
+            if (existing == null || existing.issueId() == null) {
+                invalid("issueId at existing issue index " + index + " is required");
+            }
+            UUID issueId = existing.issueId();
+            if (!seen.add(issueId)) {
+                invalid("existingIssues must not name issue " + issueId + " twice");
+            }
+            // The id came from the model: it must be an issue of this project that is still active.
+            if (!activeIssueIds.contains(issueId)) {
+                invalid("existing issue " + issueId + " is not an active issue of this project");
+            }
+            String reason = requireText(existing.reason(), "reason at existing issue index " + index);
+            if (reason.length() > MAX_REASON_LENGTH) {
+                invalid("reason at existing issue index " + index + " exceeds "
+                        + MAX_REASON_LENGTH + " characters");
+            }
+            normalized.add(new ProjectPlan.ExistingIssue(issueId, reason));
+        }
+        return List.copyOf(normalized);
     }
 
     private ProjectPlan.Item validateItem(

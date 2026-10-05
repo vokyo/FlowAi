@@ -183,8 +183,9 @@ public class AiSuggestionApplyService {
 
     /**
      * A project plan is approved as a whole: every saved task becomes an issue, or
-     * none does. The plan is re-validated here because assignees may have left the
-     * project since it was generated.
+     * none does. The issues it names as existing are left alone. The plan is
+     * re-validated here because assignees may have left the project, and the
+     * existing issues it relies on may have been archived, since it was generated.
      */
     private List<UUID> applyProjectPlan(
             CurrentWorkspaceContext context,
@@ -208,6 +209,11 @@ public class AiSuggestionApplyService {
         }
 
         ProjectPlan plan = revalidateProjectPlan(suggestion, project);
+        if (plan.items().isEmpty()) {
+            throw AiFeatureException.requestInvalid(
+                    "This plan only names existing issues and has no new tasks to create; dismiss it instead"
+            );
+        }
         List<UUID> createdIssueIds = new ArrayList<>();
         for (ProjectPlan.Item item : plan.items()) {
             createdIssueIds.add(createIssue(context, project, new IssueCreationCommand(
@@ -244,10 +250,18 @@ public class AiSuggestionApplyService {
         // generated: a due date passing while the plan waits for approval must not
         // make it impossible to approve.
         LocalDate generatedOn = LocalDate.ofInstant(suggestion.getCreatedAt(), clock.getZone());
+        Set<UUID> activeIssueIds = savedPlan == null
+                ? Set.of()
+                : issueRepository.findActiveIdsInProject(
+                        project.getWorkspace().getId(),
+                        project.getId(),
+                        savedPlan.referencedIssueIds()
+                );
         try {
             return projectPlanValidator.validate(
                     savedPlan,
                     activeMemberUserIds,
+                    activeIssueIds,
                     generatedOn
             );
         } catch (ProjectPlanValidationException exception) {

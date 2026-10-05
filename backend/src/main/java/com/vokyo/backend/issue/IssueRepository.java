@@ -10,13 +10,34 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 public interface IssueRepository extends JpaRepository<Issue, UUID>, JpaSpecificationExecutor<Issue> {
 
     Optional<Issue> findByIdAndWorkspace_Id(UUID id, UUID workspaceId);
+
+    /** Which of the given ids are active issues of the project; ids from anywhere else drop out. */
+    default Set<UUID> findActiveIdsInProject(UUID workspaceId, UUID projectId, Collection<UUID> issueIds) {
+        return issueIds.isEmpty() ? Set.of() : findActiveIdsAmong(workspaceId, projectId, issueIds);
+    }
+
+    @Query("""
+            select issue.id
+            from Issue issue
+            where issue.workspace.id = :workspaceId
+              and issue.project.id = :projectId
+              and issue.archivedAt is null
+              and issue.id in :issueIds
+            """)
+    Set<UUID> findActiveIdsAmong(
+            @Param("workspaceId") UUID workspaceId,
+            @Param("projectId") UUID projectId,
+            @Param("issueIds") Collection<UUID> issueIds
+    );
 
     /**
      * Ranks issues the way an AI project summary wants to read them — overdue

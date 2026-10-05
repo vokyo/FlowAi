@@ -13,6 +13,7 @@ import com.vokyo.backend.ai.plan.ProjectPlanValidator;
 import com.vokyo.backend.ai.suggestion.AiSuggestion;
 import com.vokyo.backend.ai.suggestion.AiSuggestionService;
 import com.vokyo.backend.ai.suggestion.AiSuggestionType;
+import com.vokyo.backend.issue.IssueRepository;
 import com.vokyo.backend.project.Project;
 import com.vokyo.backend.project.ProjectAccessService;
 import com.vokyo.backend.workspace.CurrentWorkspaceContext;
@@ -59,6 +60,7 @@ public class AgentRunService {
     private final AgentTokenService agentTokenService;
     private final AgentServiceClient agentServiceClient;
     private final ProjectPlanValidator projectPlanValidator;
+    private final IssueRepository issueRepository;
     private final AiSuggestionService suggestionService;
     private final ObjectMapper objectMapper;
     private final AiMetrics metrics;
@@ -72,6 +74,7 @@ public class AgentRunService {
         AgentTokenService agentTokenService,
         AgentServiceClient agentServiceClient,
         ProjectPlanValidator projectPlanValidator,
+        IssueRepository issueRepository,
         AiSuggestionService suggestionService,
         ObjectMapper objectMapper,
         AiMetrics metrics,
@@ -84,6 +87,7 @@ public class AgentRunService {
         this.agentTokenService = agentTokenService;
         this.agentServiceClient = agentServiceClient;
         this.projectPlanValidator = projectPlanValidator;
+        this.issueRepository = issueRepository;
         this.suggestionService = suggestionService;
         this.objectMapper = objectMapper;
         this.metrics = metrics;
@@ -168,9 +172,16 @@ public class AgentRunService {
         Set<UUID> activeMemberUserIds = projectAccessService.listActiveProjectMembers(project).stream()
             .map(member -> member.getUser().getId())
             .collect(Collectors.toUnmodifiableSet());
+        Set<UUID> activeIssueIds = result.plan() == null
+            ? Set.of()
+            : issueRepository.findActiveIdsInProject(
+                project.getWorkspace().getId(),
+                project.getId(),
+                result.plan().referencedIssueIds()
+            );
         ProjectPlan plan;
         try {
-            plan = projectPlanValidator.validate(result.plan(), activeMemberUserIds, today);
+            plan = projectPlanValidator.validate(result.plan(), activeMemberUserIds, activeIssueIds, today);
         } catch (ProjectPlanValidationException exception) {
             throw AiFeatureException.agentInvalidResponse(
                 "Planning agent returned a plan that breaks a rule: " + exception.getMessage(),
