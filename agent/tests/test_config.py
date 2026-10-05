@@ -9,7 +9,7 @@ def test_settings_work_without_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("AI_MODEL", raising=False)
     settings = Settings()
     assert settings.openai_api_key is None
-    assert settings.ai_model == "gpt-4o-mini"
+    assert settings.ai_model == "gpt-4o"
 
 
 def test_env_overrides_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
