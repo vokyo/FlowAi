@@ -57,6 +57,19 @@ class AiConfigurationTests {
     }
 
     @Test
+    void embeddingCallsGetTheRequestTimeoutEvenWithCopilotOff() {
+        contextRunner
+                .withPropertyValues("spring.ai.model.embedding=openai")
+                .withBean(org.springframework.ai.embedding.EmbeddingModel.class,
+                        () -> org.mockito.Mockito.mock(org.springframework.ai.embedding.EmbeddingModel.class))
+                .run(context -> {
+                    assertThat(context).hasSingleBean(TextEmbedder.class);
+                    assertThat(context).hasSingleBean(RestClientCustomizer.class);
+                    assertThat(context).doesNotHaveBean(AiModelGateway.class);
+                });
+    }
+
+    @Test
     void doesNotCreateGatewayWhenChatModelProviderIsNotSelected() {
         contextRunner
                 .withPropertyValues("app.ai.enabled=true")

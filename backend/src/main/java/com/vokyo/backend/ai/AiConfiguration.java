@@ -5,6 +5,7 @@ import com.vokyo.backend.ai.springai.SpringAiModelGateway;
 import com.vokyo.backend.ai.springai.SpringAiTextEmbedder;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
@@ -53,11 +54,12 @@ class AiConfiguration {
         return new SpringAiTextEmbedder(embeddingModel);
     }
 
+    // Every OpenAI call goes through the auto-configured RestClient, which waits forever
+    // by default: one stalled embedding request used to block the embedding worker for
+    // minutes. So the timeout applies whenever a model is called, Copilot on or not.
     @Bean
-    @ConditionalOnProperty(
-            prefix = "app.ai",
-            name = "enabled",
-            havingValue = "true"
+    @ConditionalOnExpression(
+            "${app.ai.enabled:false} or '${spring.ai.model.embedding:none}' == 'openai'"
     )
     RestClientCustomizer aiRequestTimeoutCustomizer(AiProperties properties) {
         return builder -> builder.requestFactory(
