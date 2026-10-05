@@ -53,7 +53,8 @@ MODES = cast(
     list[SearchMode], os.environ.get("MODES", "keyword,fulltext,semantic").split(",")
 )
 REPEATS = int(os.environ.get("REPEATS", "3"))
-CONCURRENCY = 5
+# Runs at once. gpt-4o on a low usage tier allows 30k tokens a minute, so use 1 there.
+CONCURRENCY = int(os.environ.get("CONCURRENCY", "5"))
 
 
 def b64url(data: bytes) -> str:
@@ -203,7 +204,10 @@ async def main() -> None:
     secret = os.environ["JWT_SECRET"]
     user_token = os.environ["FLOWAI_USER_TOKEN"]
     user = claims_of(user_token)
-    model = ChatOpenAI(model=settings.ai_model, api_key=settings.openai_api_key)
+    # Generous retries: the client backs off on 429 rate limit errors.
+    model = ChatOpenAI(
+        model=settings.ai_model, api_key=settings.openai_api_key, max_retries=8
+    )
     today = datetime.now(UTC).date()
     label = os.environ.get("RUN_LABEL")
     stamp = f"{today.isoformat()}-{label}" if label else today.isoformat()
