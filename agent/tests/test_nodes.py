@@ -218,6 +218,9 @@ async def test_generate_plan_asks_for_a_plan_under_the_rules_for_today() -> None
     sent = model.received[0]
     assert sent[:3] == conversation
     assert "2026-10-04" in sent[-1].text
+    # Existing work goes into existingIssues instead of becoming a new task.
+    assert "existingIssues" in sent[-1].text
+    assert "0 to 5" in sent[-1].text
     assert ["Plan"] in model.bound_tools
 
 
@@ -461,3 +464,65 @@ async def test_check_plan_clears_every_assignee_without_a_member_list(
 
     owners = [item.suggestedAssigneeUserId for item in update["plan"].items]
     assert owners == [None, None, None]
+
+
+FOUND = "0b8c6a52-6a3e-4d6b-9a39-5f1d2c3b4a51"
+NEVER_SEEN = "9f9f9f9f-0000-4000-8000-000000000001"
+
+
+def plan_reusing(*issue_ids: str) -> Plan:
+    return Plan.model_validate(
+        {
+            "overview": "Reuse what exists.",
+            "existingIssues": [
+                {"issueId": issue_id, "reason": f"Covers part {n}."}
+                for n, issue_id in enumerate(issue_ids, start=1)
+            ],
+            "items": [],
+        }
+    )
+
+
+@pytest.mark.anyio
+async def test_check_plan_keeps_only_existing_issues_a_search_returned() -> None:
+    client = backend([])
+    nodes = PlanningNodes(FakeChatModel(replies=[]), build_tools(client))
+    state = AgentState(
+        goal=GOAL,
+        today=TODAY,
+        messages=[
+            AIMessage("", tool_calls=[SEARCH_LOGIN]),
+            ToolMessage(json.dumps(ISSUES), tool_call_id="call_A"),
+        ],
+        plan=plan_reusing(FOUND, NEVER_SEEN, FOUND),
+    )
+
+    update = await nodes.check_plan(state)
+    await client.aclose()
+
+    kept = update["plan"].existingIssues
+    assert [entry.issueId for entry in kept] == [UUID(FOUND)]
+    assert kept[0].reason == "Covers part 1."
+
+
+@pytest.mark.anyio
+async def test_check_plan_drops_every_existing_issue_without_a_search_result() -> None:
+    client = backend([])
+    nodes = PlanningNodes(FakeChatModel(replies=[]), build_tools(client))
+    state = AgentState(
+        goal=GOAL,
+        today=TODAY,
+        messages=[
+            AIMessage("", tool_calls=[SEARCH_LOGIN]),
+            ToolMessage("Error: boom", tool_call_id="call_A"),
+            # Member ids are not issue ids, even when a search was never run.
+            AIMessage("", tool_calls=[LIST_MEMBERS]),
+            ToolMessage(json.dumps(MEMBERS), tool_call_id="call_B"),
+        ],
+        plan=plan_reusing(FOUND),
+    )
+
+    update = await nodes.check_plan(state)
+    await client.aclose()
+
+    assert update["plan"].existingIssues == []

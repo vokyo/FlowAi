@@ -1,14 +1,20 @@
+from collections.abc import Sequence
 from typing import Any
-from uuid import UUID
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    AnyMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_core.tools import BaseTool
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from flowai_agent.graph.state import AgentState
-from flowai_agent.models.plan import Plan
-from flowai_agent.models.project import ProjectMemberResponse
+from flowai_agent.models.plan import ExistingIssue, Plan
+from flowai_agent.models.project import IssueSearchResponse, ProjectMemberResponse
 from flowai_agent.tools.client import BackendError
 
 MAX_RETRIES = 2
@@ -25,12 +31,40 @@ times in total.
 When you know enough to plan, reply without calling any tool."""
 
 PLAN_PROMPT = """Now write the plan for the goal, following these rules:
-- 3 to 5 new tasks. Do not repeat an existing issue or another task in the plan.
+- First, in existingIssues, list each issue from your search results that
+  already covers part of the goal: its id exactly as the search returned it, and
+  why it covers that part. List at most 10, and only ids you saw.
+- Then add new tasks only for the work no existing issue covers, 0 to 5 of them.
+  If existing issues cover the whole goal, add none. Do not repeat an existing
+  issue or another task in the plan.
 - Give each task a clientItemId such as "item-1", unique within the plan.
 - Only assign a task to a userId of a project member you found; otherwise leave
   suggestedAssigneeUserId empty.
 - A dueDate is optional; if you set one, it must be between {today} and one year
   after it."""
+
+
+def tool_results[T: BaseModel](
+    messages: Sequence[AnyMessage], tool_name: str, response_type: type[T]
+) -> list[T]:
+    """The parsed results of every call to one tool, skipping errors and output
+    that does not parse."""
+    call_ids = {
+        call["id"]
+        for message in messages
+        if isinstance(message, AIMessage)
+        for call in message.tool_calls
+        if call["name"] == tool_name
+    }
+    results: list[T] = []
+    for message in messages:
+        if not isinstance(message, ToolMessage) or message.tool_call_id not in call_ids:
+            continue
+        try:
+            results.append(response_type.model_validate_json(str(message.content)))
+        except ValidationError:
+            continue
+    return results
 
 
 class PlanningNodes:
@@ -119,25 +153,28 @@ class PlanningNodes:
     async def check_plan(self, state: AgentState) -> dict[str, Any]:
         plan = state.plan
         assert plan is not None
-        member_call_ids = {
-            call["id"]
-            for message in state.messages
-            if isinstance(message, AIMessage)
-            for call in message.tool_calls
-            if call["name"] == "get_project_members"
+        members = {
+            member.userId
+            for result in tool_results(
+                state.messages, "get_project_members", ProjectMemberResponse
+            )
+            for member in result.items
         }
-        members: set[UUID] = set()
-        for message in state.messages:
-            if (
-                not isinstance(message, ToolMessage)
-                or message.tool_call_id not in member_call_ids
+        # An issue the model never saw in a search result is a made-up or mistyped
+        # id. Dropping that one entry keeps the backend from rejecting the plan.
+        seen_issues = {
+            issue.id
+            for result in tool_results(
+                state.messages, "search_project_issues", IssueSearchResponse
+            )
+            for issue in result.items
+        }
+        existing: list[ExistingIssue] = []
+        for entry in plan.existingIssues:
+            if entry.issueId in seen_issues and all(
+                kept.issueId != entry.issueId for kept in existing
             ):
-                continue
-            try:
-                result = ProjectMemberResponse.model_validate_json(str(message.content))
-            except ValidationError:
-                continue
-            members.update(member.userId for member in result.items)
+                existing.append(entry)
         items = [
             item
             if item.suggestedAssigneeUserId is None
@@ -145,7 +182,9 @@ class PlanningNodes:
             else item.model_copy(update={"suggestedAssigneeUserId": None})
             for item in plan.items
         ]
-        return {"plan": plan.model_copy(update={"items": items})}
+        return {
+            "plan": plan.model_copy(update={"existingIssues": existing, "items": items})
+        }
 
     async def report_insufficient(self, state: AgentState) -> dict[str, Any]:
         last = state.messages[-1]

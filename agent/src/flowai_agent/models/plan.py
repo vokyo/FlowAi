@@ -14,6 +14,12 @@ class PlanItem(BaseModel):
     dueDate: date | None = None
 
 
+class ExistingIssue(BaseModel):
+    issueId: UUID
+    reason: str = Field(min_length=1, max_length=500)
+
+
 class Plan(BaseModel):
     overview: str = Field(min_length=1, max_length=2000)
-    items: list[PlanItem] = Field(min_length=3, max_length=5)
+    existingIssues: list[ExistingIssue] = Field(default=[], max_length=10)
+    items: list[PlanItem] = Field(min_length=0, max_length=5)
