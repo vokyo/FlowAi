@@ -334,6 +334,17 @@ async def run_agent(
     model: BaseChatModel, snapshot: Snapshot, goal: str, today: date, settings: Settings
 ) -> Outcome:
     client = BackendClient("http://snapshot", "unused", internal_api(snapshot))
+    return await run_planning(model, client, goal, today, settings)
+
+
+async def run_planning(
+    model: BaseChatModel,
+    client: BackendClient,
+    goal: str,
+    today: date,
+    settings: Settings,
+) -> Outcome:
+    """Runs the planning graph with the given backend client and closes it."""
     start = AgentState(
         goal=goal,
         today=today,
@@ -342,7 +353,10 @@ async def run_agent(
     )
     with get_usage_metadata_callback() as usage:
         began = time.perf_counter()
-        final = await run_graph(PlanningNodes(model, build_tools(client)), start)
+        final = await run_graph(
+            PlanningNodes(model, build_tools(client, settings.search_max_results)),
+            start,
+        )
         seconds = time.perf_counter() - began
     await client.aclose()
     outputs = {
