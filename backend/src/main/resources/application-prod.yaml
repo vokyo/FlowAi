@@ -15,7 +15,7 @@ spring:
   ai:
     model:
       chat: ${SPRING_AI_MODEL_CHAT:none}
-      embedding: none
+      embedding: ${SPRING_AI_MODEL_EMBEDDING:none}
       image: none
       moderation: none
       audio:
@@ -23,6 +23,9 @@ spring:
         transcription: none
     openai:
       api-key: ${OPENAI_API_KEY:}
+      embedding:
+        options:
+          model: ${AI_EMBEDDING_MODEL:text-embedding-3-small}
 
   lifecycle:
     timeout-per-shutdown-phase: 20s

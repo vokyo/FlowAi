@@ -2,11 +2,15 @@ spring:
   ai:
     model:
       chat: ${SPRING_AI_MODEL_CHAT:none}
+      embedding: ${SPRING_AI_MODEL_EMBEDDING:none}
     openai:
       api-key: ${OPENAI_API_KEY:}
       chat:
         options:
           model: ${AI_MODEL:gpt-4o-mini}
+      embedding:
+        options:
+          model: ${AI_EMBEDDING_MODEL:text-embedding-3-small}
     retry:
       max-attempts: 3
   jpa:

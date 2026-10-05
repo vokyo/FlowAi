@@ -8,7 +8,6 @@ import com.vokyo.backend.issue.dto.IssueListItemResponse;
 import com.vokyo.backend.pagination.CursorCodec;
 import com.vokyo.backend.pagination.CursorPage;
 import com.vokyo.backend.pagination.CursorPagination;
-import com.vokyo.backend.project.Project;
 import com.vokyo.backend.project.ProjectAccessService;
 import com.vokyo.backend.project.WorkflowStateCategory;
 import com.vokyo.backend.workspace.CurrentWorkspaceContext;
@@ -132,14 +131,14 @@ public class IssueQueryService {
     /**
      * Same filter as the issue list with no status filter: active issues of one
      * project, newest first, optionally matched on title or description. It does
-     * not check access, so callers must already have resolved the project through
-     * an access check.
+     * not check access, so callers must pass a project they resolved through an
+     * access check.
      */
     @Transactional(readOnly = true)
-    public List<Issue> searchActiveIssues(Project project, String query, int maxResults) {
+    public List<Issue> searchActiveIssues(UUID workspaceId, UUID projectId, String query, int maxResults) {
         Specification<Issue> specification = issueListSpecification(
-            project.getWorkspace().getId(),
-            project.getId(),
+            workspaceId,
+            projectId,
             null,
             null,
             null,

@@ -204,6 +204,20 @@ class AgentInternalApiIntegrationTests {
             .andExpect(jsonPath("$.message").value("q must be at most 100 characters"));
         asAgent(token, get(ISSUES).param("q", "   "))
             .andExpect(status().isOk());
+        asAgent(token, get(ISSUES).param("q", "login").param("mode", "vector"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.message").value("mode must be one of keyword, fulltext, semantic"));
+    }
+
+    @Test
+    void semanticSearchWithoutAnEmbeddingModelIsUnavailable() throws Exception {
+        Tenant tenant = tenant("no-embeddings");
+        ProjectFixture fixture = project(tenant, "No embeddings");
+        issue(tenant, fixture, "Fix login timeout", fixture.todo(), null, IssuePriority.HIGH);
+
+        asAgent(agentToken(tenant, fixture.project()), get(ISSUES).param("q", "login").param("mode", "semantic"))
+            .andExpect(status().isServiceUnavailable())
+            .andExpect(jsonPath("$.message").value("semantic search is not enabled"));
     }
 
     @Test

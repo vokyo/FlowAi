@@ -245,6 +245,8 @@ Backend properties (set them on the backend process or add them to the Compose s
 | `RATE_LIMIT_ENABLED` | `true` | Master switch for the in-process Bucket4j limiter that auth and AI both use (per instance, see [Design Boundaries](#design-boundaries)) |
 | `AI_ENABLED` | `false` | Enables AI application workflows |
 | `AI_MODEL` | `gpt-4o-mini` | Chat model name |
+| `SPRING_AI_MODEL_EMBEDDING` | `none` | Set to `openai` to enable the planning agent's semantic issue search |
+| `AI_EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model; stored vectors have its 1536 dimensions |
 | `AI_REQUEST_TIMEOUT` | `30s` | Per-request AI timeout |
 | `AI_SUGGESTION_TTL` | `7d` | Suggestion expiry |
 | `AI_MAX_BREAKDOWN_ITEMS` | `8` | Cap on generated child tasks |

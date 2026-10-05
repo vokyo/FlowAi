@@ -27,9 +27,10 @@ public class AgentInternalController {
     public AgentIssueSearchResponse searchIssues(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(required = false) String q,
-            @RequestParam(defaultValue = "" + AgentProjectQueryService.MAX_ISSUE_RESULTS) int limit
+            @RequestParam(defaultValue = "" + AgentProjectQueryService.MAX_ISSUE_RESULTS) int limit,
+            @RequestParam(defaultValue = "keyword") String mode
     ) {
-        return queryService.searchIssues(jwt, q, limit);
+        return queryService.searchIssues(jwt, q, limit, mode);
     }
 
     @GetMapping("/members")

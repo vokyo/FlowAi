@@ -2,7 +2,9 @@ package com.vokyo.backend.ai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vokyo.backend.ai.springai.SpringAiModelGateway;
+import com.vokyo.backend.ai.springai.SpringAiTextEmbedder;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
@@ -37,6 +39,18 @@ class AiConfiguration {
                 () -> new ObjectMapper().findAndRegisterModules()
         );
         return new SpringAiModelGateway(chatModel, objectMapper);
+    }
+
+    // Independent of app.ai.enabled: the agent's semantic issue search needs embeddings
+    // even when the Copilot features are switched off.
+    @Bean
+    @ConditionalOnProperty(
+            prefix = "spring.ai.model",
+            name = "embedding",
+            havingValue = "openai"
+    )
+    TextEmbedder textEmbedder(EmbeddingModel embeddingModel) {
+        return new SpringAiTextEmbedder(embeddingModel);
     }
 
     @Bean
