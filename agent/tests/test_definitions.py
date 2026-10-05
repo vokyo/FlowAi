@@ -114,3 +114,19 @@ async def test_backend_errors_come_out_of_the_tool_unchanged() -> None:
     await client.aclose()
 
     assert caught.value.kind == "fatal"
+
+
+@pytest.mark.anyio
+async def test_a_capped_search_tells_the_model_its_maximum() -> None:
+    seen: list[httpx2.Request] = []
+    client = BackendClient("http://backend", TOKEN, recording_backend(seen))
+    search = build_tools(client, max_results=10)[0]
+
+    limit = search.args["limit"]
+    assert (limit["default"], limit["maximum"]) == (10, 10)
+    await search.ainvoke({"query": "login"})
+    with pytest.raises(ValidationError):
+        await search.ainvoke({"query": "login", "limit": 15})
+    await client.aclose()
+
+    assert [request.url.params["limit"] for request in seen] == ["10"]

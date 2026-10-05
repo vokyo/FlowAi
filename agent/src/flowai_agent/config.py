@@ -11,4 +11,7 @@ class Settings(BaseSettings):
     max_tool_calls: int = Field(default=8, ge=1, le=20)
     openai_api_key: SecretStr | None = None
     run_timeout_seconds: float = Field(default=50, gt=0)
-    search_mode: SearchMode = "keyword"
+    # Semantic search won the 2026-10-05 comparison (docs/baseline/search-modes-*).
+    # The backend must have embeddings enabled (SPRING_AI_MODEL_EMBEDDING=openai).
+    search_mode: SearchMode = "semantic"
+    search_max_results: int = Field(default=20, ge=1, le=20)

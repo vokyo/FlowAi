@@ -59,7 +59,10 @@ async def create_run(
     )
     try:
         async with asyncio.timeout(settings.run_timeout_seconds):
-            final = await run_graph(PlanningNodes(model, build_tools(client)), start)
+            final = await run_graph(
+                PlanningNodes(model, build_tools(client, settings.search_max_results)),
+                start,
+            )
     except TimeoutError:
         logger.warning("run %s timed out", request.runId)
         return failed(

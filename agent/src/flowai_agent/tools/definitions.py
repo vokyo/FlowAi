@@ -22,7 +22,24 @@ class GetProjectMembersArgs(BaseModel):
     pass
 
 
-def build_tools(client: BackendClient) -> list[BaseTool]:
+def search_args(max_results: int) -> type[SearchProjectIssuesArgs]:
+    """The search arguments with limit capped, so the schema the model sees states
+    the real maximum instead of the backend's 20."""
+    if max_results == 20:
+        return SearchProjectIssuesArgs
+
+    class CappedSearchProjectIssuesArgs(SearchProjectIssuesArgs):
+        limit: int = Field(
+            default=max_results,
+            ge=1,
+            le=max_results,
+            description="How many issues to return.",
+        )
+
+    return CappedSearchProjectIssuesArgs
+
+
+def build_tools(client: BackendClient, max_results: int = 20) -> list[BaseTool]:
     async def search_project_issues(query: str | None, limit: int) -> str:
         result = await client.search_issues(query, limit)
         return result.model_dump_json()
@@ -43,7 +60,7 @@ def build_tools(client: BackendClient) -> list[BaseTool]:
                 "that the work is missing. If truncated is true, there are more "
                 "matches: search again with a narrower keyword."
             ),
-            args_schema=SearchProjectIssuesArgs,
+            args_schema=search_args(max_results),
         ),
         StructuredTool.from_function(
             coroutine=get_project_members,
