@@ -2,13 +2,14 @@ name: flowai
 
 services:
   postgres:
-    image: postgres:17-alpine
+    # pgvector/pgvector is the official PostgreSQL image with the pgvector extension installed.
+    image: pgvector/pgvector:pg17
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-flowai}
       POSTGRES_USER: ${POSTGRES_USER:-flowai}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
     volumes:
-      - flowai_postgres_data:/var/lib/postgresql/data
+      - flowai_pgvector_data:/var/lib/postgresql/data
     healthcheck:
       test:
         [
@@ -65,7 +66,7 @@ services:
       - flowai
 
 volumes:
-  flowai_postgres_data:
+  flowai_pgvector_data:
 
 networks:
   flowai:

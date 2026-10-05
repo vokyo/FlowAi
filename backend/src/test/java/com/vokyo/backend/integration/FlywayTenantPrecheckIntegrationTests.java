@@ -9,6 +9,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
 
 import java.util.UUID;
 
@@ -19,7 +20,9 @@ class FlywayTenantPrecheckIntegrationTests {
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES =
-            new PostgreSQLContainer<>("postgres:17-alpine");
+            new PostgreSQLContainer<>(
+                    DockerImageName.parse("pgvector/pgvector:pg17").asCompatibleSubstituteFor("postgres")
+            );
 
     @Test
     void v13RejectsExistingCrossWorkspaceRowsAndNamesTheAffectedTable() {

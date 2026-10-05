@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -15,7 +16,9 @@ class FlywayEmptyDatabaseIntegrationTests {
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES =
-            new PostgreSQLContainer<>("postgres:17-alpine");
+            new PostgreSQLContainer<>(
+                    DockerImageName.parse("pgvector/pgvector:pg17").asCompatibleSubstituteFor("postgres")
+            );
 
     @Test
     void migratesAnEmptyPostgres17DatabaseToTheLatestVersion() {

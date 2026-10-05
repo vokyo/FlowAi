@@ -192,7 +192,7 @@ Stop the stack and keep the database:
 docker compose down
 ```
 
-PostgreSQL data lives in the `flowai_postgres_data` named volume, so `docker compose down` preserves it. To delete local database data permanently:
+PostgreSQL data lives in the `flowai_pgvector_data` named volume, so `docker compose down` preserves it. To delete local database data permanently:
 
 ```bash
 docker compose down -v
