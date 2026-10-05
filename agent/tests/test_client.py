@@ -45,7 +45,7 @@ async def test_search_issues_sends_token_query_and_limit() -> None:
 
 
 @pytest.mark.anyio
-async def test_search_issues_without_query_sends_only_limit() -> None:
+async def test_search_issues_without_query_leaves_out_q() -> None:
     seen: list[httpx2.Request] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
@@ -58,6 +58,27 @@ async def test_search_issues_without_query_sends_only_limit() -> None:
 
     assert "q" not in seen[0].url.params
     assert seen[0].url.params["limit"] == "20"
+    assert seen[0].url.params["mode"] == "keyword"
+
+
+@pytest.mark.anyio
+async def test_search_issues_sends_the_configured_search_mode() -> None:
+    seen: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request)
+        return httpx2.Response(200, json={"items": [], "truncated": False})
+
+    client = BackendClient(
+        "http://backend",
+        TOKEN,
+        httpx2.MockTransport(handler),
+        search_mode="semantic",
+    )
+    await client.search_issues("登录", 5)
+    await client.aclose()
+
+    assert seen[0].url.params["mode"] == "semantic"
 
 
 @pytest.mark.anyio

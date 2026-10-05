@@ -1,6 +1,8 @@
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings
 
+from flowai_agent.tools.client import SearchMode
+
 
 class Settings(BaseSettings):
     ai_model: str = "gpt-4o-mini"
@@ -9,3 +11,4 @@ class Settings(BaseSettings):
     max_tool_calls: int = Field(default=8, ge=1, le=20)
     openai_api_key: SecretStr | None = None
     run_timeout_seconds: float = Field(default=50, gt=0)
+    search_mode: SearchMode = "keyword"

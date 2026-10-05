@@ -1,4 +1,5 @@
 import pytest
+from pydantic import ValidationError
 
 from flowai_agent.config import Settings
 
@@ -17,3 +18,20 @@ def test_env_overrides_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = Settings()
     assert settings.ai_model == "gpt-4.1-mini"
     assert settings.max_decision_rounds == 6
+
+
+def test_search_mode_defaults_to_keyword_and_reads_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("SEARCH_MODE", raising=False)
+    assert Settings().search_mode == "keyword"
+    monkeypatch.setenv("SEARCH_MODE", "fulltext")
+    assert Settings().search_mode == "fulltext"
+
+
+def test_an_unknown_search_mode_is_rejected_at_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SEARCH_MODE", "vector")
+    with pytest.raises(ValidationError):
+        Settings()

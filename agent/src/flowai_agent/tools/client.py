@@ -5,6 +5,10 @@ from pydantic import ValidationError
 
 from flowai_agent.models.project import IssueSearchResponse, ProjectMemberResponse
 
+# How the backend matches a search. It comes from configuration so an evaluation can
+# compare modes on the same goals; the model never chooses it.
+SearchMode = Literal["keyword", "fulltext", "semantic"]
+
 
 class BackendError(Exception):
     def __init__(
@@ -21,7 +25,9 @@ class BackendClient:
         base_url: str,
         token: str,
         transport: httpx2.AsyncBaseTransport | None = None,
+        search_mode: SearchMode = "keyword",
     ) -> None:
+        self._search_mode = search_mode
         self._http = httpx2.AsyncClient(
             base_url=base_url,
             headers={"Authorization": f"Bearer {token}"},
@@ -30,7 +36,7 @@ class BackendClient:
         )
 
     async def search_issues(self, query: str | None, limit: int) -> IssueSearchResponse:
-        params: dict[str, str | int] = {"limit": limit}
+        params: dict[str, str | int] = {"limit": limit, "mode": self._search_mode}
         if query is not None:
             params["q"] = query
         response = await self._get("/api/internal/agent/project/issues", params)

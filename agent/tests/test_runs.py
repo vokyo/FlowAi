@@ -116,6 +116,24 @@ def test_a_run_with_enough_information_returns_the_plan() -> None:
     ] * 2
 
 
+def test_a_run_searches_with_the_configured_mode() -> None:
+    model = FakeChatModel(
+        replies=[
+            AIMessage("", tool_calls=[SEARCH, MEMBERS_CALL]),
+            AIMessage("I know enough to plan."),
+            AIMessage("", tool_calls=[WRITE_PLAN]),
+        ]
+    )
+    sent: list[httpx2.Request] = []
+
+    serve(model, healthy_backend(sent), search_mode="semantic").post(
+        "/runs", json=BODY, headers=HEADERS
+    )
+
+    searches = [r for r in sent if r.url.path.endswith("/issues")]
+    assert [r.url.params["mode"] for r in searches] == ["semantic"]
+
+
 def test_a_run_out_of_budget_says_what_is_missing() -> None:
     model = FakeChatModel(replies=[AIMessage("", tool_calls=[SEARCH])])
     sent: list[httpx2.Request] = []

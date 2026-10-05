@@ -48,7 +48,9 @@ async def create_run(
     if authorization is None or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="agent token is required")
     token = authorization.removeprefix("Bearer ")
-    client = BackendClient(settings.backend_base_url, token, transport)
+    client = BackendClient(
+        settings.backend_base_url, token, transport, search_mode=settings.search_mode
+    )
     start = AgentState(
         goal=request.goal,
         today=request.today,
