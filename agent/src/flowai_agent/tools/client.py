@@ -27,13 +27,17 @@ class BackendClient:
         transport: httpx2.AsyncBaseTransport | None = None,
         search_mode: SearchMode = "keyword",
     ) -> None:
-        self._search_mode = search_mode
+        self._search_mode: SearchMode = search_mode
         self._http = httpx2.AsyncClient(
             base_url=base_url,
             headers={"Authorization": f"Bearer {token}"},
             timeout=5.0,
             transport=transport,
         )
+
+    @property
+    def search_mode(self) -> SearchMode:
+        return self._search_mode
 
     async def search_issues(self, query: str | None, limit: int) -> IssueSearchResponse:
         params: dict[str, str | int] = {"limit": limit, "mode": self._search_mode}

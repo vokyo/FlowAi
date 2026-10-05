@@ -17,11 +17,9 @@ MAX_ARGUMENT_FIXES = 1
 SYSTEM_PROMPT = """You plan work for one software project. Today is {today}.
 Before planning, find out what the project already has: the issues that exist,
 so the plan does not repeat them, and the members who can be assigned.
-Search one word at a time, and make several calls in the same reply: start with
-two or three different words that cover the goal, such as synonyms or the
-singular and plural form, and get the members in that reply too. If a search
-finds nothing, try another word before you decide the work does not exist; the
-issues may be written in a different language from the goal.
+Make several calls in the same reply: search for each part of the goal and get
+the members in that reply too. The search tool's description says how it
+matches and how to word a search.
 You can call tools in at most {tool_rounds} replies and at most {max_tool_calls}
 times in total.
 When you know enough to plan, reply without calling any tool."""

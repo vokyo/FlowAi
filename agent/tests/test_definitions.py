@@ -5,7 +5,7 @@ import pytest
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import ValidationError
 
-from flowai_agent.tools.client import BackendClient, BackendError
+from flowai_agent.tools.client import BackendClient, BackendError, SearchMode
 from flowai_agent.tools.definitions import build_tools
 
 TOKEN = "agent-token"
@@ -130,3 +130,25 @@ async def test_a_capped_search_tells_the_model_its_maximum() -> None:
     await client.aclose()
 
     assert [request.url.params["limit"] for request in seen] == ["10"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("mode", "matching", "wording"),
+    [
+        ("keyword", "one exact piece of text", "One short word"),
+        ("fulltext", "English base form", "One to three English words"),
+        ("semantic", "even when none is related", "in any language"),
+    ],
+)
+async def test_the_search_tool_explains_how_its_mode_matches(
+    mode: SearchMode, matching: str, wording: str
+) -> None:
+    client = BackendClient(
+        "http://backend", TOKEN, recording_backend([]), search_mode=mode
+    )
+    search = build_tools(client)[0]
+    await client.aclose()
+
+    assert matching in search.description
+    assert wording in search.args["query"]["description"]
