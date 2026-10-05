@@ -36,7 +36,7 @@ public class IssueSearchService {
     @Transactional(readOnly = true)
     public List<Issue> searchBySimilarity(UUID workspaceId, UUID projectId, float[] queryVector, int maxResults) {
         return loadInOrder(issueSearchRepository.findIdsBySimilarity(
-            workspaceId, projectId, toVectorLiteral(queryVector), maxResults));
+            workspaceId, projectId, PgVectors.literal(queryVector), maxResults));
     }
 
     // findAllById returns rows in no particular order; the ranking lives in the id list.
@@ -44,17 +44,5 @@ public class IssueSearchService {
         Map<UUID, Issue> issuesById = issueRepository.findAllById(ids).stream()
             .collect(Collectors.toMap(Issue::getId, Function.identity()));
         return ids.stream().map(issuesById::get).filter(Objects::nonNull).toList();
-    }
-
-    // pgvector parses a vector from text such as [0.1,0.2,0.3].
-    static String toVectorLiteral(float[] vector) {
-        StringBuilder literal = new StringBuilder(vector.length * 12).append('[');
-        for (int index = 0; index < vector.length; index++) {
-            if (index > 0) {
-                literal.append(',');
-            }
-            literal.append(vector[index]);
-        }
-        return literal.append(']').toString();
     }
 }

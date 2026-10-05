@@ -33,19 +33,22 @@ public class IssueCreationService {
     private final ProjectWorkflowStateRepository workflowStateRepository;
     private final ProjectAccessService projectAccessService;
     private final ActivityService activityService;
+    private final IssueEmbeddingJobRepository embeddingJobs;
 
     public IssueCreationService(
             IssueRepository issueRepository,
             ProjectLabelRepository projectLabelRepository,
             ProjectWorkflowStateRepository workflowStateRepository,
             ProjectAccessService projectAccessService,
-            ActivityService activityService
+            ActivityService activityService,
+            IssueEmbeddingJobRepository embeddingJobs
     ) {
         this.issueRepository = issueRepository;
         this.projectLabelRepository = projectLabelRepository;
         this.workflowStateRepository = workflowStateRepository;
         this.projectAccessService = projectAccessService;
         this.activityService = activityService;
+        this.embeddingJobs = embeddingJobs;
     }
 
     @Transactional
@@ -82,6 +85,7 @@ public class IssueCreationService {
         ));
         issue.replaceLabels(labels);
         activityService.recordIssueCreated(issue, context.user());
+        embeddingJobs.request(issue.getId());
         return issue;
     }
 

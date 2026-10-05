@@ -49,6 +49,7 @@ public class IssueCommandService {
     private final IssueMapper issueMapper;
     private final IssueCreationService issueCreationService;
     private final IssueWatchQuery issueWatchQuery;
+    private final IssueEmbeddingJobRepository embeddingJobs;
 
     public IssueCommandService(
         IssueRepository issueRepository,
@@ -59,7 +60,8 @@ public class IssueCommandService {
         WorkspaceAccessService workspaceAccessService,
         ActivityService activityService,
         IssueMapper issueMapper,
-        IssueCreationService issueCreationService, IssueWatchQuery issueWatchQuery
+        IssueCreationService issueCreationService, IssueWatchQuery issueWatchQuery,
+        IssueEmbeddingJobRepository embeddingJobs
     ) {
         this.issueRepository = issueRepository;
         this.issueCommentRepository = issueCommentRepository;
@@ -71,6 +73,7 @@ public class IssueCommandService {
         this.issueMapper = issueMapper;
         this.issueCreationService = issueCreationService;
         this.issueWatchQuery = issueWatchQuery;
+        this.embeddingJobs = embeddingJobs;
     }
 
     @Transactional
@@ -121,6 +124,7 @@ public class IssueCommandService {
         Project project = requireIssueProjectForUpdate(issueId, context);
         Issue issue = requireIssue(issueId, context.workspace().getId());
         String previousTitle = issue.getTitle();
+        String previousDescription = issue.getDescription();
         ProjectWorkflowState previousWorkflowState = issue.getWorkflowState();
         String previousStatus = displayStatus(issue);
         UUID previousWorkflowStateId = previousWorkflowState.getId();
@@ -130,6 +134,11 @@ public class IssueCommandService {
         LocalDate previousDueDate = issue.getDueDate();
 
         applyIssuePatch(issue, request);
+        // Only the text is embedded, so status, assignee or label edits need no new embedding.
+        if (!Objects.equals(previousTitle, issue.getTitle())
+                || !Objects.equals(previousDescription, issue.getDescription())) {
+            embeddingJobs.request(issue.getId());
+        }
 
         UUID currentWorkflowStateId = issue.getWorkflowState().getId();
         boolean workflowStateChanged = !Objects.equals(previousWorkflowStateId, currentWorkflowStateId);
