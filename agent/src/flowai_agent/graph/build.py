@@ -1,5 +1,6 @@
 # pyright: reportUnknownMemberType=false
 from langchain_core.messages import AIMessage
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 
 from flowai_agent.graph.nodes import PlanningNodes
@@ -26,7 +27,9 @@ def route_after_model(state: AgentState) -> str:
         return "generate_plan"
 
 
-def build_graph(nodes: PlanningNodes):
+def build_graph(
+    nodes: PlanningNodes, checkpointer: BaseCheckpointSaver[str] | None = None
+):
     builder = StateGraph(AgentState)
     builder.add_node("write_prompt", nodes.write_prompt)
     builder.add_node("ask_model", nodes.ask_model)
@@ -34,6 +37,7 @@ def build_graph(nodes: PlanningNodes):
     builder.add_node("check_plan", nodes.check_plan)
     builder.add_node("report_insufficient", nodes.report_insufficient)
     builder.add_node("run_tools", nodes.run_tools)
+    builder.add_node("review", nodes.review)
     builder.add_edge(START, "write_prompt")
     builder.add_edge("write_prompt", "ask_model")
     builder.add_conditional_edges(
@@ -43,9 +47,10 @@ def build_graph(nodes: PlanningNodes):
     )
     builder.add_conditional_edges("run_tools", route_after_tools, ["ask_model", END])
     builder.add_edge("generate_plan", "check_plan")
-    builder.add_edge("check_plan", END)
+    builder.add_edge("check_plan", "review")
+    builder.add_edge("review", "ask_model")
     builder.add_edge("report_insufficient", END)
-    return builder.compile()
+    return builder.compile(checkpointer=checkpointer)
 
 
 async def run_graph(nodes: PlanningNodes, start: AgentState) -> AgentState:

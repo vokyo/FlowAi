@@ -5,10 +5,18 @@ from uuid import UUID
 import httpx2
 import pytest
 from fake_chat_model import FakeChatModel
-from langchain_core.messages import AIMessage, ToolCall, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolCall, ToolMessage
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END
+from langgraph.types import Command, GraphOutput, StateSnapshot
 
-from flowai_agent.graph.build import route_after_model, route_after_tools, run_graph
+from flowai_agent.graph.build import (
+    build_graph,
+    route_after_model,
+    route_after_tools,
+    run_graph,
+)
 from flowai_agent.graph.nodes import PlanningNodes
 from flowai_agent.graph.state import AgentState
 from flowai_agent.models.plan import Plan
@@ -401,3 +409,76 @@ async def test_the_final_plan_keeps_only_assignees_from_the_member_list() -> Non
     assert final.plan is not None
     owners = [item.suggestedAssigneeUserId for item in final.plan.items]
     assert owners == [UUID(ANN), None, None]
+
+
+REVISED_PLAN: dict[str, object] = {
+    "overview": "Rate-limit login and drop the remember-me code.",
+    "items": [
+        {
+            "clientItemId": "item-1",
+            "title": "Rate-limit the login endpoint",
+            "priority": "HIGH",
+        },
+        {
+            "clientItemId": "item-3",
+            "title": "Remove the remember-me code",
+            "priority": "LOW",
+        },
+    ],
+}
+
+
+WRITE_REVISED_PLAN = AIMessage(
+    "", tool_calls=[{"name": "Plan", "args": REVISED_PLAN, "id": "call_revised"}]
+)
+
+
+async def plan_then_revise(
+    model: FakeChatModel, sent: list[httpx2.Request]
+) -> tuple[
+    GraphOutput[AgentState], StateSnapshot, GraphOutput[AgentState], StateSnapshot
+]:
+    """Runs until the plan waits for review, then revises it with "Drop item-2"."""
+    client = backend(sent, truncated_queries=set())
+    graph = build_graph(
+        PlanningNodes(model, build_tools(client)), checkpointer=InMemorySaver()
+    )
+    run: RunnableConfig = {"configurable": {"thread_id": "run-1"}}
+
+    # LangGraph types Command as Command[Unknown], so ainvoke is partly unknown.
+    first = await graph.ainvoke(  # pyright: ignore[reportUnknownMemberType]
+        AgentState(goal=GOAL, today=TODAY), run, version="v2"
+    )
+    paused = await graph.aget_state(run)
+    revised = await graph.ainvoke(  # pyright: ignore[reportUnknownMemberType]
+        Command(resume="Drop item-2"), run, version="v2"
+    )
+    after = await graph.aget_state(run)
+    await client.aclose()
+    return first, paused, revised, after
+
+
+@pytest.mark.anyio
+async def test_a_revision_sees_the_plan_under_review_and_then_the_feedback() -> None:
+    model = FakeChatModel(
+        replies=[
+            ENOUGH,
+            WRITE_PLAN,
+            AIMessage("I know enough to revise."),
+            WRITE_REVISED_PLAN,
+        ]
+    )
+
+    first, paused, revised, after = await plan_then_revise(model, [])
+
+    assert [interrupt.value for interrupt in first.interrupts] == [
+        Plan.model_validate(PLAN)
+    ]
+    assert paused.next == ("review",)
+    previous_plan, feedback = model.received[2][-2:]
+    assert isinstance(previous_plan, AIMessage)
+    assert Plan.model_validate_json(previous_plan.text) == Plan.model_validate(PLAN)
+    assert isinstance(feedback, HumanMessage)
+    assert feedback.text == "Drop item-2"
+    assert revised.value.plan == Plan.model_validate(REVISED_PLAN)
+    assert after.next == ("review",)

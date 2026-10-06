@@ -10,6 +10,7 @@ from langchain_core.messages import (
     ToolMessage,
 )
 from langchain_core.tools import BaseTool
+from langgraph.types import interrupt
 from pydantic import BaseModel, ValidationError
 
 from flowai_agent.graph.state import AgentState
@@ -194,3 +195,9 @@ class PlanningNodes:
             for call in last.tool_calls
         ]
         return {"missing": missing[:5]}
+
+    async def review(self, state: AgentState) -> dict[str, Any]:
+        assert state.plan is not None
+        feedback = interrupt(state.plan)
+        plan = state.plan.model_dump_json()
+        return {"messages": [AIMessage(plan), HumanMessage(feedback)]}
