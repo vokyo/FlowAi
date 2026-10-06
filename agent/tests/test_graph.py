@@ -479,6 +479,108 @@ async def test_a_revision_sees_the_plan_under_review_and_then_the_feedback() -> 
     assert isinstance(previous_plan, AIMessage)
     assert Plan.model_validate_json(previous_plan.text) == Plan.model_validate(PLAN)
     assert isinstance(feedback, HumanMessage)
-    assert feedback.text == "Drop item-2"
+    assert feedback.text == (
+        "Revise the plan above as follows: Drop item-2\n"
+        "For this revision, at most 1 of your replies can call tools, with at\n"
+        "most 4 tool calls in total.\n"
+        "When you know enough to plan, reply without calling any tool."
+    )
     assert revised.value.plan == Plan.model_validate(REVISED_PLAN)
     assert after.next == ("review",)
+
+
+@pytest.mark.anyio
+async def test_a_revision_can_search_after_the_run_used_its_whole_budget() -> None:
+    model = FakeChatModel(
+        replies=[
+            AIMessage("", tool_calls=[search("login", "call_1")]),
+            AIMessage("", tool_calls=[search("token", "call_2")]),
+            AIMessage("", tool_calls=[list_members("call_3")]),
+            ENOUGH,
+            WRITE_PLAN,
+            AIMessage("", tool_calls=[search("remember me", "call_4")]),
+            AIMessage("I know enough to revise."),
+            WRITE_REVISED_PLAN,
+        ]
+    )
+    sent: list[httpx2.Request] = []
+
+    first, _, revised, after = await plan_then_revise(model, sent)
+
+    assert first.value.decision_rounds_used == first.value.max_decision_rounds == 4
+    assert [request.url.params.get("q") for request in sent] == [
+        "login",
+        "token",
+        None,
+        "remember me",
+    ]
+    assert revised.value.decision_rounds_used == 2
+    assert revised.value.tool_calls_used == 1
+    assert revised.value.plan == Plan.model_validate(REVISED_PLAN)
+    assert after.next == ("review",)
+
+
+@pytest.mark.anyio
+async def test_a_revision_that_keeps_searching_is_cut_off_after_its_two_rounds() -> (
+    None
+):
+    model = FakeChatModel(
+        replies=[
+            ENOUGH,
+            WRITE_PLAN,
+            AIMessage("", tool_calls=[search("remember me", "call_1")]),
+            AIMessage("", tool_calls=[search("cookies", "call_2")]),
+        ]
+    )
+    sent: list[httpx2.Request] = []
+
+    _, _, revised, after = await plan_then_revise(model, sent)
+
+    assert [request.url.params.get("q") for request in sent] == ["remember me"]
+    assert revised.value.missing == [
+        "Still wanted to call search_project_issues with {'query': 'cookies'}"
+    ]
+    assert not revised.interrupts
+    assert after.next == ()
+
+
+@pytest.mark.anyio
+async def test_a_revision_gets_its_own_chance_to_fix_its_arguments() -> None:
+    model = FakeChatModel(
+        replies=[
+            AIMessage("", tool_calls=[search_too_many("call_1")]),
+            AIMessage("I know enough to plan."),
+            WRITE_PLAN,
+            AIMessage("", tool_calls=[search_too_many("call_2")]),
+            AIMessage("I know enough to revise."),
+            WRITE_REVISED_PLAN,
+        ]
+    )
+
+    first, _, revised, after = await plan_then_revise(model, [])
+
+    assert first.value.argument_fixes_used == 1
+    assert revised.value.argument_fixes_used == 1
+    assert revised.value.plan == Plan.model_validate(REVISED_PLAN)
+    assert after.next == ("review",)
+
+
+@pytest.mark.anyio
+async def test_a_revision_round_that_would_go_over_four_tool_calls_is_not_run() -> None:
+    model = FakeChatModel(
+        replies=[
+            ENOUGH,
+            WRITE_PLAN,
+            AIMessage(
+                "",
+                tool_calls=[search(f"part {n}", f"call_{n}") for n in range(1, 6)],
+            ),
+        ]
+    )
+    sent: list[httpx2.Request] = []
+
+    _, _, revised, after = await plan_then_revise(model, sent)
+
+    assert sent == []
+    assert len(revised.value.missing) == 5
+    assert after.next == ()

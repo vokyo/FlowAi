@@ -20,6 +20,10 @@ from flowai_agent.tools.client import BackendError
 
 MAX_RETRIES = 2
 MAX_ARGUMENT_FIXES = 1
+# Each revision gets its own budget, enough for one round of searches and then the
+# plan, instead of whatever the run before it left over.
+REVISION_DECISION_ROUNDS = 2
+REVISION_TOOL_CALLS = 4
 
 SYSTEM_PROMPT = """You plan work for one software project. Today is {today}.
 Before planning, find out what the project already has: the issues that exist,
@@ -43,6 +47,11 @@ PLAN_PROMPT = """Now write the plan for the goal, following these rules:
   suggestedAssigneeUserId empty.
 - A dueDate is optional; if you set one, it must be between {today} and one year
   after it."""
+
+REVISION_PROMPT = """Revise the plan above as follows: {feedback}
+For this revision, at most {tool_rounds} of your replies can call tools, with at
+most {max_tool_calls} tool calls in total.
+When you know enough to plan, reply without calling any tool."""
 
 
 def tool_results[T: BaseModel](
@@ -200,4 +209,16 @@ class PlanningNodes:
         assert state.plan is not None
         feedback = interrupt(state.plan)
         plan = state.plan.model_dump_json()
-        return {"messages": [AIMessage(plan), HumanMessage(feedback)]}
+        revision = REVISION_PROMPT.format(
+            feedback=feedback,
+            tool_rounds=REVISION_DECISION_ROUNDS - 1,
+            max_tool_calls=REVISION_TOOL_CALLS,
+        )
+        return {
+            "messages": [AIMessage(plan), HumanMessage(revision)],
+            "decision_rounds_used": 0,
+            "tool_calls_used": 0,
+            "argument_fixes_used": 0,
+            "max_decision_rounds": REVISION_DECISION_ROUNDS,
+            "max_tool_calls": REVISION_TOOL_CALLS,
+        }
