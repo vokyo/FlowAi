@@ -1,5 +1,6 @@
 # pyright: reportUnknownMemberType=false
 from langchain_core.messages import AIMessage
+from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 
@@ -53,6 +54,12 @@ def build_graph(
     return builder.compile(checkpointer=checkpointer)
 
 
-async def run_graph(nodes: PlanningNodes, start: AgentState) -> AgentState:
-    output = await build_graph(nodes).ainvoke(start, version="v2")
+async def run_graph(
+    nodes: PlanningNodes,
+    start: AgentState,
+    checkpointer: BaseCheckpointSaver[str] | None = None,
+    thread_id: str | None = None,
+) -> AgentState:
+    run: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+    output = await build_graph(nodes, checkpointer).ainvoke(start, run, version="v2")
     return output.value

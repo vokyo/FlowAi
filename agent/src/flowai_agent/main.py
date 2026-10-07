@@ -1,11 +1,18 @@
 import asyncio
 import logging
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from typing import Annotated
 
 import httpx2
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from psycopg import AsyncConnection
+from psycopg.rows import DictRow, dict_row
+from psycopg_pool import AsyncConnectionPool
 
 from flowai_agent.config import Settings
 from flowai_agent.graph.build import run_graph
@@ -16,7 +23,29 @@ from flowai_agent.tools.client import BackendClient
 from flowai_agent.tools.definitions import build_tools
 
 logger = logging.getLogger(__name__)
-app = FastAPI()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+    url = Settings().checkpoint_database_url
+    if url is None:
+        raise RuntimeError("CHECKPOINT_DATABASE_URL is required")
+    async with AsyncConnectionPool(
+        url.get_secret_value(),
+        connection_class=AsyncConnection[DictRow],
+        kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row},
+    ) as pool:
+        checkpointer = AsyncPostgresSaver(pool)
+        await checkpointer.setup()
+        app.state.checkpointer = checkpointer
+        yield
+
+
+app = FastAPI(lifespan=lifespan)
+
+
+def get_checkpointer(request: Request) -> BaseCheckpointSaver[str]:
+    return request.app.state.checkpointer
 
 
 def get_settings() -> Settings:
@@ -43,6 +72,7 @@ async def create_run(
     transport: Annotated[
         httpx2.AsyncBaseTransport | None, Depends(get_backend_transport)
     ],
+    checkpointer: Annotated[BaseCheckpointSaver[str], Depends(get_checkpointer)],
     authorization: Annotated[str | None, Header()] = None,
 ) -> RunResult:
     if authorization is None or not authorization.startswith("Bearer "):
@@ -62,6 +92,8 @@ async def create_run(
             final = await run_graph(
                 PlanningNodes(model, build_tools(client, settings.search_max_results)),
                 start,
+                checkpointer,
+                str(request.runId),
             )
     except TimeoutError:
         logger.warning("run %s timed out", request.runId)

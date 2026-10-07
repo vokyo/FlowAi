@@ -9,9 +9,16 @@ from fastapi.testclient import TestClient
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, ToolCall
 from langchain_core.outputs import ChatResult
+from langgraph.checkpoint.memory import InMemorySaver
 
 from flowai_agent.config import Settings
-from flowai_agent.main import app, get_backend_transport, get_chat_model, get_settings
+from flowai_agent.main import (
+    app,
+    get_backend_transport,
+    get_chat_model,
+    get_checkpointer,
+    get_settings,
+)
 from flowai_agent.models.plan import Plan
 
 TOKEN = "agent-token"
@@ -83,6 +90,7 @@ def serve(model: BaseChatModel, handler: Handler, **settings: Any) -> TestClient
     app.dependency_overrides[get_settings] = lambda: Settings(
         backend_base_url="http://backend", **settings
     )
+    app.dependency_overrides[get_checkpointer] = lambda: InMemorySaver()
     return TestClient(app)
 
 
@@ -114,6 +122,36 @@ def test_a_run_with_enough_information_returns_the_plan() -> None:
     assert [request.headers["Authorization"] for request in sent] == [
         f"Bearer {TOKEN}"
     ] * 2
+
+
+def test_a_planned_run_is_saved_under_its_run_id_waiting_for_review() -> None:
+    model = FakeChatModel(
+        replies=[
+            AIMessage("", tool_calls=[SEARCH, MEMBERS_CALL]),
+            AIMessage("I know enough to plan."),
+            AIMessage("", tool_calls=[WRITE_PLAN]),
+        ]
+    )
+    client = serve(model, healthy_backend([]))
+    checkpointer = InMemorySaver()
+    app.dependency_overrides[get_checkpointer] = lambda: checkpointer
+
+    response = client.post("/runs", json=BODY, headers=HEADERS)
+
+    assert response.json()["status"] == "PLANNED"
+    saved = checkpointer.get_tuple({"configurable": {"thread_id": BODY["runId"]}})
+    assert saved is not None
+    assert [write[1] for write in saved.pending_writes or []] == ["__interrupt__"]
+
+
+def test_the_service_refuses_to_start_without_a_checkpoint_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CHECKPOINT_DATABASE_URL", raising=False)
+
+    with pytest.raises(RuntimeError, match="CHECKPOINT_DATABASE_URL is required"):
+        with TestClient(app):
+            pass
 
 
 def test_a_run_searches_with_the_configured_mode() -> None:
@@ -257,6 +295,7 @@ def test_the_backend_connection_is_closed_however_the_run_ends(
     app.dependency_overrides[get_settings] = lambda: Settings(
         backend_base_url="http://backend"
     )
+    app.dependency_overrides[get_checkpointer] = lambda: InMemorySaver()
 
     TestClient(app).post("/runs", json=BODY, headers=HEADERS)
 

@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     max_decision_rounds: int = Field(default=4, ge=1, le=10)
     max_tool_calls: int = Field(default=8, ge=1, le=20)
     openai_api_key: SecretStr | None = None
+    checkpoint_database_url: SecretStr | None = None
     run_timeout_seconds: float = Field(default=50, gt=0)
     # Semantic search won the 2026-10-05 comparison (docs/baseline/search-modes-*).
     # The backend must have embeddings enabled (SPRING_AI_MODEL_EMBEDDING=openai).
