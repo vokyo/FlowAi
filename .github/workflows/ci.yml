@@ -173,6 +173,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       POSTGRES_PASSWORD: ci-password
+      AGENT_DB_PASSWORD: ci-agent-password
       JWT_SECRET: ci-jwt-secret-at-least-32-bytes-long
       REFRESH_COOKIE_SECURE: "false"
 
