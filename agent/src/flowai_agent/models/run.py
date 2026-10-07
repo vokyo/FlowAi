@@ -24,3 +24,4 @@ class RunResult(BaseModel):
     missing: list[str] = []
     reason: str | None = None
     stats: RunStats
+    checkpointId: str | None = None

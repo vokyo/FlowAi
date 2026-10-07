@@ -196,5 +196,8 @@ def test_the_service_saves_a_run_in_postgres_and_rebuilds_only_listed_types(
 
     assert response.json()["status"] == "PLANNED"
     assert saved is not None
+    assert response.json()["checkpointId"] == saved.config.get("configurable", {}).get(
+        "checkpoint_id"
+    )
     assert isinstance(saved.checkpoint["channel_values"]["plan"], Plan)
     assert not isinstance(rebuilt, RunStats)

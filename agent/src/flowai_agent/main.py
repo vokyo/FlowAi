@@ -98,6 +98,14 @@ async def create_run(
                 checkpointer,
                 str(request.runId),
             )
+            saved = await checkpointer.aget_tuple(
+                {"configurable": {"thread_id": str(request.runId)}}
+            )
+            checkpoint_id = (
+                None
+                if saved is None
+                else saved.config.get("configurable", {}).get("checkpoint_id")
+            )
     except TimeoutError:
         logger.warning("run %s timed out", request.runId)
         return failed(
@@ -108,10 +116,10 @@ async def create_run(
         return failed(f"The run failed unexpectedly: {type(error).__name__}")
     finally:
         await client.aclose()
-    return to_result(final)
+    return to_result(final, checkpoint_id)
 
 
-def to_result(final: AgentState) -> RunResult:
+def to_result(final: AgentState, checkpoint_id: str | None) -> RunResult:
     stats = RunStats(
         decisionRounds=final.decision_rounds_used, toolCalls=final.tool_calls_used
     )
@@ -120,7 +128,9 @@ def to_result(final: AgentState) -> RunResult:
     if final.missing:
         return RunResult(status="INSUFFICIENT_INFO", missing=final.missing, stats=stats)
     if final.plan is not None:
-        return RunResult(status="PLANNED", plan=final.plan, stats=stats)
+        return RunResult(
+            status="PLANNED", plan=final.plan, stats=stats, checkpointId=checkpoint_id
+        )
     else:
         return RunResult(
             status="FAILED", reason="The run ended without a plan", stats=stats

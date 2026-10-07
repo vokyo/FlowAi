@@ -142,6 +142,10 @@ def test_a_planned_run_is_saved_under_its_run_id_waiting_for_review() -> None:
     saved = checkpointer.get_tuple({"configurable": {"thread_id": BODY["runId"]}})
     assert saved is not None
     assert [write[1] for write in saved.pending_writes or []] == ["__interrupt__"]
+    # The backend keeps this id with the version, to revise it from exactly here.
+    paused_at = saved.config.get("configurable", {}).get("checkpoint_id")
+    assert paused_at is not None
+    assert response.json()["checkpointId"] == paused_at
 
 
 def test_the_service_refuses_to_start_without_a_checkpoint_database(
@@ -184,6 +188,7 @@ def test_a_run_out_of_budget_says_what_is_missing() -> None:
     assert body["status"] == "INSUFFICIENT_INFO"
     assert len(body["missing"]) == 1
     assert body["plan"] is None
+    assert body["checkpointId"] is None
     assert body["stats"] == {"decisionRounds": 1, "toolCalls": 0}
     assert sent == []
 
