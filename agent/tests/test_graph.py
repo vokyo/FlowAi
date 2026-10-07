@@ -5,9 +5,16 @@ from uuid import UUID
 import httpx2
 import pytest
 from fake_chat_model import FakeChatModel
-from langchain_core.messages import AIMessage, HumanMessage, ToolCall, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    ToolCall,
+    ToolMessage,
+)
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.graph import END
 from langgraph.types import Command, GraphOutput, StateSnapshot
 
@@ -18,7 +25,7 @@ from flowai_agent.graph.build import (
     run_graph,
 )
 from flowai_agent.graph.nodes import PlanningNodes
-from flowai_agent.graph.state import AgentState
+from flowai_agent.graph.state import CHECKPOINT_TYPES, AgentState
 from flowai_agent.models.plan import Plan
 from flowai_agent.tools.client import BackendClient
 from flowai_agent.tools.definitions import build_tools
@@ -584,3 +591,33 @@ async def test_a_revision_round_that_would_go_over_four_tool_calls_is_not_run() 
     assert sent == []
     assert len(revised.value.missing) == 5
     assert after.next == ()
+
+
+@pytest.mark.anyio
+async def test_a_checkpoint_gives_back_the_plan_as_a_plan_not_a_dict() -> None:
+    model = FakeChatModel(
+        replies=[
+            AIMessage("", tool_calls=[search("login", "call_1")]),
+            ENOUGH,
+            WRITE_PLAN,
+        ]
+    )
+    client = backend([], truncated_queries=set())
+    # Listing types makes the saver rebuild nothing else, as LangGraph will by default.
+    checkpointer = InMemorySaver(
+        serde=JsonPlusSerializer(allowed_msgpack_modules=CHECKPOINT_TYPES)
+    )
+    graph = build_graph(
+        PlanningNodes(model, build_tools(client)), checkpointer=checkpointer
+    )
+    run: RunnableConfig = {"configurable": {"thread_id": "run-1"}}
+
+    await graph.ainvoke(  # pyright: ignore[reportUnknownMemberType]
+        AgentState(goal=GOAL, today=TODAY), run, version="v2"
+    )
+    saved = (await graph.aget_state(run)).values
+    await client.aclose()
+
+    assert isinstance(saved["plan"], Plan)
+    assert isinstance(saved["today"], date)
+    assert all(isinstance(message, BaseMessage) for message in saved["messages"])

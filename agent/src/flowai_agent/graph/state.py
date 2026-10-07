@@ -20,3 +20,8 @@ class AgentState(BaseModel):
     argument_fixes_used: int = 0
     missing: list[str] = []
     failure_reason: str | None = None
+
+
+# Our own types a checkpoint holds. LangGraph rebuilds only the types it knows and
+# the ones listed here, so a state field of a new type of ours must be added.
+CHECKPOINT_TYPES = [Plan]

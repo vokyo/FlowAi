@@ -10,6 +10,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from psycopg import AsyncConnection
 from psycopg.rows import DictRow, dict_row
 from psycopg_pool import AsyncConnectionPool
@@ -17,7 +18,7 @@ from psycopg_pool import AsyncConnectionPool
 from flowai_agent.config import Settings
 from flowai_agent.graph.build import run_graph
 from flowai_agent.graph.nodes import PlanningNodes
-from flowai_agent.graph.state import AgentState
+from flowai_agent.graph.state import CHECKPOINT_TYPES, AgentState
 from flowai_agent.models.run import RunRequest, RunResult, RunStats
 from flowai_agent.tools.client import BackendClient
 from flowai_agent.tools.definitions import build_tools
@@ -35,7 +36,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         connection_class=AsyncConnection[DictRow],
         kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row},
     ) as pool:
-        checkpointer = AsyncPostgresSaver(pool)
+        checkpointer = AsyncPostgresSaver(
+            pool, serde=JsonPlusSerializer(allowed_msgpack_modules=CHECKPOINT_TYPES)
+        )
         await checkpointer.setup()
         app.state.checkpointer = checkpointer
         yield
