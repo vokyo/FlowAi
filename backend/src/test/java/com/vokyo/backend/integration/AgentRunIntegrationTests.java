@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import com.vokyo.backend.agent.AgentRunRepository;
 import com.vokyo.backend.agent.AgentTokenService;
 import com.vokyo.backend.ai.suggestion.AiSuggestion;
 import com.vokyo.backend.ai.suggestion.AiSuggestionRepository;
@@ -63,6 +64,8 @@ import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.matchesPattern;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -93,6 +96,7 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
     @Autowired private IssueRepository issueRepository;
     @Autowired private IssueCreationService issueCreationService;
     @Autowired private AiSuggestionRepository suggestionRepository;
+    @Autowired private AgentRunRepository runRepository;
     @Autowired private JwtService jwtService;
     @Autowired private AgentTokenService agentTokenService;
     @Autowired private SecretKey jwtSecretKey;
@@ -109,13 +113,17 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
     }
 
     @Test
-    void aPlannedRunIsSavedAsADraftPlanThatTheUserCanApprove() throws Exception {
+    void aPlannedRunIsSavedAsItsFirstVersionWhichTheUserCanApprove() throws Exception {
         Graph graph = graph("planned");
         AGENT.answer(request -> planned(request, graph.teammate().getId()));
 
         JsonNode response = readJson(startRun(graph, graph.project().getId(), "  Clear the login debt  ")
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").value("PLANNED"))
+            .andExpect(jsonPath("$.version").value(1))
+            .andExpect(jsonPath("$.approvable").value(true))
+            .andExpect(jsonPath("$.rejectionReason").doesNotExist())
+            .andExpect(jsonPath("$.contentHash").value(matchesPattern("[0-9a-f]{64}")))
             .andExpect(jsonPath("$.plan.items.length()").value(3))
             .andExpect(jsonPath("$.missing.length()").value(0))
             .andExpect(jsonPath("$.stats.toolCalls").value(3)));
@@ -132,21 +140,18 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
         assertThat(agentToken.getClaimAsString("projectId")).isEqualTo(graph.project().getId().toString());
         assertThat(agentToken.getClaimAsString("runId")).isEqualTo(runId);
 
-        AiSuggestion suggestion = suggestionRepository
-            .findById(UUID.fromString(response.get("suggestionId").asText()))
-            .orElseThrow();
+        AiSuggestion suggestion = draftOf(runId, 1);
         assertThat(suggestion.getType()).isEqualTo(AiSuggestionType.PROJECT_PLAN);
         assertThat(suggestion.getStatus()).isEqualTo(AiSuggestionStatus.DRAFT);
         assertThat(suggestion.getSourceIssue()).isNull();
         assertThat(suggestion.getCreatedByUser().getId()).isEqualTo(graph.owner().getId());
+        assertThat(runRepository.findById(UUID.fromString(runId)).orElseThrow().getGoal())
+            .isEqualTo("Clear the login debt");
         assertThat(issueRepository.count()).isZero();
 
-        postJson(
-            "/api/ai/suggestions/%s/apply".formatted(suggestion.getId()),
-            "{ \"idempotencyKey\": \"%s\" }".formatted(UUID.randomUUID()),
-            graph.accessToken()
-        )
+        approve(graph, response)
             .andExpect(status().isOk())
+            .andExpect(jsonPath("$.version").value(1))
             .andExpect(jsonPath("$.createdIssueIds.length()").value(3));
         assertThat(jdbcTemplate.queryForObject(
             "select assignee_user_id from issues where title = ?",
@@ -168,11 +173,7 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
             .andExpect(jsonPath("$.plan.existingIssues[0].reason").value("This is the CSV export"))
             .andExpect(jsonPath("$.plan.items.length()").value(1)));
 
-        postJson(
-            "/api/ai/suggestions/%s/apply".formatted(response.get("suggestionId").asText()),
-            "{ \"idempotencyKey\": \"%s\" }".formatted(UUID.randomUUID()),
-            graph.accessToken()
-        )
+        approve(graph, response)
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.createdIssueIds.length()").value(1));
         assertThat(issueRepository.count()).isEqualTo(2);
@@ -181,7 +182,7 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
     }
 
     @Test
-    void aPlanNamingAnIssueOfAnotherProjectIsRejected() throws Exception {
+    void aPlanNamingAnIssueOfAnotherProjectIsKeptAsAVersionThatCannotBeApproved() throws Exception {
         Graph graph = graph("foreign-issue");
         Project other = projectRepository.save(new Project(
             graph.workspace(), graph.owner(), "Other project", "Another project in the same workspace"));
@@ -190,15 +191,23 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
         Issue foreign = existingIssue(graph, other, "Export a project's issues as CSV");
         AGENT.answer(request -> plannedReusing(foreign.getId(), ONE_NEW_TASK));
 
-        startRun(graph, graph.project().getId(), "Ship CSV export")
-            .andExpect(status().isBadGateway())
-            .andExpect(jsonPath("$.code").value("AI_AGENT_INVALID_RESPONSE"))
-            .andExpect(jsonPath("$.message").value(containsString("is not an active issue of this project")));
+        JsonNode response = readJson(startRun(graph, graph.project().getId(), "Ship CSV export")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("PLANNED"))
+            .andExpect(jsonPath("$.version").value(1))
+            .andExpect(jsonPath("$.approvable").value(false))
+            .andExpect(jsonPath("$.rejectionReason").value(containsString("is not an active issue of this project")))
+            .andExpect(jsonPath("$.plan.existingIssues[0].issueId").value(foreign.getId().toString())));
         assertThat(suggestionRepository.count()).isZero();
+
+        approve(graph, response)
+            .andExpect(status().isUnprocessableEntity())
+            .andExpect(jsonPath("$.code").value("AI_PLAN_VERSION_NOT_APPROVABLE"));
+        assertThat(issueRepository.count()).isEqualTo(1);
     }
 
     @Test
-    void aPlanThatOnlyNamesExistingIssuesIsSavedButHasNothingToApprove() throws Exception {
+    void aPlanThatOnlyNamesExistingIssuesIsKeptButHasNothingToApprove() throws Exception {
         Graph graph = graph("nothing-new");
         Issue csvExport = existingIssue(graph, graph.project(), "Export a project's issues as CSV");
         AGENT.answer(request -> plannedReusing(csvExport.getId(), "[]"));
@@ -206,20 +215,19 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
         JsonNode response = readJson(startRun(graph, graph.project().getId(), "Ship CSV export")
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").value("PLANNED"))
+            .andExpect(jsonPath("$.approvable").value(false))
+            .andExpect(jsonPath("$.rejectionReason").value(containsString("no new task to create")))
             .andExpect(jsonPath("$.plan.items.length()").value(0)));
+        assertThat(suggestionRepository.count()).isZero();
 
-        postJson(
-            "/api/ai/suggestions/%s/apply".formatted(response.get("suggestionId").asText()),
-            "{ \"idempotencyKey\": \"%s\" }".formatted(UUID.randomUUID()),
-            graph.accessToken()
-        )
-            .andExpect(status().isBadRequest())
-            .andExpect(jsonPath("$.message").value(containsString("dismiss it instead")));
+        approve(graph, response)
+            .andExpect(status().isUnprocessableEntity())
+            .andExpect(jsonPath("$.code").value("AI_PLAN_VERSION_NOT_APPROVABLE"));
         assertThat(issueRepository.count()).isEqualTo(1);
     }
 
     @Test
-    void approvingAPlanWhoseExistingIssueWasArchivedSinceIsRejected() throws Exception {
+    void aVersionWhoseExistingIssueWasArchivedSinceIsMarkedUnapprovableWhenApproved() throws Exception {
         Graph graph = graph("archived-since");
         Issue csvExport = existingIssue(graph, graph.project(), "Export a project's issues as CSV");
         AGENT.answer(request -> plannedReusing(csvExport.getId(), ONE_NEW_TASK));
@@ -230,14 +238,23 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
         archived.archive();
         issueRepository.saveAndFlush(archived);
 
-        postJson(
-            "/api/ai/suggestions/%s/apply".formatted(response.get("suggestionId").asText()),
-            "{ \"idempotencyKey\": \"%s\" }".formatted(UUID.randomUUID()),
-            graph.accessToken()
-        )
+        AiSuggestion draft = draftOf(response.get("runId").asText(), 1);
+
+        approve(graph, response)
             .andExpect(status().isUnprocessableEntity())
+            .andExpect(jsonPath("$.code").value("AI_PLAN_VERSION_NOT_APPROVABLE"))
             .andExpect(jsonPath("$.message").value(containsString("is not an active issue of this project")));
         assertThat(issueRepository.count()).isEqualTo(1);
+        // The run stays open, and the version now says why it cannot be approved.
+        mockMvc.perform(get(RUNS + "/" + response.get("runId").asText())
+                .header("Authorization", bearer(graph.accessToken())))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.state").value("REVIEWING"))
+            .andExpect(jsonPath("$.versions[0].approvable").value(false))
+            .andExpect(jsonPath("$.versions[0].rejectionReason")
+                .value(containsString("is not an active issue of this project")));
+        assertThat(suggestionRepository.findById(draft.getId()).orElseThrow().getStatus())
+            .isEqualTo(AiSuggestionStatus.DISMISSED);
     }
 
     @Test
@@ -253,8 +270,9 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").value("INSUFFICIENT_INFO"))
             .andExpect(jsonPath("$.missing[0]").value("No issue mentions the login module"))
-            .andExpect(jsonPath("$.suggestionId").doesNotExist())
+            .andExpect(jsonPath("$.version").doesNotExist())
             .andExpect(jsonPath("$.plan").doesNotExist());
+        assertThat(runRepository.count()).isZero();
         assertThat(suggestionRepository.count()).isZero();
     }
 
@@ -269,19 +287,32 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
         startRun(graph, graph.project().getId(), "Clear the login debt")
             .andExpect(status().isBadGateway())
             .andExpect(jsonPath("$.code").value("AI_AGENT_RUN_FAILED"));
+        assertThat(runRepository.count()).isZero();
         assertThat(suggestionRepository.count()).isZero();
     }
 
     @Test
-    void aPlanThatAssignsSomeoneOutsideTheProjectIsRejected() throws Exception {
+    void aPlanThatAssignsSomeoneOutsideTheProjectCannotBeApprovedButCanBeRevised() throws Exception {
         Graph graph = graph("stranger-assignee");
         AGENT.answer(request -> planned(request, UUID.randomUUID()));
 
         startRun(graph, graph.project().getId(), "Clear the login debt")
-            .andExpect(status().isBadGateway())
-            .andExpect(jsonPath("$.code").value("AI_AGENT_INVALID_RESPONSE"))
-            .andExpect(jsonPath("$.message").value(containsString("is not an active project member")));
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.approvable").value(false))
+            .andExpect(jsonPath("$.rejectionReason").value(containsString("is not an active project member")));
         assertThat(suggestionRepository.count()).isZero();
+        assertThat(runRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void aPlannedAnswerWithoutAPlanBreaksTheContract() throws Exception {
+        Graph graph = graph("planned-without-plan");
+        AGENT.answer(request -> ok("{\"status\": \"PLANNED\", \"stats\": {\"decisionRounds\": 1, \"toolCalls\": 0}}"));
+
+        startRun(graph, graph.project().getId(), "Clear the login debt")
+            .andExpect(status().isBadGateway())
+            .andExpect(jsonPath("$.code").value("AI_AGENT_INVALID_RESPONSE"));
+        assertThat(runRepository.count()).isZero();
     }
 
     @Test
@@ -342,6 +373,23 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
 
     private ResultActions startRun(Graph graph, UUID projectId, String goal) throws Exception {
         return postJson(RUNS, runBody(projectId, goal), graph.accessToken());
+    }
+
+    private ResultActions approve(Graph graph, JsonNode planned) throws Exception {
+        return postJson(
+            RUNS + "/" + planned.get("runId").asText() + "/approve",
+            """
+                { "version": %d, "contentHash": "%s" }
+                """.formatted(planned.get("version").asInt(), planned.get("contentHash").asText()),
+            graph.accessToken()
+        );
+    }
+
+    private AiSuggestion draftOf(String runId, int version) {
+        return suggestionRepository.findById(jdbcTemplate.queryForObject(
+            "select suggestion_id from agent_plan_versions where run_id = ? and version = ?",
+            UUID.class, UUID.fromString(runId), version
+        )).orElseThrow();
     }
 
     private static String runBody(UUID projectId, String goal) {
@@ -501,7 +549,11 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
 
         private void handle(HttpExchange exchange) throws IOException {
             JsonNode body = JSON.readTree(exchange.getRequestBody());
-            received.add(new Received(exchange.getRequestHeaders().getFirst("Authorization"), body));
+            received.add(new Received(
+                exchange.getRequestURI().getPath(),
+                exchange.getRequestHeaders().getFirst("Authorization"),
+                body
+            ));
             Reply reply = answer.apply(body);
             byte[] bytes = reply.body().getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
@@ -510,7 +562,7 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
             exchange.close();
         }
 
-        record Received(String authorization, JsonNode body) {
+        record Received(String path, String authorization, JsonNode body) {
             String bearerToken() {
                 return authorization.substring("Bearer ".length());
             }

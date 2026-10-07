@@ -17,10 +17,11 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 /**
- * Calls the planning agent's POST /runs. The agent is a separate Python service that
- * reads project data through the internal endpoints with the run's agent token; this
- * call is the only thing the backend sends it, and it is never retried, since a run
- * makes several model calls and its result differs from one attempt to the next.
+ * Calls the planning agent: POST /runs to start a run, and POST /runs/{runId}/resume
+ * to revise its plan. The agent is a separate Python service that reads project data
+ * through the internal endpoints with the run's agent token. Neither call is retried,
+ * since a run makes several model calls and its result differs from one attempt to
+ * the next.
  */
 @Component
 public class AgentServiceClient {
@@ -43,13 +44,25 @@ public class AgentServiceClient {
     }
 
     public AgentRunResult run(String agentToken, UUID runId, String goal, LocalDate today) {
+        return post(agentToken, new RunRequest(runId, goal, today.toString()), "/runs");
+    }
+
+    /**
+     * Continues the run from the checkpoint where the version under review stopped,
+     * with the user's feedback, and answers like a run does.
+     */
+    public AgentRunResult resume(String agentToken, UUID runId, String checkpointId, String feedback) {
+        return post(agentToken, new ResumeRequest(checkpointId, feedback), "/runs/{runId}/resume", runId);
+    }
+
+    private AgentRunResult post(String agentToken, Object body, String uri, Object... uriVariables) {
         AgentRunResult result;
         try {
             result = restClient.post()
-                .uri("/runs")
+                .uri(uri, uriVariables)
                 .headers(headers -> headers.setBearerAuth(agentToken))
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(new RunRequest(runId, goal, today.toString()))
+                .body(body)
                 .retrieve()
                 .body(AgentRunResult.class);
         } catch (RestClientResponseException exception) {
@@ -95,5 +108,12 @@ public class AgentServiceClient {
      * model schedules from it and the backend validates the plan's dates against it.
      */
     record RunRequest(UUID runId, String goal, String today) {
+    }
+
+    /**
+     * The request body of POST /runs/{runId}/resume. checkpointId is where the version
+     * being revised stopped; null if the agent did not report one.
+     */
+    record ResumeRequest(String checkpointId, String feedback) {
     }
 }

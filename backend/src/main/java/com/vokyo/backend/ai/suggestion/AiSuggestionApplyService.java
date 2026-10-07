@@ -22,10 +22,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.Clock;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -51,7 +52,6 @@ public class AiSuggestionApplyService {
     private final TransactionTemplate transactionTemplate;
     private final AiMetrics metrics;
     private final ProjectPlanValidator projectPlanValidator;
-    private final Clock clock;
 
     public AiSuggestionApplyService(
             WorkspaceAccessService workspaceAccessService,
@@ -62,8 +62,7 @@ public class AiSuggestionApplyService {
             ObjectMapper objectMapper,
             PlatformTransactionManager transactionManager,
             AiMetrics metrics,
-            ProjectPlanValidator projectPlanValidator,
-            Clock clock
+            ProjectPlanValidator projectPlanValidator
     ) {
         this.workspaceAccessService = workspaceAccessService;
         this.suggestionService = suggestionService;
@@ -74,7 +73,6 @@ public class AiSuggestionApplyService {
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.metrics = metrics;
         this.projectPlanValidator = projectPlanValidator;
-        this.clock = clock;
     }
 
     public ApplySuggestionResponse apply(
@@ -117,6 +115,11 @@ public class AiSuggestionApplyService {
                 suggestionId,
                 request.idempotencyKey()
         );
+        // A project plan is approved through its run, which checks the version and
+        // records the outcome; applying its draft here would skip both.
+        if (suggestion.getType() == AiSuggestionType.PROJECT_PLAN) {
+            throw AiFeatureException.projectPlanBelongsToRun();
+        }
 
         if (suggestion.wasAppliedWith(request.idempotencyKey())) {
             return ApplyOutcome.replay(suggestion.getType(), toResponse(suggestion));
@@ -127,9 +130,8 @@ public class AiSuggestionApplyService {
 
         List<UUID> createdIssueIds = switch (suggestion.getType()) {
             case ISSUE_BREAKDOWN -> applyIssueBreakdown(context, suggestion, request);
-            case PROJECT_PLAN -> applyProjectPlan(context, suggestion, request);
-            case ISSUE_SUMMARY, PROJECT_SUMMARY -> throw AiFeatureException.suggestionInvalid(
-                    "Only issue breakdown and project plan suggestions can be applied"
+            case PROJECT_PLAN, ISSUE_SUMMARY, PROJECT_SUMMARY -> throw AiFeatureException.suggestionInvalid(
+                    "Only issue breakdown suggestions can be applied"
             );
         };
 
@@ -139,6 +141,54 @@ public class AiSuggestionApplyService {
                 createdIssueIds
         );
         return ApplyOutcome.success(applied.getType(), toResponse(applied));
+    }
+
+    /**
+     * Applies the draft of a planning run's version: every task becomes an issue, or
+     * none does. Runs inside the caller's transaction, which holds the run's lock, so
+     * the issues and the run's new state commit together. The idempotency key comes
+     * from the run and version, so approving the same version again replays.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public RunPlanApplication applyRunPlan(
+            CurrentWorkspaceContext context,
+            UUID suggestionId,
+            UUID idempotencyKey,
+            LocalDate generatedOn
+    ) {
+        AiSuggestion suggestion = suggestionService.requireApplicableDraft(
+                context,
+                suggestionId,
+                idempotencyKey
+        );
+        if (suggestion.getType() != AiSuggestionType.PROJECT_PLAN) {
+            throw new IllegalStateException("A planning run's draft must be a project plan");
+        }
+        if (suggestion.wasAppliedWith(idempotencyKey)) {
+            return new RunPlanApplication(toResponse(suggestion), false, true);
+        }
+        if (suggestion.getStatus() == AiSuggestionStatus.EXPIRED) {
+            return new RunPlanApplication(null, true, false);
+        }
+
+        List<UUID> createdIssueIds = applyProjectPlan(context, suggestion, generatedOn);
+        AiSuggestion applied = suggestionService.markApplied(
+                suggestion,
+                idempotencyKey,
+                createdIssueIds
+        );
+        return new RunPlanApplication(toResponse(applied), false, false);
+    }
+
+    /**
+     * What applying a run's draft did. An expired draft was marked expired and created
+     * nothing; the caller commits that and reports it.
+     */
+    public record RunPlanApplication(
+            ApplySuggestionResponse response,
+            boolean expired,
+            boolean replay
+    ) {
     }
 
     private List<UUID> applyIssueBreakdown(
@@ -190,14 +240,8 @@ public class AiSuggestionApplyService {
     private List<UUID> applyProjectPlan(
             CurrentWorkspaceContext context,
             AiSuggestion suggestion,
-            ApplySuggestionRequest request
+            LocalDate generatedOn
     ) {
-        if (request.items() != null && !request.items().isEmpty()) {
-            throw AiFeatureException.requestInvalid(
-                    "Project plans are applied as saved and take no items"
-            );
-        }
-
         Project project = projectAccessService.requireAccessibleProjectForUpdate(
                 suggestion.getProject().getId(),
                 context
@@ -208,10 +252,10 @@ public class AiSuggestionApplyService {
             );
         }
 
-        ProjectPlan plan = revalidateProjectPlan(suggestion, project);
+        ProjectPlan plan = revalidateProjectPlan(suggestion, project, generatedOn);
         if (plan.items().isEmpty()) {
             throw AiFeatureException.requestInvalid(
-                    "This plan only names existing issues and has no new tasks to create; dismiss it instead"
+                    "This plan only names existing issues and has no new tasks to create; cancel the run instead"
             );
         }
         List<UUID> createdIssueIds = new ArrayList<>();
@@ -230,7 +274,11 @@ public class AiSuggestionApplyService {
         return createdIssueIds;
     }
 
-    private ProjectPlan revalidateProjectPlan(AiSuggestion suggestion, Project project) {
+    private ProjectPlan revalidateProjectPlan(
+            AiSuggestion suggestion,
+            Project project,
+            LocalDate generatedOn
+    ) {
         ProjectPlan savedPlan;
         try {
             savedPlan = objectMapper.treeToValue(
@@ -246,10 +294,9 @@ public class AiSuggestionApplyService {
         Set<UUID> activeMemberUserIds = projectAccessService.listActiveProjectMembers(project).stream()
                 .map(member -> member.getUser().getId())
                 .collect(Collectors.toUnmodifiableSet());
-        // Membership is judged as of now, but dates from the day the plan was
+        // Membership is judged as of now, but dates from the day the run was
         // generated: a due date passing while the plan waits for approval must not
         // make it impossible to approve.
-        LocalDate generatedOn = LocalDate.ofInstant(suggestion.getCreatedAt(), clock.getZone());
         Set<UUID> activeIssueIds = savedPlan == null
                 ? Set.of()
                 : issueRepository.findActiveIdsInProject(

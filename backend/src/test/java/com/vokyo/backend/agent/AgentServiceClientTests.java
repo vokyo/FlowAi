@@ -51,6 +51,7 @@ class AgentServiceClientTests {
         server.createContext("/runs", exchange -> {
             recorded.set(new Recorded(
                 exchange.getRequestMethod(),
+                exchange.getRequestURI().getPath(),
                 exchange.getRequestHeaders().getFirst("Authorization"),
                 exchange.getRequestHeaders().getFirst("Content-Type"),
                 exchange.getRequestHeaders().getFirst("Upgrade"),
@@ -104,6 +105,36 @@ class AgentServiceClientTests {
         assertThat(result.plan().items().getFirst().dueDate()).isEqualTo(LocalDate.parse("2026-10-11"));
         assertThat(result.stats().decisionRounds()).isEqualTo(2);
         assertThat(result.stats().toolCalls()).isEqualTo(3);
+    }
+
+    @Test
+    void revisesARunFromItsCheckpointWithTheFeedbackAndReadsWhereItStopped() throws Exception {
+        respondWith(200, """
+            {
+              "status": "PLANNED",
+              "plan": {"overview": "Clear the login debt", "items": [{
+                "clientItemId": "item-1", "title": "Remove the legacy session table",
+                "description": null, "priority": "LOW",
+                "suggestedAssigneeUserId": null, "dueDate": null}]},
+              "stats": {"decisionRounds": 1, "toolCalls": 0},
+              "checkpointId": "1f0a-checkpoint-2"
+            }
+            """);
+
+        AgentRunResult result = client(Duration.ofSeconds(5))
+            .resume("agent-token", RUN_ID, "1f0a-checkpoint-1", "Drop item-2");
+
+        Recorded request = recorded.get();
+        assertThat(request.method()).isEqualTo("POST");
+        assertThat(request.path()).isEqualTo("/runs/" + RUN_ID + "/resume");
+        assertThat(request.authorization()).isEqualTo("Bearer agent-token");
+        JsonNode body = objectMapper.readTree(request.body());
+        assertThat(body.get("checkpointId").asText()).isEqualTo("1f0a-checkpoint-1");
+        assertThat(body.get("feedback").asText()).isEqualTo("Drop item-2");
+
+        assertThat(result.status()).isEqualTo(AgentRunStatus.PLANNED);
+        assertThat(result.plan().items()).hasSize(1);
+        assertThat(result.checkpointId()).isEqualTo("1f0a-checkpoint-2");
     }
 
     @Test
@@ -225,6 +256,7 @@ class AgentServiceClientTests {
 
     private record Recorded(
         String method,
+        String path,
         String authorization,
         String contentType,
         String upgrade,

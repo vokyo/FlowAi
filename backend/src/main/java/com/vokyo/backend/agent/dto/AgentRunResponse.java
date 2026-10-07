@@ -8,14 +8,18 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * How a finished run ended. PLANNED comes with the saved suggestion and its validated
- * plan; INSUFFICIENT_INFO says what was missing and saves nothing. A run that failed
- * is reported as an error response instead.
+ * How starting or revising a run ended. PLANNED comes with the version it saved: an
+ * approvable one with its content hash, which approving it requires, or one that
+ * cannot be approved and says why, so the user can revise it. INSUFFICIENT_INFO says
+ * what was missing and saves no version. A run that failed is an error response.
  */
 public record AgentRunResponse(
     UUID runId,
     AgentRunStatus status,
-    UUID suggestionId,
+    Integer version,
+    Boolean approvable,
+    String rejectionReason,
+    String contentHash,
     ProjectPlan plan,
     List<String> missing,
     AgentRunResult.Stats stats

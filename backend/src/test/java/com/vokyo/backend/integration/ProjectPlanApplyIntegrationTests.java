@@ -1,12 +1,13 @@
 package com.vokyo.backend.integration;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.vokyo.backend.agent.AgentPlanVersion;
+import com.vokyo.backend.agent.AgentPlanVersions;
+import com.vokyo.backend.agent.AgentRunRepository;
+import com.vokyo.backend.agent.AgentRunState;
 import com.vokyo.backend.ai.plan.ProjectPlan;
-import com.vokyo.backend.ai.suggestion.AiSuggestion;
 import com.vokyo.backend.ai.suggestion.AiSuggestionRepository;
-import com.vokyo.backend.ai.suggestion.AiSuggestionService;
 import com.vokyo.backend.ai.suggestion.AiSuggestionStatus;
-import com.vokyo.backend.ai.suggestion.AiSuggestionType;
 import com.vokyo.backend.issue.Issue;
 import com.vokyo.backend.issue.IssueCreationService;
 import com.vokyo.backend.issue.IssuePriority;
@@ -79,7 +80,8 @@ class ProjectPlanApplyIntegrationTests extends AbstractMockMvcIntegrationTest {
     @Autowired private ProjectWorkflowStateRepository workflowStateRepository;
     @Autowired private IssueRepository issueRepository;
     @Autowired private AiSuggestionRepository suggestionRepository;
-    @Autowired private AiSuggestionService suggestionService;
+    @Autowired private AgentPlanVersions planVersions;
+    @Autowired private AgentRunRepository runRepository;
     @Autowired private JwtService jwtService;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private MeterRegistry meterRegistry;
@@ -93,18 +95,19 @@ class ProjectPlanApplyIntegrationTests extends AbstractMockMvcIntegrationTest {
     }
 
     @Test
-    void approvingAPlanCreatesEveryTaskOnceAndReplaysTheSameKey() throws Exception {
+    void approvingAPlanCreatesEveryTaskOnceAndApprovingItAgainReplays() throws Exception {
         Graph graph = graph("approve");
         LocalDate dueDate = LocalDate.now(ZoneOffset.UTC).plusDays(7);
-        AiSuggestion suggestion = savePlan(graph, graph.teammate().getId(), dueDate);
+        Saved saved = savePlan(graph, graph.teammate().getId(), dueDate);
         assertThat(issueRepository.count()).isZero();
         double appliedPlansBefore = appliedProjectPlans();
 
-        UUID key = UUID.randomUUID();
-        JsonNode first = readJson(apply(graph, suggestion, key)
+        JsonNode first = readJson(approve(graph, saved)
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("APPLIED"))
+                .andExpect(jsonPath("$.version").value(1))
                 .andExpect(jsonPath("$.createdIssueIds.length()").value(3)));
+        assertThat(runRepository.findById(saved.runId()).orElseThrow().getState())
+                .isEqualTo(AgentRunState.APPROVED);
 
         assertThat(issueRepository.findAll())
                 .extracting(Issue::getTitle)
@@ -121,15 +124,10 @@ class ProjectPlanApplyIntegrationTests extends AbstractMockMvcIntegrationTest {
         assertThat(assigned.get("priority")).isEqualTo("HIGH");
         assertThat(((Date) assigned.get("due_date")).toLocalDate()).isEqualTo(dueDate);
 
-        apply(graph, suggestion, key)
+        approve(graph, saved)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.createdIssueIds[0]")
                         .value(first.get("createdIssueIds").get(0).asText()));
-        assertThat(issueRepository.count()).isEqualTo(3);
-
-        apply(graph, suggestion, UUID.randomUUID())
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("AI_SUGGESTION_NOT_DRAFT"));
         assertThat(issueRepository.count()).isEqualTo(3);
         assertThat(appliedProjectPlans() - appliedPlansBefore).isEqualTo(1.0);
     }
@@ -137,7 +135,7 @@ class ProjectPlanApplyIntegrationTests extends AbstractMockMvcIntegrationTest {
     @Test
     void aTaskThatFailsHalfwayRollsBackTheWholePlan() throws Exception {
         Graph graph = graph("rollback");
-        AiSuggestion suggestion = savePlan(graph, null, null);
+        Saved saved = savePlan(graph, null, null);
         AtomicInteger creations = new AtomicInteger();
         doAnswer(invocation -> {
             if (creations.incrementAndGet() == 3) {
@@ -146,35 +144,37 @@ class ProjectPlanApplyIntegrationTests extends AbstractMockMvcIntegrationTest {
             return invocation.callRealMethod();
         }).when(issueCreationService).create(any(), any(), any());
 
-        apply(graph, suggestion, UUID.randomUUID())
+        approve(graph, saved)
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("AI_SUGGESTION_INVALID"));
 
-        // Two issues were written before the third failed; the transaction must take them back.
+        // Two issues were written before the third failed; the transaction must take them back,
+        // and with them the run's approval.
         assertThat(creations.get()).isEqualTo(3);
         assertThat(issueRepository.count()).isZero();
-        assertThat(statusOf(suggestion)).isEqualTo(AiSuggestionStatus.DRAFT);
+        assertThat(statusOf(saved)).isEqualTo(AiSuggestionStatus.DRAFT);
+        assertThat(runRepository.findById(saved.runId()).orElseThrow().getState())
+                .isEqualTo(AgentRunState.REVIEWING);
     }
 
     @Test
     void aPlanStaysApprovableAfterOneOfItsDueDatesHasPassed() throws Exception {
         Graph graph = graph("late-approval");
         LocalDate dueOnGenerationDay = LocalDate.now(ZoneOffset.UTC);
-        AiSuggestion suggestion = savePlan(graph, null, dueOnGenerationDay);
+        Saved saved = savePlan(graph, null, dueOnGenerationDay);
         // Three days later: still inside the seven-day TTL, but past item-2's due date.
         clock.pinTo(Instant.now().plus(Duration.ofDays(3)));
 
-        apply(graph, suggestion, UUID.randomUUID())
+        approve(graph, saved)
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("APPLIED"))
                 .andExpect(jsonPath("$.createdIssueIds.length()").value(3));
     }
 
     @Test
     void aPlanThatExpiresWhileItsIssuesAreBeingCreatedLeavesNoIssuesBehind() throws Exception {
         Graph graph = graph("expires-mid-apply");
-        AiSuggestion suggestion = savePlan(graph, null, null);
-        Instant expiresAt = suggestion.getExpiresAt();
+        Saved saved = savePlan(graph, null, null);
+        Instant expiresAt = suggestionRepository.findById(saved.suggestionId()).orElseThrow().getExpiresAt();
         clock.pinTo(expiresAt.minusSeconds(1));
         AtomicInteger creations = new AtomicInteger();
         doAnswer(invocation -> {
@@ -187,13 +187,13 @@ class ProjectPlanApplyIntegrationTests extends AbstractMockMvcIntegrationTest {
             return created;
         }).when(issueCreationService).create(any(), any(), any());
 
-        apply(graph, suggestion, UUID.randomUUID())
+        approve(graph, saved)
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("AI_SUGGESTION_NOT_DRAFT"));
 
         assertThat(creations.get()).isEqualTo(3);
         assertThat(issueRepository.count()).isZero();
-        mockMvc.perform(get("/api/ai/suggestions/{id}", suggestion.getId())
+        mockMvc.perform(get("/api/ai/suggestions/{id}", saved.suggestionId())
                         .header("Authorization", bearer(graph.accessToken())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("EXPIRED"))
@@ -201,9 +201,9 @@ class ProjectPlanApplyIntegrationTests extends AbstractMockMvcIntegrationTest {
     }
 
     @Test
-    void anAssigneeWhoLeftTheProjectBeforeApprovalFailsTheWholePlan() throws Exception {
+    void anAssigneeWhoLeftTheProjectBeforeApprovalMakesTheVersionUnapprovable() throws Exception {
         Graph graph = graph("assignee-left");
-        AiSuggestion suggestion = savePlan(graph, graph.teammate().getId(), null);
+        Saved saved = savePlan(graph, graph.teammate().getId(), null);
         ProjectMember teammate = projectMemberRepository.findByWorkspace_IdAndProject_IdAndUser_Id(
                 graph.workspace().getId(),
                 graph.project().getId(),
@@ -212,68 +212,73 @@ class ProjectPlanApplyIntegrationTests extends AbstractMockMvcIntegrationTest {
         teammate.disable();
         projectMemberRepository.saveAndFlush(teammate);
 
-        apply(graph, suggestion, UUID.randomUUID())
+        approve(graph, saved)
                 .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.code").value("AI_SUGGESTION_INVALID"))
+                .andExpect(jsonPath("$.code").value("AI_PLAN_VERSION_NOT_APPROVABLE"))
                 .andExpect(jsonPath("$.message").value(
                         "suggestedAssigneeUserId of item item-2 is not an active project member"));
 
+        // Nothing was created, but the run stays open with the reason recorded, so the
+        // user can revise the plan instead of starting over.
         assertThat(issueRepository.count()).isZero();
-        assertThat(statusOf(suggestion)).isEqualTo(AiSuggestionStatus.DRAFT);
+        assertThat(statusOf(saved)).isEqualTo(AiSuggestionStatus.DISMISSED);
+        assertThat(runRepository.findById(saved.runId()).orElseThrow().getState())
+                .isEqualTo(AgentRunState.REVIEWING);
+        assertThat(jdbcTemplate.queryForObject(
+                "select rejection_reason from agent_plan_versions where run_id = ? and version = 1",
+                String.class,
+                saved.runId()
+        )).isEqualTo("suggestedAssigneeUserId of item item-2 is not an active project member");
     }
 
     @Test
     void anArchivedProjectCannotApproveAPlan() throws Exception {
         Graph graph = graph("archived");
-        AiSuggestion suggestion = savePlan(graph, null, null);
+        Saved saved = savePlan(graph, null, null);
         Project project = projectRepository.findById(graph.project().getId()).orElseThrow();
         project.archive();
         projectRepository.saveAndFlush(project);
 
-        apply(graph, suggestion, UUID.randomUUID())
+        approve(graph, saved)
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("AI_REQUEST_INVALID"))
                 .andExpect(jsonPath("$.message").value("Archived projects cannot apply project plans"));
 
         assertThat(issueRepository.count()).isZero();
-        assertThat(statusOf(suggestion)).isEqualTo(AiSuggestionStatus.DRAFT);
+        assertThat(statusOf(saved)).isEqualTo(AiSuggestionStatus.DRAFT);
     }
 
     @Test
-    void approvingAPlanCannotEditItsTasks() throws Exception {
-        Graph graph = graph("edits");
-        AiSuggestion suggestion = savePlan(graph, null, null);
+    void theSuggestionEndpointsNoLongerApplyOrDismissProjectPlans() throws Exception {
+        Graph graph = graph("generic-endpoints");
+        Saved saved = savePlan(graph, null, null);
 
         postJson(
-                "/api/ai/suggestions/%s/apply".formatted(suggestion.getId()),
-                """
-                        {
-                          "idempotencyKey": "%s",
-                          "items": [{ "clientItemId": "item-1", "selected": true, "title": "Edited" }]
-                        }
-                        """.formatted(UUID.randomUUID()),
+                "/api/ai/suggestions/%s/apply".formatted(saved.suggestionId()),
+                "{ \"idempotencyKey\": \"%s\" }".formatted(UUID.randomUUID()),
                 graph.accessToken()
-        ).andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Project plans are applied as saved and take no items"));
+        ).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("AI_PROJECT_PLAN_BELONGS_TO_RUN"));
+        postJson("/api/ai/suggestions/%s/dismiss".formatted(saved.suggestionId()), "{}", graph.accessToken())
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("AI_PROJECT_PLAN_BELONGS_TO_RUN"));
 
         assertThat(issueRepository.count()).isZero();
+        assertThat(statusOf(saved)).isEqualTo(AiSuggestionStatus.DRAFT);
     }
 
-    private ResultActions apply(
-            Graph graph,
-            AiSuggestion suggestion,
-            UUID idempotencyKey
-    ) throws Exception {
+    private ResultActions approve(Graph graph, Saved saved) throws Exception {
         return postJson(
-                "/api/ai/suggestions/%s/apply".formatted(suggestion.getId()),
+                "/api/agent/runs/%s/approve".formatted(saved.runId()),
                 """
-                        { "idempotencyKey": "%s" }
-                        """.formatted(idempotencyKey),
+                        { "version": 1, "contentHash": "%s" }
+                        """.formatted(saved.contentHash()),
                 graph.accessToken()
         );
     }
 
-    private AiSuggestion savePlan(Graph graph, UUID secondAssignee, LocalDate dueDate) {
+    /** Saves the plan as version 1 of a new run, as a run that the agent planned would. */
+    private Saved savePlan(Graph graph, UUID secondAssignee, LocalDate dueDate) {
         ProjectPlan plan = new ProjectPlan(
                 "Clear the login module's technical debt",
                 List.of(
@@ -308,23 +313,24 @@ class ProjectPlanApplyIntegrationTests extends AbstractMockMvcIntegrationTest {
                 graph.workspace(),
                 graph.membership()
         );
-        return suggestionService.createDraft(new AiSuggestionService.CreateDraftCommand(
+        AgentPlanVersion version = planVersions.startRun(
                 context,
                 graph.project(),
-                null,
-                AiSuggestionType.PROJECT_PLAN,
-                objectMapper.valueToTree(plan),
-                "planning-agent-v1",
-                "fake",
-                "fake-model",
-                "goal: clear the login module's technical debt",
-                null,
+                UUID.randomUUID(),
+                "Clear the login module's technical debt",
+                LocalDate.now(ZoneOffset.UTC),
+                plan,
                 null
-        ));
+        );
+        assertThat(version.isApprovable()).isTrue();
+        return new Saved(version.getRun().getId(), version.getContentHash(), version.getSuggestion().getId());
     }
 
-    private AiSuggestionStatus statusOf(AiSuggestion suggestion) {
-        return suggestionRepository.findById(suggestion.getId()).orElseThrow().getStatus();
+    private AiSuggestionStatus statusOf(Saved saved) {
+        return suggestionRepository.findById(saved.suggestionId()).orElseThrow().getStatus();
+    }
+
+    private record Saved(UUID runId, String contentHash, UUID suggestionId) {
     }
 
     private double appliedProjectPlans() {

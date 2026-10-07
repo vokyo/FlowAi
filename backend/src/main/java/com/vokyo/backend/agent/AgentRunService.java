@@ -1,6 +1,5 @@
 package com.vokyo.backend.agent;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vokyo.backend.agent.dto.AgentRunRequest;
 import com.vokyo.backend.agent.dto.AgentRunResponse;
 import com.vokyo.backend.ai.AiFeatureException;
@@ -8,12 +7,6 @@ import com.vokyo.backend.ai.AiGenerationRateLimiter;
 import com.vokyo.backend.ai.AiMetrics;
 import com.vokyo.backend.ai.AiRateLimitExceededException;
 import com.vokyo.backend.ai.plan.ProjectPlan;
-import com.vokyo.backend.ai.plan.ProjectPlanValidationException;
-import com.vokyo.backend.ai.plan.ProjectPlanValidator;
-import com.vokyo.backend.ai.suggestion.AiSuggestion;
-import com.vokyo.backend.ai.suggestion.AiSuggestionService;
-import com.vokyo.backend.ai.suggestion.AiSuggestionType;
-import com.vokyo.backend.issue.IssueRepository;
 import com.vokyo.backend.project.Project;
 import com.vokyo.backend.project.ProjectAccessService;
 import com.vokyo.backend.workspace.CurrentWorkspaceContext;
@@ -31,14 +24,13 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
- * Starts a planning run for the current user and turns its answer into a draft
- * PROJECT_PLAN suggestion. Nothing the agent returns is trusted: the plan goes through
- * the same validator that runs again when the suggestion is approved.
+ * Starts a planning run for the current user and saves its plan as the run's first
+ * version, to be reviewed. Nothing the agent returns is trusted: the plan goes through
+ * the same validator that runs again when it is approved, and a plan that fails it is
+ * kept as a version that cannot be approved, with the reason, so it can be revised.
  *
  * <p>Deliberately not transactional as a whole: the access checks run in one short
  * read-only transaction, and the call to the agent, which can take up to the read
@@ -48,7 +40,6 @@ import java.util.stream.Collectors;
 @Service
 public class AgentRunService {
 
-    static final String PROMPT_VERSION = "planning-agent-v1";
     static final int MAX_MISSING_ITEMS = 5;
     static final int MAX_MISSING_LENGTH = 500;
     private static final String METRIC_FEATURE = "project_plan";
@@ -59,10 +50,7 @@ public class AgentRunService {
     private final AiGenerationRateLimiter rateLimiter;
     private final AgentTokenService agentTokenService;
     private final AgentServiceClient agentServiceClient;
-    private final ProjectPlanValidator projectPlanValidator;
-    private final IssueRepository issueRepository;
-    private final AiSuggestionService suggestionService;
-    private final ObjectMapper objectMapper;
+    private final AgentPlanVersions planVersions;
     private final AiMetrics metrics;
     private final Clock clock;
     private final TransactionTemplate readOnlyTransaction;
@@ -73,10 +61,7 @@ public class AgentRunService {
         AiGenerationRateLimiter rateLimiter,
         AgentTokenService agentTokenService,
         AgentServiceClient agentServiceClient,
-        ProjectPlanValidator projectPlanValidator,
-        IssueRepository issueRepository,
-        AiSuggestionService suggestionService,
-        ObjectMapper objectMapper,
+        AgentPlanVersions planVersions,
         AiMetrics metrics,
         Clock clock,
         PlatformTransactionManager transactionManager
@@ -86,10 +71,7 @@ public class AgentRunService {
         this.rateLimiter = rateLimiter;
         this.agentTokenService = agentTokenService;
         this.agentServiceClient = agentServiceClient;
-        this.projectPlanValidator = projectPlanValidator;
-        this.issueRepository = issueRepository;
-        this.suggestionService = suggestionService;
-        this.objectMapper = objectMapper;
+        this.planVersions = planVersions;
         this.metrics = metrics;
         this.clock = clock;
         this.readOnlyTransaction = new TransactionTemplate(transactionManager);
@@ -121,18 +103,15 @@ public class AgentRunService {
             logRun(runId, project, result);
 
             AgentRunResponse response = switch (result.status()) {
-                case PLANNED -> savePlan(context, project, runId, goal, today, result);
-                case INSUFFICIENT_INFO -> new AgentRunResponse(
-                    runId,
-                    AgentRunStatus.INSUFFICIENT_INFO,
-                    null,
-                    null,
-                    requireMissing(result.missing()),
+                case PLANNED -> planVersions.plannedResponse(
+                    planVersions.startRun(context, project, runId, goal, today, requirePlan(result),
+                        result.checkpointId()),
                     result.stats()
                 );
+                case INSUFFICIENT_INFO -> insufficient(runId, result);
                 case FAILED -> throw AiFeatureException.agentRunFailed();
             };
-            metricResult = response.status() == AgentRunStatus.PLANNED ? "success" : "insufficient_info";
+            metricResult = metricResult(response);
             return response;
         } catch (AiRateLimitExceededException exception) {
             metricResult = "rate_limited";
@@ -161,52 +140,35 @@ public class AgentRunService {
         return new RunScope(context, project);
     }
 
-    private AgentRunResponse savePlan(
-        CurrentWorkspaceContext context,
-        Project project,
-        UUID runId,
-        String goal,
-        LocalDate today,
-        AgentRunResult result
-    ) {
-        Set<UUID> activeMemberUserIds = projectAccessService.listActiveProjectMembers(project).stream()
-            .map(member -> member.getUser().getId())
-            .collect(Collectors.toUnmodifiableSet());
-        Set<UUID> activeIssueIds = result.plan() == null
-            ? Set.of()
-            : issueRepository.findActiveIdsInProject(
-                project.getWorkspace().getId(),
-                project.getId(),
-                result.plan().referencedIssueIds()
-            );
-        ProjectPlan plan;
-        try {
-            plan = projectPlanValidator.validate(result.plan(), activeMemberUserIds, activeIssueIds, today);
-        } catch (ProjectPlanValidationException exception) {
-            throw AiFeatureException.agentInvalidResponse(
-                "Planning agent returned a plan that breaks a rule: " + exception.getMessage(),
-                exception
-            );
+    static ProjectPlan requirePlan(AgentRunResult result) {
+        if (result.plan() == null) {
+            throw AiFeatureException.agentInvalidResponse("Planning agent returned PLANNED without a plan");
         }
-
-        AiSuggestion suggestion = suggestionService.createDraft(new AiSuggestionService.CreateDraftCommand(
-            context,
-            project,
-            null,
-            AiSuggestionType.PROJECT_PLAN,
-            objectMapper.valueToTree(plan),
-            PROMPT_VERSION,
-            null,
-            null,
-            canonicalInput(project, goal, today),
-            null,
-            null
-        ));
-        metrics.recordSuggestion(AiSuggestionType.PROJECT_PLAN, suggestion.getStatus());
-        return new AgentRunResponse(runId, AgentRunStatus.PLANNED, suggestion.getId(), plan, List.of(), result.stats());
+        return result.plan();
     }
 
-    private static List<String> requireMissing(List<String> missing) {
+    static AgentRunResponse insufficient(UUID runId, AgentRunResult result) {
+        return new AgentRunResponse(
+            runId,
+            AgentRunStatus.INSUFFICIENT_INFO,
+            null,
+            null,
+            null,
+            null,
+            null,
+            requireMissing(result.missing()),
+            result.stats()
+        );
+    }
+
+    static String metricResult(AgentRunResponse response) {
+        if (response.status() == AgentRunStatus.INSUFFICIENT_INFO) {
+            return "insufficient_info";
+        }
+        return Boolean.TRUE.equals(response.approvable()) ? "success" : "not_approvable";
+    }
+
+    static List<String> requireMissing(List<String> missing) {
         boolean valid = missing != null
             && !missing.isEmpty()
             && missing.size() <= MAX_MISSING_ITEMS
@@ -222,15 +184,7 @@ public class AgentRunService {
         return missing.stream().map(String::strip).toList();
     }
 
-    /**
-     * What the run was asked, for the suggestion's input hash. The project and the date
-     * are part of it because the same goal can be planned differently for either.
-     */
-    private static String canonicalInput(Project project, String goal, LocalDate today) {
-        return "project=" + project.getId() + "\ntoday=" + today + "\ngoal=" + goal;
-    }
-
-    private static void logRun(UUID runId, Project project, AgentRunResult result) {
+    static void logRun(UUID runId, Project project, AgentRunResult result) {
         AgentRunResult.Stats stats = result.stats();
         log.info(
             "event=agent_run runId={} projectId={} status={} decisionRounds={} toolCalls={}",
@@ -256,13 +210,14 @@ public class AgentRunService {
     private record RunScope(CurrentWorkspaceContext context, Project project) {
     }
 
-    private static String metricResult(AiFeatureException exception) {
+    static String metricResult(AiFeatureException exception) {
         return switch (exception.code()) {
             case "AI_AGENT_UNAVAILABLE" -> "provider_unavailable";
             case "AI_AGENT_TIMEOUT" -> "timeout";
             case "AI_AGENT_INVALID_RESPONSE" -> "invalid_response";
             case "AI_AGENT_RUN_FAILED" -> "agent_failed";
-            case "AI_REQUEST_INVALID" -> "request_rejected";
+            case "AI_REQUEST_INVALID", "AI_AGENT_RUN_NOT_FOUND", "AI_AGENT_RUN_CLOSED",
+                 "AI_PLAN_VERSION_OUTDATED", "AI_PLAN_VERSION_LIMIT" -> "request_rejected";
             default -> "failed";
         };
     }

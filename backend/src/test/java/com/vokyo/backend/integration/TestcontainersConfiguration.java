@@ -1,6 +1,8 @@
 package com.vokyo.backend.integration;
 
 import com.vokyo.backend.activity.ActivityEventRepository;
+import com.vokyo.backend.agent.AgentPlanVersionRepository;
+import com.vokyo.backend.agent.AgentRunRepository;
 import com.vokyo.backend.ai.suggestion.AiSuggestionRepository;
 import com.vokyo.backend.auth.RefreshTokenRepository;
 import com.vokyo.backend.issue.IssueCommentRepository;
@@ -33,6 +35,8 @@ class TestcontainersConfiguration {
     @Bean
     IntegrationTestDatabaseCleaner integrationTestDatabaseCleaner(
             ActivityEventRepository activityEventRepository,
+            AgentPlanVersionRepository agentPlanVersionRepository,
+            AgentRunRepository agentRunRepository,
             AiSuggestionRepository aiSuggestionRepository,
             WorkspaceInvitationRepository invitationRepository,
             IssueCommentRepository issueCommentRepository,
@@ -48,6 +52,8 @@ class TestcontainersConfiguration {
     ) {
         return new IntegrationTestDatabaseCleaner(
                 activityEventRepository,
+                agentPlanVersionRepository,
+                agentRunRepository,
                 aiSuggestionRepository,
                 invitationRepository,
                 issueCommentRepository,

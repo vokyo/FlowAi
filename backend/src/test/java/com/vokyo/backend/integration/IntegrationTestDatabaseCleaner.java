@@ -1,6 +1,8 @@
 package com.vokyo.backend.integration;
 
 import com.vokyo.backend.activity.ActivityEventRepository;
+import com.vokyo.backend.agent.AgentPlanVersionRepository;
+import com.vokyo.backend.agent.AgentRunRepository;
 import com.vokyo.backend.ai.suggestion.AiSuggestionRepository;
 import com.vokyo.backend.auth.RefreshTokenRepository;
 import com.vokyo.backend.issue.IssueCommentRepository;
@@ -17,6 +19,8 @@ import com.vokyo.backend.workspace.WorkspaceRepository;
 final class IntegrationTestDatabaseCleaner {
 
     private final ActivityEventRepository activityEventRepository;
+    private final AgentPlanVersionRepository agentPlanVersionRepository;
+    private final AgentRunRepository agentRunRepository;
     private final AiSuggestionRepository aiSuggestionRepository;
     private final WorkspaceInvitationRepository invitationRepository;
     private final IssueCommentRepository issueCommentRepository;
@@ -32,6 +36,8 @@ final class IntegrationTestDatabaseCleaner {
 
     IntegrationTestDatabaseCleaner(
             ActivityEventRepository activityEventRepository,
+            AgentPlanVersionRepository agentPlanVersionRepository,
+            AgentRunRepository agentRunRepository,
             AiSuggestionRepository aiSuggestionRepository,
             WorkspaceInvitationRepository invitationRepository,
             IssueCommentRepository issueCommentRepository,
@@ -46,6 +52,8 @@ final class IntegrationTestDatabaseCleaner {
             UserRepository userRepository
     ) {
         this.activityEventRepository = activityEventRepository;
+        this.agentPlanVersionRepository = agentPlanVersionRepository;
+        this.agentRunRepository = agentRunRepository;
         this.aiSuggestionRepository = aiSuggestionRepository;
         this.invitationRepository = invitationRepository;
         this.issueCommentRepository = issueCommentRepository;
@@ -61,6 +69,8 @@ final class IntegrationTestDatabaseCleaner {
     }
 
     void clean() {
+        agentPlanVersionRepository.deleteAllInBatch();
+        agentRunRepository.deleteAllInBatch();
         aiSuggestionRepository.deleteAllInBatch();
         activityEventRepository.deleteAllInBatch();
         invitationRepository.deleteAllInBatch();

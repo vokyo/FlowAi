@@ -153,4 +153,62 @@ public class AiFeatureException extends RuntimeException {
                 message
         );
     }
+
+    public static AiFeatureException agentRunNotFound() {
+        return new AiFeatureException(
+                HttpStatus.NOT_FOUND,
+                "AI_AGENT_RUN_NOT_FOUND",
+                "Planning run was not found"
+        );
+    }
+
+    /** The run was approved or cancelled, so its plan can no longer change. */
+    public static AiFeatureException agentRunClosed(String message) {
+        return new AiFeatureException(
+                HttpStatus.CONFLICT,
+                "AI_AGENT_RUN_CLOSED",
+                message
+        );
+    }
+
+    public static AiFeatureException planVersionOutdated(int requestedVersion, int latestVersion) {
+        return new AiFeatureException(
+                HttpStatus.CONFLICT,
+                "AI_PLAN_VERSION_OUTDATED",
+                "Version " + requestedVersion + " was replaced by version " + latestVersion
+        );
+    }
+
+    public static AiFeatureException planVersionChanged() {
+        return new AiFeatureException(
+                HttpStatus.CONFLICT,
+                "AI_PLAN_VERSION_CHANGED",
+                "The plan's content hash does not match this version; reload the run"
+        );
+    }
+
+    public static AiFeatureException planVersionLimitReached(int maxVersions) {
+        return new AiFeatureException(
+                HttpStatus.CONFLICT,
+                "AI_PLAN_VERSION_LIMIT",
+                "A run has at most " + maxVersions + " versions; approve or cancel it"
+        );
+    }
+
+    public static AiFeatureException planVersionNotApprovable(String reason) {
+        return new AiFeatureException(
+                HttpStatus.UNPROCESSABLE_ENTITY,
+                "AI_PLAN_VERSION_NOT_APPROVABLE",
+                reason
+        );
+    }
+
+    /** Project plans belong to their run, which is where they are approved or cancelled. */
+    public static AiFeatureException projectPlanBelongsToRun() {
+        return new AiFeatureException(
+                HttpStatus.CONFLICT,
+                "AI_PROJECT_PLAN_BELONGS_TO_RUN",
+                "Project plans are approved or cancelled through their planning run"
+        );
+    }
 }

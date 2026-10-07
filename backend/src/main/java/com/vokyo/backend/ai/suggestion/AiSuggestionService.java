@@ -112,6 +112,11 @@ public class AiSuggestionService {
                 context,
                 suggestionId
         );
+        // Turning down a project plan means cancelling its run, which also ends the
+        // agent's side of it.
+        if (suggestion.getType() == AiSuggestionType.PROJECT_PLAN) {
+            throw AiFeatureException.projectPlanBelongsToRun();
+        }
 
         Instant now = clock.instant();
 

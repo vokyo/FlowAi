@@ -300,7 +300,7 @@ class AiSuggestionControllerTests {
         private ApplySuggestionResponse response;
 
         private TestSuggestionApplyService() {
-            super(null, null, null, null, null, null, null, null, null, null);
+            super(null, null, null, null, null, null, null, null, null);
         }
 
         @Override
