@@ -148,11 +148,13 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
         assertThat(runRepository.findById(UUID.fromString(runId)).orElseThrow().getGoal())
             .isEqualTo("Clear the login debt");
         assertThat(issueRepository.count()).isZero();
+        assertThat(AGENT.deletions()).isEmpty();
 
         approve(graph, response)
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.version").value(1))
             .andExpect(jsonPath("$.createdIssueIds.length()").value(3));
+        assertThat(AGENT.deletions()).containsExactly("/runs/" + runId);
         assertThat(jdbcTemplate.queryForObject(
             "select assignee_user_id from issues where title = ?",
             UUID.class,
@@ -273,6 +275,8 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
             .andExpect(jsonPath("$.version").doesNotExist())
             .andExpect(jsonPath("$.plan").doesNotExist());
         assertThat(runRepository.count()).isZero();
+        // No run was saved to revise, so the agent is told to drop what it kept.
+        assertThat(AGENT.deletions()).containsExactly("/runs/" + AGENT.received().getFirst().body().get("runId").asText());
         assertThat(suggestionRepository.count()).isZero();
     }
 
@@ -288,6 +292,7 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
             .andExpect(status().isBadGateway())
             .andExpect(jsonPath("$.code").value("AI_AGENT_RUN_FAILED"));
         assertThat(runRepository.count()).isZero();
+        assertThat(AGENT.deletions()).containsExactly("/runs/" + AGENT.received().getFirst().body().get("runId").asText());
         assertThat(suggestionRepository.count()).isZero();
     }
 
@@ -313,6 +318,7 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
             .andExpect(status().isBadGateway())
             .andExpect(jsonPath("$.code").value("AI_AGENT_INVALID_RESPONSE"));
         assertThat(runRepository.count()).isZero();
+        assertThat(AGENT.deletions()).hasSize(1);
     }
 
     @Test
@@ -494,11 +500,13 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
         private static final ObjectMapper JSON = new ObjectMapper();
         private static final Function<JsonNode, Reply> UNSET =
             request -> new Reply(500, "{\"detail\": \"no answer set for this test\"}");
+        private static final Reply DELETED = new Reply(204, "");
 
         private final HttpServer server;
         private final ExecutorService executor;
         private final List<Received> received = new CopyOnWriteArrayList<>();
         private volatile Function<JsonNode, Reply> answer = UNSET;
+        private volatile Reply deleteAnswer = DELETED;
 
         private AgentStandIn(HttpServer server, ExecutorService executor) {
             this.server = server;
@@ -528,9 +536,23 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
             this.answer = answer;
         }
 
+        /** How DELETE /runs/{runId} is answered; 204 unless a test says otherwise. */
+        void answerDeletes(Reply reply) {
+            this.deleteAnswer = reply;
+        }
+
         void reset() {
             received.clear();
             answer = UNSET;
+            deleteAnswer = DELETED;
+        }
+
+        /** The checkpoint deletions the backend asked for, by path. */
+        List<String> deletions() {
+            return received.stream()
+                .filter(request -> request.method().equals("DELETE"))
+                .map(Received::path)
+                .toList();
         }
 
         List<Received> received() {
@@ -548,21 +570,26 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
         }
 
         private void handle(HttpExchange exchange) throws IOException {
-            JsonNode body = JSON.readTree(exchange.getRequestBody());
+            String method = exchange.getRequestMethod();
+            byte[] raw = exchange.getRequestBody().readAllBytes();
+            JsonNode body = raw.length == 0 ? JSON.nullNode() : JSON.readTree(raw);
             received.add(new Received(
+                method,
                 exchange.getRequestURI().getPath(),
                 exchange.getRequestHeaders().getFirst("Authorization"),
                 body
             ));
-            Reply reply = answer.apply(body);
+            Reply reply = method.equals("DELETE") ? deleteAnswer : answer.apply(body);
             byte[] bytes = reply.body().getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.sendResponseHeaders(reply.status(), bytes.length);
-            exchange.getResponseBody().write(bytes);
+            exchange.sendResponseHeaders(reply.status(), bytes.length == 0 ? -1 : bytes.length);
+            if (bytes.length > 0) {
+                exchange.getResponseBody().write(bytes);
+            }
             exchange.close();
         }
 
-        record Received(String path, String authorization, JsonNode body) {
+        record Received(String method, String path, String authorization, JsonNode body) {
             String bearerToken() {
                 return authorization.substring("Bearer ".length());
             }

@@ -138,6 +138,26 @@ class AgentServiceClientTests {
     }
 
     @Test
+    void deletesTheRunsCheckpointsWithTheRunToken() {
+        respondWith(204, "");
+
+        client(Duration.ofSeconds(5)).deleteRun("agent-token", RUN_ID);
+
+        Recorded request = recorded.get();
+        assertThat(request.method()).isEqualTo("DELETE");
+        assertThat(request.path()).isEqualTo("/runs/" + RUN_ID);
+        assertThat(request.authorization()).isEqualTo("Bearer agent-token");
+    }
+
+    @Test
+    void aDeletionTheAgentRefusesThrows() {
+        respondWith(500, "{\"detail\": \"database unavailable\"}");
+
+        assertThatThrownBy(() -> client(Duration.ofSeconds(5)).deleteRun("agent-token", RUN_ID))
+            .isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
     void readsARunThatEndedWithoutEnoughInformation() {
         respondWith(200, """
             {"status": "INSUFFICIENT_INFO", "missing": ["No login issues exist yet"],
@@ -244,8 +264,10 @@ class AgentServiceClientTests {
         exchange.getResponseHeaders().set("Content-Type", body.startsWith("<")
             ? "text/html"
             : "application/json");
-        exchange.sendResponseHeaders(status, bytes.length);
-        exchange.getResponseBody().write(bytes);
+        exchange.sendResponseHeaders(status, bytes.length == 0 ? -1 : bytes.length);
+        if (bytes.length > 0) {
+            exchange.getResponseBody().write(bytes);
+        }
         exchange.close();
     }
 

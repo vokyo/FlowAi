@@ -129,6 +129,7 @@ class AgentRunReviewIntegrationTests extends AbstractMockMvcIntegrationTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.version").value(3));
         assertThat(AGENT.received().get(2).body().get("checkpointId").asText()).isEqualTo("checkpoint-2");
+        assertThat(AGENT.deletions()).isEmpty();
     }
 
     @Test
@@ -186,6 +187,40 @@ class AgentRunReviewIntegrationTests extends AbstractMockMvcIntegrationTest {
             .andExpect(jsonPath("$.createdIssueIds").value(contains(toArray(approved.get("createdIssueIds")))));
 
         assertThat(issueRepository.count()).isEqualTo(3);
+    }
+
+    @Test
+    void approvingARunTellsTheAgentToDropItsCheckpointsOnce() throws Exception {
+        Graph graph = graph("approve-deletes");
+        answerEveryRunAndRevision();
+        JsonNode first = start(graph);
+        String runId = first.get("runId").asText();
+
+        approve(graph, runId, 1, first.get("contentHash").asText()).andExpect(status().isOk());
+        approve(graph, runId, 1, first.get("contentHash").asText()).andExpect(status().isOk());
+
+        assertThat(AGENT.deletions()).containsExactly("/runs/" + runId);
+        AgentStandIn.Received deletion = AGENT.received().getLast();
+        Jwt agentToken = AudienceJwtDecoders.forAudience(jwtSecretKey, AgentTokenService.AUDIENCE)
+            .decode(deletion.bearerToken());
+        assertThat(agentToken.getClaimAsString("runId")).isEqualTo(runId);
+    }
+
+    @Test
+    void anAgentThatFailsToDropTheCheckpointsDoesNotFailTheApproval() throws Exception {
+        Graph graph = graph("delete-fails");
+        answerEveryRunAndRevision();
+        AGENT.answerDeletes(new AgentStandIn.Reply(500, "{\"detail\": \"database unavailable\"}"));
+        JsonNode first = start(graph);
+        String runId = first.get("runId").asText();
+
+        approve(graph, runId, 1, first.get("contentHash").asText())
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.createdIssueIds.length()").value(3));
+
+        assertThat(AGENT.deletions()).containsExactly("/runs/" + runId);
+        assertThat(runRepository.findById(UUID.fromString(runId)).orElseThrow().getState())
+            .isEqualTo(AgentRunState.APPROVED);
     }
 
     @Test
@@ -307,7 +342,9 @@ class AgentRunReviewIntegrationTests extends AbstractMockMvcIntegrationTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.state").value("CANCELLED"));
 
-        assertThat(AGENT.received()).hasSize(1);
+        // The first cancellation told the agent to drop the run's checkpoints; the second did not repeat it.
+        assertThat(AGENT.deletions()).containsExactly("/runs/" + runId);
+        assertThat(AGENT.received()).hasSize(2);
         assertThat(issueRepository.count()).isZero();
     }
 

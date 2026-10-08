@@ -51,6 +51,7 @@ public class AgentRunService {
     private final AgentTokenService agentTokenService;
     private final AgentServiceClient agentServiceClient;
     private final AgentPlanVersions planVersions;
+    private final AgentCheckpoints checkpoints;
     private final AiMetrics metrics;
     private final Clock clock;
     private final TransactionTemplate readOnlyTransaction;
@@ -62,6 +63,7 @@ public class AgentRunService {
         AgentTokenService agentTokenService,
         AgentServiceClient agentServiceClient,
         AgentPlanVersions planVersions,
+        AgentCheckpoints checkpoints,
         AiMetrics metrics,
         Clock clock,
         PlatformTransactionManager transactionManager
@@ -72,6 +74,7 @@ public class AgentRunService {
         this.agentTokenService = agentTokenService;
         this.agentServiceClient = agentServiceClient;
         this.planVersions = planVersions;
+        this.checkpoints = checkpoints;
         this.metrics = metrics;
         this.clock = clock;
         this.readOnlyTransaction = new TransactionTemplate(transactionManager);
@@ -102,15 +105,25 @@ public class AgentRunService {
             );
             logRun(runId, project, result);
 
-            AgentRunResponse response = switch (result.status()) {
-                case PLANNED -> planVersions.plannedResponse(
-                    planVersions.startRun(context, project, runId, goal, today, requirePlan(result),
-                        result.checkpointId()),
-                    result.stats()
-                );
-                case INSUFFICIENT_INFO -> insufficient(runId, result);
-                case FAILED -> throw AiFeatureException.agentRunFailed();
-            };
+            AgentRunResponse response;
+            try {
+                response = switch (result.status()) {
+                    case PLANNED -> planVersions.plannedResponse(
+                        planVersions.startRun(context, project, runId, goal, today, requirePlan(result),
+                            result.checkpointId()),
+                        result.stats()
+                    );
+                    case INSUFFICIENT_INFO -> insufficient(runId, result);
+                    case FAILED -> throw AiFeatureException.agentRunFailed();
+                };
+            } catch (RuntimeException exception) {
+                // The agent finished, but no run was saved for anyone to revise.
+                checkpoints.discard(context, project.getId(), runId);
+                throw exception;
+            }
+            if (response.status() != AgentRunStatus.PLANNED) {
+                checkpoints.discard(context, project.getId(), runId);
+            }
             metricResult = metricResult(response);
             return response;
         } catch (AiRateLimitExceededException exception) {

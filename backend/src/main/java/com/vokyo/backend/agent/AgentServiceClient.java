@@ -17,11 +17,12 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 /**
- * Calls the planning agent: POST /runs to start a run, and POST /runs/{runId}/resume
- * to revise its plan. The agent is a separate Python service that reads project data
- * through the internal endpoints with the run's agent token. Neither call is retried,
- * since a run makes several model calls and its result differs from one attempt to
- * the next.
+ * Calls the planning agent: POST /runs to start a run, POST /runs/{runId}/resume to
+ * revise its plan, and DELETE /runs/{runId} to drop its checkpoints once it is over.
+ * The agent is a separate Python service that reads project data through the
+ * internal endpoints with the run's agent token. Starting and revising are never
+ * retried, since a run makes several model calls and its result differs from one
+ * attempt to the next.
  */
 @Component
 public class AgentServiceClient {
@@ -53,6 +54,15 @@ public class AgentServiceClient {
      */
     public AgentRunResult resume(String agentToken, UUID runId, String checkpointId, String feedback) {
         return post(agentToken, new ResumeRequest(checkpointId, feedback), "/runs/{runId}/resume", runId);
+    }
+
+    /** Deletes the run's checkpoints. Throws if the agent does not answer 2xx. */
+    public void deleteRun(String agentToken, UUID runId) {
+        restClient.delete()
+            .uri("/runs/{runId}", runId)
+            .headers(headers -> headers.setBearerAuth(agentToken))
+            .retrieve()
+            .toBodilessEntity();
     }
 
     private AgentRunResult post(String agentToken, Object body, String uri, Object... uriVariables) {

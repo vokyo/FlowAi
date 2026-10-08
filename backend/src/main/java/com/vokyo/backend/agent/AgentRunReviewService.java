@@ -38,7 +38,8 @@ import java.util.UUID;
  * these; the agent only writes plans and its token cannot write anything. Approving,
  * cancelling and saving a revision lock the run, so they happen one at a time and each
  * sees what the one before it did. Nothing is written to the project until a version
- * is approved.
+ * is approved. Once a run is approved or cancelled, the agent is told to drop its
+ * checkpoints.
  */
 @Service
 public class AgentRunReviewService {
@@ -53,6 +54,7 @@ public class AgentRunReviewService {
     private final AiGenerationRateLimiter rateLimiter;
     private final AgentTokenService agentTokenService;
     private final AgentServiceClient agentServiceClient;
+    private final AgentCheckpoints checkpoints;
     private final AiMetrics metrics;
     private final Clock clock;
     private final TransactionTemplate transaction;
@@ -67,6 +69,7 @@ public class AgentRunReviewService {
         AiGenerationRateLimiter rateLimiter,
         AgentTokenService agentTokenService,
         AgentServiceClient agentServiceClient,
+        AgentCheckpoints checkpoints,
         AiMetrics metrics,
         Clock clock,
         PlatformTransactionManager transactionManager
@@ -79,6 +82,7 @@ public class AgentRunReviewService {
         this.rateLimiter = rateLimiter;
         this.agentTokenService = agentTokenService;
         this.agentServiceClient = agentServiceClient;
+        this.checkpoints = checkpoints;
         this.metrics = metrics;
         this.clock = clock;
         this.transaction = new TransactionTemplate(transactionManager);
@@ -166,26 +170,33 @@ public class AgentRunReviewService {
         metrics.recordApply(approval.replay() ? "idempotent_replay" : "success", applied.createdIssueIds().size());
         if (!approval.replay()) {
             metrics.recordSuggestion(AiSuggestionType.PROJECT_PLAN, AiSuggestionStatus.APPLIED);
+            checkpoints.discard(approval.context(), approval.projectId(), runId);
         }
         return new AgentApprovalResponse(runId, request.version(), applied.createdIssueIds(), applied.appliedAt());
     }
 
     /** Ends a run under review without writing anything to the project. Cancelling it again is harmless. */
     public AgentRunDetailResponse cancel(Jwt jwt, UUID runId) {
-        return Objects.requireNonNull(transaction.execute(status -> {
+        Cancellation cancellation = Objects.requireNonNull(transaction.execute(status -> {
             CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
             AgentRun run = requireRun(runId, context, true);
+            CurrentWorkspaceContext cancelledBy = null;
             switch (run.getState()) {
                 case REVIEWING -> {
                     planVersions.retireDraft(planVersions.requireVersion(run, run.getLatestVersion()));
                     run.cancel(clock.instant());
+                    cancelledBy = context;
                 }
                 case CANCELLED -> {
                 }
                 case APPROVED -> throw AiFeatureException.agentRunClosed("An approved run cannot be cancelled");
             }
-            return detail(run);
+            return new Cancellation(detail(run), cancelledBy);
         }));
+        if (cancellation.cancelledBy() != null) {
+            checkpoints.discard(cancellation.cancelledBy(), cancellation.run().projectId(), runId);
+        }
+        return cancellation.run();
     }
 
     private RevisionScope requireRevisionScope(Jwt jwt, UUID runId, int basedOnVersion) {
@@ -238,12 +249,13 @@ public class AgentRunReviewService {
         }
 
         UUID idempotencyKey = idempotencyKey(run, requested);
+        UUID projectId = run.getProject().getId();
         if (run.getState() == AgentRunState.APPROVED) {
             return Approval.of(applyService.applyRunPlan(
-                context, version.getSuggestion().getId(), idempotencyKey, run.getGeneratedOn()));
+                context, version.getSuggestion().getId(), idempotencyKey, run.getGeneratedOn()), context, projectId);
         }
 
-        Project project = projectAccessService.requireAccessibleProjectForUpdate(run.getProject().getId(), context);
+        Project project = projectAccessService.requireAccessibleProjectForUpdate(projectId, context);
         try {
             planVersions.validate(project, planVersions.readPlan(version), run.getGeneratedOn());
         } catch (ProjectPlanValidationException exception) {
@@ -258,7 +270,7 @@ public class AgentRunReviewService {
         if (!application.expired() && !application.replay()) {
             run.approve(clock.instant());
         }
-        return Approval.of(application);
+        return Approval.of(application, context, projectId);
     }
 
     private AgentRun requireRun(UUID runId, CurrentWorkspaceContext context, boolean forUpdate) {
@@ -339,15 +351,22 @@ public class AgentRunReviewService {
         ApplySuggestionResponse applied,
         boolean expired,
         boolean replay,
-        String notApprovableReason
+        String notApprovableReason,
+        CurrentWorkspaceContext context,
+        UUID projectId
     ) {
 
-        static Approval of(RunPlanApplication application) {
-            return new Approval(application.response(), application.expired(), application.replay(), null);
+        static Approval of(RunPlanApplication application, CurrentWorkspaceContext context, UUID projectId) {
+            return new Approval(
+                application.response(), application.expired(), application.replay(), null, context, projectId);
         }
 
         static Approval notApprovable(String reason) {
-            return new Approval(null, false, false, reason);
+            return new Approval(null, false, false, reason, null, null);
         }
+    }
+
+    /** cancelledBy is set only when this call cancelled the run, not when it already was. */
+    private record Cancellation(AgentRunDetailResponse run, CurrentWorkspaceContext cancelledBy) {
     }
 }
