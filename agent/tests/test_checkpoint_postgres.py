@@ -218,7 +218,8 @@ def test_the_service_saves_a_run_in_postgres_and_rebuilds_only_listed_types(
             assert portal is not None
             run: RunnableConfig = {"configurable": {"thread_id": run_id}}
             saved = portal.call(checkpointer.aget_tuple, run)
-            portal.call(checkpointer.adelete_thread, run_id)
+            deleted = client.delete(f"/runs/{run_id}", headers=HEADERS)
+            left = portal.call(checkpointer.aget_tuple, run)
             rebuilt = checkpointer.serde.loads_typed(unlisted)
     finally:
         app.dependency_overrides.clear()
@@ -232,3 +233,5 @@ def test_the_service_saves_a_run_in_postgres_and_rebuilds_only_listed_types(
     assert response.json()["checkpointId"] not in (None, stopped_at)
     assert isinstance(saved.checkpoint["channel_values"]["plan"], Plan)
     assert not isinstance(rebuilt, RunStats)
+    assert deleted.status_code == 204
+    assert left is None

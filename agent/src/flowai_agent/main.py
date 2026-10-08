@@ -165,6 +165,17 @@ async def resume_run(
     return to_result(final, checkpoint_id)
 
 
+@app.delete("/runs/{run_id}", status_code=204)
+async def delete_run(
+    run_id: UUID,
+    checkpointer: Annotated[BaseCheckpointSaver[str], Depends(get_checkpointer)],
+    authorization: Annotated[str | None, Header()] = None,
+) -> None:
+    if authorization is None or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="agent token is required")
+    await checkpointer.adelete_thread(str(run_id))
+
+
 def to_result(final: AgentState, checkpoint_id: str | None) -> RunResult:
     stats = RunStats(
         decisionRounds=final.decision_rounds_used, toolCalls=final.tool_calls_used

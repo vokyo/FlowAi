@@ -237,6 +237,48 @@ def test_a_revision_that_breaks_the_contract_is_rejected(
     assert response.status_code == 422
 
 
+def test_deleting_a_run_removes_its_checkpoints_and_no_one_elses() -> None:
+    other_run = {**BODY, "runId": "9b8c7d6e-5f4a-4b3c-8d2e-1f0a9b8c7d6e"}
+    model = FakeChatModel(
+        replies=[
+            AIMessage("I know enough to plan."),
+            AIMessage("", tool_calls=[WRITE_PLAN]),
+            AIMessage("I know enough to plan."),
+            AIMessage("", tool_calls=[WRITE_PLAN]),
+        ]
+    )
+    client = serve(model, healthy_backend([]))
+    checkpointer = InMemorySaver()
+    app.dependency_overrides[get_checkpointer] = lambda: checkpointer
+    client.post("/runs", json=BODY, headers=HEADERS)
+    client.post("/runs", json=other_run, headers=HEADERS)
+
+    first = client.delete(f"/runs/{BODY['runId']}", headers=HEADERS)
+    again = client.delete(f"/runs/{BODY['runId']}", headers=HEADERS)
+
+    assert (first.status_code, again.status_code) == (204, 204)
+    assert list(checkpointer.list({"configurable": {"thread_id": BODY["runId"]}})) == []
+    assert list(checkpointer.list({"configurable": {"thread_id": other_run["runId"]}}))
+
+
+def test_deleting_a_run_without_an_agent_token_is_refused() -> None:
+    model = FakeChatModel(
+        replies=[
+            AIMessage("I know enough to plan."),
+            AIMessage("", tool_calls=[WRITE_PLAN]),
+        ]
+    )
+    client = serve(model, healthy_backend([]))
+    checkpointer = InMemorySaver()
+    app.dependency_overrides[get_checkpointer] = lambda: checkpointer
+    client.post("/runs", json=BODY, headers=HEADERS)
+
+    response = client.delete(f"/runs/{BODY['runId']}")
+
+    assert response.status_code == 401
+    assert list(checkpointer.list({"configurable": {"thread_id": BODY["runId"]}}))
+
+
 def test_the_service_refuses_to_start_without_a_checkpoint_database(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
