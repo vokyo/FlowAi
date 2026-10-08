@@ -380,7 +380,7 @@ FlowAI/
 ├── backend/                  Spring Boot API, domain logic, migrations, prompts, tests
 ├── frontend/                 React application, component tests, Playwright tests
 ├── docker-compose.yml        Full application stack
-├── docker-compose.dev.yml    Local PostgreSQL port override
+├── docker-compose.dev.yml    Local PostgreSQL and Redis port overrides
 ├── .env.example              Local environment template
 └── .github/workflows/        Continuous integration
 ```

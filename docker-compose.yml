@@ -27,6 +27,20 @@ services:
     networks:
       - flowai
 
+  redis:
+    image: redis:8-alpine
+    # Only short-lived state the backend instances share lives here, so nothing is
+    # written to disk.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - flowai
+
   backend:
     build:
       context: ./backend
@@ -43,9 +57,14 @@ services:
       WORKSPACE_INVITATION_TTL: ${WORKSPACE_INVITATION_TTL:-7d}
       SPRING_AI_MODEL_CHAT: ${SPRING_AI_MODEL_CHAT:-none}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     depends_on:
       postgres:
         condition: service_healthy
+      # Started first so a fresh stack does not begin without it, but the backend
+      # does not wait for it to be healthy: it has to run without Redis anyway.
+      redis:
+        condition: service_started
     expose:
       - "8080"
     restart: unless-stopped
