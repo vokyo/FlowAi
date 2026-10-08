@@ -51,7 +51,7 @@ The deployment above runs the same containers as `docker compose up`: an Nginx i
 
 - Flyway-managed PostgreSQL schema and database-level tenant referential constraints.
 - Consistent API errors and end-to-end `X-Trace-Id` propagation.
-- Stateless Spring Security, BCrypt password hashing, role-aware access checks, and Bucket4j rate limiting.
+- Stateless Spring Security, BCrypt password hashing, role-aware access checks, and token-bucket rate limiting that Redis shares across instances.
 - Rotated refresh tokens whose replay revokes the membership's sessions instead of only failing the request.
 - Docker Compose stack with a non-root backend image and same-origin Nginx reverse proxy.
 - Unit, integration, migration, component, and Playwright end-to-end tests in GitHub Actions.
@@ -81,6 +81,7 @@ flowchart LR
     Nginx -->|"/api/*"| API["Spring Boot REST API"]
     API --> Security["JWT + tenant authorization"]
     API --> Database[("PostgreSQL 17")]
+    API -. "when REDIS_ENABLED" .-> Redis[("Redis 8")]
     API -. "when AI is enabled" .-> Provider["OpenAI via Spring AI"]
     Flyway["Flyway migrations"] --> Database
 ```
@@ -93,7 +94,7 @@ In the containerized stack, Nginx serves the frontend and proxies API requests t
 | --- | --- |
 | Backend | Java 21, Spring Boot 3.5, Spring Web, Spring Validation |
 | Security | Spring Security, JWT Resource Server, BCrypt, rotating refresh tokens, Bucket4j |
-| Data | PostgreSQL 17, Spring Data JPA, Hibernate, Flyway (16 migrations) |
+| Data | PostgreSQL 17, Spring Data JPA, Hibernate, Flyway (21 migrations), Redis 8 for state shared between instances |
 | Frontend | React 19, TypeScript, Vite, React Router, TanStack Query |
 | UI | Tailwind CSS 4, shadcn/ui, Radix UI, dnd-kit, React Hook Form, Zod |
 | AI | Spring AI 1.0, structured generation, validation/repair, persisted suggestion lifecycle |
@@ -140,11 +141,13 @@ Open [http://localhost:8080](http://localhost:8080) and register a local account
 
 Requirements: Java 21, Node.js 22, npm, and Docker.
 
-Start PostgreSQL with the development port override:
+Start PostgreSQL and Redis with the development port overrides:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis
 ```
+
+The template's `REDIS_ENABLED=true` makes the backend count rate limits in that Redis. Without it running, the backend still works and counts them in its own memory.
 
 Start the backend:
 
@@ -242,7 +245,10 @@ Backend properties (set them on the backend process or add them to the Compose s
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `SPRING_DATASOURCE_URL` / `_USERNAME` / `_PASSWORD` | Local PostgreSQL | Datasource for a non-Compose run |
-| `RATE_LIMIT_ENABLED` | `true` | Master switch for the in-process Bucket4j limiter that auth and AI both use (per instance, see [Design Boundaries](#design-boundaries)) |
+| `RATE_LIMIT_ENABLED` | `true` | Master switch for the rate limiter that auth and AI both use |
+| `REDIS_ENABLED` | `false` | Counts rate limits in Redis so every instance shares them; off, each instance counts in its own memory (see [Design Boundaries](#design-boundaries)). The Compose stack turns it on |
+| `REDIS_URL` | `redis://localhost:6379` | Redis to use, `rediss://` for TLS; the Compose stack points it at its `redis` service |
+| `REDIS_TIMEOUT` / `REDIS_CONNECT_TIMEOUT` | `300ms` / `300ms` | How long the backend waits for a Redis command or connection before it counts on its own instead |
 | `AI_ENABLED` | `false` | Enables AI application workflows |
 | `AI_MODEL` | `gpt-4o-mini` | Chat model name |
 | `SPRING_AI_MODEL_EMBEDDING` | `none` | Set to `openai` to enable the planning agent's semantic issue search |
@@ -335,6 +341,7 @@ The live instance runs the two images built from this repository on a container 
 - `REFRESH_COOKIE_SECURE=true`, since the platform terminates TLS. Nginx forwards the original scheme through `X-Forwarded-Proto`, and the backend reads it with `forward-headers-strategy: framework`, so redirect and cookie decisions see `https`.
 - `JWT_SECRET`, datasource credentials, and — only if the Copilot should be live — `AI_ENABLED`, `SPRING_AI_MODEL_CHAT`, and `OPENAI_API_KEY`.
 - `DEMO_SEED_ENABLED=true` on a public demo instance, which populates the workspace described under [Demo Data](#demo-data). Leave it unset anywhere real.
+- `REDIS_ENABLED=true` and `REDIS_URL` once more than one backend instance runs, so they share rate limits. A single instance does not need Redis.
 
 Flyway runs on backend startup, so a deploy migrates the database before serving traffic.
 
@@ -393,4 +400,4 @@ FlowAI/
 - Rotation gives a stolen refresh token away: the token is accepted once, so a second presentation means two holders. That replay revokes every session for the membership, which also signs the user's other devices out — the blunt response is chosen over carrying chain identity in the schema. Replays within `JWT_REFRESH_REUSE_GRACE` are treated as concurrent tabs rather than theft.
 - AI prompts use bounded server-owned context, and generated content cannot write to domain tables until validation and explicit user confirmation succeed.
 - Apply operations are transactional and idempotent so a safe retry does not duplicate created issues.
-- Rate limiting is an in-process Bucket4j bucket held per instance, not a shared counter. The effective limit therefore multiplies by the number of instances, and a horizontally scaled deployment would need a shared backend such as Redis. Single-instance deployment is the design point, not an oversight.
+- Rate limits are token buckets. With `REDIS_ENABLED`, every instance draws from the same buckets in Redis, and one Lua script takes a token in a single step, so two instances cannot both take the last one. Redis is never required: an instance that cannot reach it within `REDIS_TIMEOUT` counts in its own memory until it can, so during an outage the effective limit multiplies by the number of instances instead of requests failing or waiting. Without Redis, each instance always counts alone, which is right for a single instance.

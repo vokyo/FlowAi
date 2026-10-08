@@ -57,7 +57,8 @@ services:
       WORKSPACE_INVITATION_TTL: ${WORKSPACE_INVITATION_TTL:-7d}
       SPRING_AI_MODEL_CHAT: ${SPRING_AI_MODEL_CHAT:-none}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      REDIS_ENABLED: "true"
+      REDIS_URL: redis://redis:6379
     depends_on:
       postgres:
         condition: service_healthy
