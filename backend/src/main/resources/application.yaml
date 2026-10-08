@@ -24,6 +24,18 @@ spring:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/flowai}
     username: ${SPRING_DATASOURCE_USERNAME:flowai}
     password: ${SPRING_DATASOURCE_PASSWORD:flowai_dev_password}
+
+  # Redis holds only short-lived state that backend instances share, and nothing may
+  # stop working because it is down. A slow Redis therefore has to fail fast: Lettuce
+  # would otherwise wait 60 seconds for every command.
+  data:
+    redis:
+      url: ${REDIS_URL:redis://localhost:6379}
+      timeout: ${REDIS_TIMEOUT:300ms}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:300ms}
+      # Values go through templates; nothing is stored as a Redis repository.
+      repositories:
+        enabled: false
 app:
   workspace:
     invitation-ttl: 7d
@@ -71,6 +83,11 @@ app:
 
 
 management:
+  health:
+    # Nothing in the backend needs Redis to work, so a Redis outage must not mark a
+    # working instance unhealthy and get it restarted.
+    redis:
+      enabled: false
   endpoints:
     web:
       exposure:
