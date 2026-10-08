@@ -53,6 +53,7 @@ The deployment above runs the same containers as `docker compose up`: an Nginx i
 - Consistent API errors and end-to-end `X-Trace-Id` propagation.
 - Stateless Spring Security, BCrypt password hashing, role-aware access checks, and token-bucket rate limiting that Redis shares across instances.
 - Rotated refresh tokens whose replay revokes the membership's sessions instead of only failing the request.
+- Logging out, changing the password or signing out everywhere ends existing access tokens on their next request, not when they expire.
 - Docker Compose stack with a non-root backend image and same-origin Nginx reverse proxy.
 - Unit, integration, migration, component, and Playwright end-to-end tests in GitHub Actions.
 
@@ -94,7 +95,7 @@ In the containerized stack, Nginx serves the frontend and proxies API requests t
 | --- | --- |
 | Backend | Java 21, Spring Boot 3.5, Spring Web, Spring Validation |
 | Security | Spring Security, JWT Resource Server, BCrypt, rotating refresh tokens, Bucket4j |
-| Data | PostgreSQL 17, Spring Data JPA, Hibernate, Flyway (21 migrations), Redis 8 for state shared between instances |
+| Data | PostgreSQL 17, Spring Data JPA, Hibernate, Flyway (22 migrations), Redis 8 for state shared between instances |
 | Frontend | React 19, TypeScript, Vite, React Router, TanStack Query |
 | UI | Tailwind CSS 4, shadcn/ui, Radix UI, dnd-kit, React Hook Form, Zod |
 | AI | Spring AI 1.0, structured generation, validation/repair, persisted suggestion lifecycle |
@@ -398,6 +399,7 @@ FlowAI/
 - Project resources require an active project membership; inaccessible resources are not exposed across tenants.
 - Cross-tenant relationships are constrained in PostgreSQL as well as in service-layer checks.
 - Rotation gives a stolen refresh token away: the token is accepted once, so a second presentation means two holders. That replay revokes every session for the membership, which also signs the user's other devices out — the blunt response is chosen over carrying chain identity in the schema. Replays within `JWT_REFRESH_REUSE_GRACE` are treated as concurrent tabs rather than theft.
+- Access tokens are stateless JWTs that carry their user's token version. A logout, a password change, signing out everywhere and a replayed refresh token each raise it, and every request reads the current version by primary key and refuses an older token, so ending a session takes effect at once rather than up to 15 minutes later. Other devices of the same user refresh once and carry on. The version lives in PostgreSQL rather than in a Redis blacklist: the raise commits in the same transaction that revokes the refresh tokens, it has no clock to compare (a JWT's `iat` only has whole seconds), and no outage can let revoked tokens through.
 - AI prompts use bounded server-owned context, and generated content cannot write to domain tables until validation and explicit user confirmation succeed.
 - Apply operations are transactional and idempotent so a safe retry does not duplicate created issues.
 - Rate limits are token buckets. With `REDIS_ENABLED`, every instance draws from the same buckets in Redis, and one Lua script takes a token in a single step, so two instances cannot both take the last one. Redis is never required: an instance that cannot reach it within `REDIS_TIMEOUT` counts in its own memory until it can, so during an outage the effective limit multiplies by the number of instances instead of requests failing or waiting. Without Redis, each instance always counts alone, which is right for a single instance.
