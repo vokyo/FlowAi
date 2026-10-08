@@ -3,6 +3,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import CheckpointPayload, Command
 
 from flowai_agent.graph.nodes import PlanningNodes
 from flowai_agent.graph.state import AgentState
@@ -63,3 +64,39 @@ async def run_graph(
     run: RunnableConfig = {"configurable": {"thread_id": thread_id}}
     output = await build_graph(nodes, checkpointer).ainvoke(start, run, version="v2")
     return output.value
+
+
+async def resume_graph(
+    nodes: PlanningNodes,
+    checkpointer: BaseCheckpointSaver[str],
+    thread_id: str,
+    checkpoint_id: str,
+    feedback: str,
+) -> tuple[AgentState, str | None] | None:
+    graph = build_graph(nodes, checkpointer)
+
+    paused = await graph.aget_state(
+        {
+            "configurable": {
+                "thread_id": thread_id,
+                "checkpoint_ns": "",
+                "checkpoint_id": checkpoint_id,
+            }
+        }
+    )
+    if paused.next != ("review",):
+        return None
+
+    branch = await graph.aupdate_state(paused.config, None, as_node="check_plan")
+
+    last: CheckpointPayload[AgentState] | None = None
+    async for part in graph.astream(
+        Command(resume=feedback), branch, stream_mode="checkpoints", version="v2"
+    ):
+        if part["type"] == "checkpoints":
+            last = part["data"]
+    if last is None or last["config"] is None:
+        return None
+
+    stopped_at = last["config"].get("configurable", {}).get("checkpoint_id")
+    return AgentState.model_validate(last["values"]), stopped_at

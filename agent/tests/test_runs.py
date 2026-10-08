@@ -68,6 +68,23 @@ SEARCH: ToolCall = {
 }
 MEMBERS_CALL: ToolCall = {"name": "get_project_members", "args": {}, "id": "c2"}
 WRITE_PLAN: ToolCall = {"name": "Plan", "args": PLAN, "id": "c3"}
+REVISED_PLAN: dict[str, object] = {
+    "overview": "Rate-limit login and drop the remember-me code.",
+    "items": [
+        {
+            "clientItemId": "item-1",
+            "title": "Rate-limit the login endpoint",
+            "priority": "HIGH",
+        },
+        {
+            "clientItemId": "item-3",
+            "title": "Remove remember-me code",
+            "priority": "LOW",
+        },
+    ],
+}
+WRITE_REVISED_PLAN: ToolCall = {"name": "Plan", "args": REVISED_PLAN, "id": "c4"}
+RESUME = f"/runs/{BODY['runId']}/resume"
 
 Handler = Callable[[httpx2.Request], httpx2.Response]
 
@@ -146,6 +163,78 @@ def test_a_planned_run_is_saved_under_its_run_id_waiting_for_review() -> None:
     paused_at = saved.config.get("configurable", {}).get("checkpoint_id")
     assert paused_at is not None
     assert response.json()["checkpointId"] == paused_at
+
+
+def test_a_revision_continues_from_the_checkpoint_the_run_stopped_at() -> None:
+    model = FakeChatModel(
+        replies=[
+            AIMessage("", tool_calls=[SEARCH, MEMBERS_CALL]),
+            AIMessage("I know enough to plan."),
+            AIMessage("", tool_calls=[WRITE_PLAN]),
+            AIMessage("I know enough to revise."),
+            AIMessage("", tool_calls=[WRITE_REVISED_PLAN]),
+        ]
+    )
+    client = serve(model, healthy_backend([]))
+    checkpointer = InMemorySaver()
+    app.dependency_overrides[get_checkpointer] = lambda: checkpointer
+    planned = client.post("/runs", json=BODY, headers=HEADERS).json()
+
+    response = client.post(
+        RESUME,
+        json={"checkpointId": planned["checkpointId"], "feedback": "Drop item-2"},
+        headers=HEADERS,
+    )
+
+    assert response.status_code == 200
+    revised = response.json()
+    assert revised["status"] == "PLANNED"
+    assert revised["plan"] == Plan.model_validate(REVISED_PLAN).model_dump(mode="json")
+    assert revised["checkpointId"] not in (None, planned["checkpointId"])
+    assert model.received[3][-1].text.startswith(
+        "Revise the plan above as follows: Drop item-2"
+    )
+
+
+def test_a_revision_from_a_checkpoint_not_waiting_for_review_is_refused() -> None:
+    model = FakeChatModel(replies=[])
+
+    response = serve(model, healthy_backend([])).post(
+        RESUME,
+        json={"checkpointId": "no-such-checkpoint", "feedback": "Drop item-2"},
+        headers=HEADERS,
+    )
+
+    assert response.status_code == 409
+    assert model.received == []
+
+
+def test_a_revision_without_an_agent_token_is_refused() -> None:
+    response = serve(FakeChatModel(replies=[]), healthy_backend([])).post(
+        RESUME, json={"checkpointId": "c", "feedback": "Drop item-2"}
+    )
+
+    assert response.status_code == 401
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param({"checkpointId": "c", "feedback": "   "}, id="blank feedback"),
+        pytest.param({"feedback": "Drop item-2"}, id="no checkpoint"),
+        pytest.param(
+            {"checkpoint_id": "c", "feedback": "Drop item-2"}, id="snake case field"
+        ),
+    ],
+)
+def test_a_revision_that_breaks_the_contract_is_rejected(
+    body: dict[str, object],
+) -> None:
+    response = serve(FakeChatModel(replies=[]), healthy_backend([])).post(
+        RESUME, json=body, headers=HEADERS
+    )
+
+    assert response.status_code == 422
 
 
 def test_the_service_refuses_to_start_without_a_checkpoint_database(

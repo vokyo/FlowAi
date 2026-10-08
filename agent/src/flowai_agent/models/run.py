@@ -25,3 +25,8 @@ class RunResult(BaseModel):
     reason: str | None = None
     stats: RunStats
     checkpointId: str | None = None
+
+
+class ResumeRequest(BaseModel):
+    checkpointId: str = Field(min_length=1, max_length=100)
+    feedback: str = Field(min_length=1, max_length=1000, pattern=r"\S")

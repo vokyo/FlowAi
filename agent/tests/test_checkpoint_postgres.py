@@ -17,7 +17,6 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-from langgraph.types import Command
 from psycopg import AsyncConnection, errors
 from psycopg.rows import DictRow, dict_row
 from psycopg_pool import AsyncConnectionPool
@@ -35,7 +34,7 @@ from test_runs import BODY, HEADERS, MEMBERS_CALL, SEARCH, healthy_backend
 from testcontainers.community.postgres import PostgresContainer
 
 from flowai_agent.config import Settings
-from flowai_agent.graph.build import build_graph
+from flowai_agent.graph.build import build_graph, resume_graph
 from flowai_agent.graph.nodes import PlanningNodes
 from flowai_agent.graph.state import CHECKPOINT_TYPES, AgentState
 from flowai_agent.main import app, get_backend_transport, get_chat_model, get_settings
@@ -117,26 +116,45 @@ async def test_a_run_waiting_for_review_can_be_revised_after_a_restart(
         await before.ainvoke(  # pyright: ignore[reportUnknownMemberType]
             AgentState(goal=GOAL, today=TODAY), run, version="v2"
         )
+        version_1 = (
+            (await before.aget_state(run))
+            .config.get("configurable", {})
+            .get("checkpoint_id")
+        )
+    assert isinstance(version_1, str)
 
     # A new pool and checkpointer, as after a restart: nothing is left in memory.
     model = FakeChatModel(
         replies=[AIMessage("I know enough to revise."), WRITE_REVISED_PLAN]
     )
     async with open_pool(database.agent_url) as pool:
-        after = build_graph(
-            PlanningNodes(model, build_tools(client)), checkpointer=await saver(pool)
+        checkpointer = await saver(pool)
+        revised = await resume_graph(
+            PlanningNodes(model, build_tools(client)),
+            checkpointer,
+            clean_thread,
+            version_1,
+            "Drop item-2",
         )
-        revised = await after.ainvoke(  # pyright: ignore[reportUnknownMemberType]
-            Command(resume="Drop item-2"), run, version="v2"
+        assert revised is not None and revised[1] is not None
+        paused_again = await build_graph(
+            PlanningNodes(FakeChatModel(replies=[]), []), checkpointer
+        ).aget_state(
+            {
+                "configurable": {
+                    "thread_id": clean_thread,
+                    "checkpoint_ns": "",
+                    "checkpoint_id": revised[1],
+                }
+            }
         )
-        paused_again = await after.aget_state(run)
     await client.aclose()
 
     previous_plan, feedback = model.received[0][-2:]
     assert Plan.model_validate_json(previous_plan.text) == Plan.model_validate(PLAN)
     assert isinstance(feedback, HumanMessage)
     assert feedback.text.startswith("Revise the plan above as follows: Drop item-2")
-    assert revised.value.plan == Plan.model_validate(REVISED_PLAN)
+    assert revised[0].plan == Plan.model_validate(REVISED_PLAN)
     assert paused_again.next == ("review",)
 
 
@@ -164,13 +182,16 @@ def test_the_service_saves_a_run_in_postgres_and_rebuilds_only_listed_types(
     database: Database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("CHECKPOINT_DATABASE_URL", database.agent_url)
-    app.dependency_overrides[get_chat_model] = lambda: FakeChatModel(
+    model = FakeChatModel(
         replies=[
             AIMessage("", tool_calls=[SEARCH, MEMBERS_CALL]),
             AIMessage("I know enough to plan."),
             AIMessage("", tool_calls=[{"name": "Plan", "args": PLAN, "id": "c3"}]),
+            AIMessage("I know enough to revise."),
+            WRITE_REVISED_PLAN,
         ]
     )
+    app.dependency_overrides[get_chat_model] = lambda: model
     app.dependency_overrides[get_backend_transport] = lambda: httpx2.MockTransport(
         healthy_backend([])
     )
@@ -184,6 +205,14 @@ def test_the_service_saves_a_run_in_postgres_and_rebuilds_only_listed_types(
     try:
         with TestClient(app) as client:
             response = client.post("/runs", json=BODY, headers=HEADERS)
+            revised = client.post(
+                f"/runs/{run_id}/resume",
+                json={
+                    "checkpointId": response.json()["checkpointId"],
+                    "feedback": "Drop item-2",
+                },
+                headers=HEADERS,
+            )
             checkpointer: AsyncPostgresSaver = app.state.checkpointer
             portal = client.portal
             assert portal is not None
@@ -195,9 +224,11 @@ def test_the_service_saves_a_run_in_postgres_and_rebuilds_only_listed_types(
         app.dependency_overrides.clear()
 
     assert response.json()["status"] == "PLANNED"
+    assert revised.json()["status"] == "PLANNED"
     assert saved is not None
-    assert response.json()["checkpointId"] == saved.config.get("configurable", {}).get(
-        "checkpoint_id"
-    )
+    # The latest checkpoint is where the revision stopped, not where the run did.
+    stopped_at = saved.config.get("configurable", {}).get("checkpoint_id")
+    assert revised.json()["checkpointId"] == stopped_at
+    assert response.json()["checkpointId"] not in (None, stopped_at)
     assert isinstance(saved.checkpoint["channel_values"]["plan"], Plan)
     assert not isinstance(rebuilt, RunStats)

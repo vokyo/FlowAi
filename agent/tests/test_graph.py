@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import date
 from uuid import UUID
@@ -20,6 +21,7 @@ from langgraph.types import Command, GraphOutput, StateSnapshot
 
 from flowai_agent.graph.build import (
     build_graph,
+    resume_graph,
     route_after_model,
     route_after_tools,
     run_graph,
@@ -621,3 +623,119 @@ async def test_a_checkpoint_gives_back_the_plan_as_a_plan_not_a_dict() -> None:
     assert isinstance(saved["plan"], Plan)
     assert isinstance(saved["today"], date)
     assert all(isinstance(message, BaseMessage) for message in saved["messages"])
+
+
+def at(thread_id: str, checkpoint_id: str) -> RunnableConfig:
+    return {
+        "configurable": {
+            "thread_id": thread_id,
+            "checkpoint_ns": "",
+            "checkpoint_id": checkpoint_id,
+        }
+    }
+
+
+async def stop_for_review(checkpointer: InMemorySaver, thread_id: str) -> str:
+    """Runs until the first plan waits for review; returns where it stopped."""
+    graph = build_graph(
+        PlanningNodes(FakeChatModel(replies=[ENOUGH, WRITE_PLAN]), []), checkpointer
+    )
+    run: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+    await graph.ainvoke(  # pyright: ignore[reportUnknownMemberType]
+        AgentState(goal=GOAL, today=TODAY), run, version="v2"
+    )
+    paused = await graph.aget_state(run)
+    checkpoint_id = paused.config.get("configurable", {}).get("checkpoint_id")
+    assert isinstance(checkpoint_id, str)
+    return checkpoint_id
+
+
+def revising(*replies: AIMessage) -> tuple[FakeChatModel, PlanningNodes]:
+    model = FakeChatModel(replies=list(replies))
+    return model, PlanningNodes(model, [])
+
+
+@pytest.mark.anyio
+async def test_a_revision_continues_from_the_given_version_and_stops_again() -> None:
+    checkpointer = InMemorySaver()
+    version_1 = await stop_for_review(checkpointer, "run-1")
+    model, nodes = revising(AIMessage("I know enough to revise."), WRITE_REVISED_PLAN)
+
+    result = await resume_graph(nodes, checkpointer, "run-1", version_1, "Drop item-2")
+
+    assert result is not None
+    final, stopped_at = result
+    assert final.plan == Plan.model_validate(REVISED_PLAN)
+    assert stopped_at is not None and stopped_at != version_1
+    stopped = await build_graph(revising()[1], checkpointer).aget_state(
+        at("run-1", stopped_at)
+    )
+    assert stopped.next == ("review",)
+    previous_plan, feedback = model.received[0][-2:]
+    assert Plan.model_validate_json(previous_plan.text) == Plan.model_validate(PLAN)
+    assert feedback.text.startswith("Revise the plan above as follows: Drop item-2")
+
+
+@pytest.mark.anyio
+async def test_a_failed_revision_lets_the_next_one_use_its_own_feedback() -> None:
+    checkpointer = InMemorySaver()
+    version_1 = await stop_for_review(checkpointer, "run-1")
+    # A model with no replies fails on its first call, halfway through the revision.
+    with pytest.raises(IndexError):
+        await resume_graph(
+            revising()[1], checkpointer, "run-1", version_1, "Add the audit"
+        )
+    model, nodes = revising(AIMessage("I know enough to revise."), WRITE_REVISED_PLAN)
+
+    result = await resume_graph(nodes, checkpointer, "run-1", version_1, "Drop item-2")
+
+    assert result is not None
+    assert result[0].plan == Plan.model_validate(REVISED_PLAN)
+    assert model.received[0][-1].text.startswith(
+        "Revise the plan above as follows: Drop item-2"
+    )
+
+
+@pytest.mark.anyio
+async def test_two_revisions_of_one_version_each_stop_at_their_own_checkpoint() -> None:
+    checkpointer = InMemorySaver()
+    version_1 = await stop_for_review(checkpointer, "run-1")
+
+    def revise(feedback: str):
+        _, nodes = revising(AIMessage("I know enough to revise."), WRITE_REVISED_PLAN)
+        return resume_graph(nodes, checkpointer, "run-1", version_1, feedback)
+
+    first, second = await asyncio.gather(revise("Version A"), revise("Version B"))
+
+    reader = build_graph(revising()[1], checkpointer)
+    for result, feedback in ((first, "Version A"), (second, "Version B")):
+        assert result is not None and result[1] is not None
+        stopped = await reader.aget_state(at("run-1", result[1]))
+        asked = [m for m in stopped.values["messages"] if isinstance(m, HumanMessage)]
+        assert asked[-1].text.startswith(
+            f"Revise the plan above as follows: {feedback}"
+        )
+        assert stopped.next == ("review",)
+
+
+@pytest.mark.anyio
+async def test_a_checkpoint_that_is_not_waiting_for_review_is_refused() -> None:
+    checkpointer = InMemorySaver()
+    await stop_for_review(checkpointer, "run-1")
+    reader = build_graph(revising()[1], checkpointer)
+    mid_run = [
+        snapshot
+        async for snapshot in reader.aget_state_history(
+            {"configurable": {"thread_id": "run-1"}}
+        )
+        if snapshot.next == ("ask_model",)
+    ][0]
+    mid_run_id = mid_run.config.get("configurable", {}).get("checkpoint_id")
+    assert isinstance(mid_run_id, str)
+    model, nodes = revising()
+
+    for checkpoint_id in ("no-such-checkpoint", mid_run_id):
+        assert (
+            await resume_graph(nodes, checkpointer, "run-1", checkpoint_id, "x") is None
+        )
+    assert model.received == []

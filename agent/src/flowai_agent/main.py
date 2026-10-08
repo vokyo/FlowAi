@@ -3,6 +3,7 @@ import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Annotated
+from uuid import UUID
 
 import httpx2
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -16,10 +17,10 @@ from psycopg.rows import DictRow, dict_row
 from psycopg_pool import AsyncConnectionPool
 
 from flowai_agent.config import Settings
-from flowai_agent.graph.build import run_graph
+from flowai_agent.graph.build import resume_graph, run_graph
 from flowai_agent.graph.nodes import PlanningNodes
 from flowai_agent.graph.state import CHECKPOINT_TYPES, AgentState
-from flowai_agent.models.run import RunRequest, RunResult, RunStats
+from flowai_agent.models.run import ResumeRequest, RunRequest, RunResult, RunStats
 from flowai_agent.tools.client import BackendClient
 from flowai_agent.tools.definitions import build_tools
 
@@ -116,6 +117,51 @@ async def create_run(
         return failed(f"The run failed unexpectedly: {type(error).__name__}")
     finally:
         await client.aclose()
+    return to_result(final, checkpoint_id)
+
+
+@app.post("/runs/{run_id}/resume")
+async def resume_run(
+    run_id: UUID,
+    request: ResumeRequest,
+    model: Annotated[BaseChatModel, Depends(get_chat_model)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    transport: Annotated[
+        httpx2.AsyncBaseTransport | None, Depends(get_backend_transport)
+    ],
+    checkpointer: Annotated[BaseCheckpointSaver[str], Depends(get_checkpointer)],
+    authorization: Annotated[str | None, Header()] = None,
+) -> RunResult:
+    if authorization is None or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="agent token is required")
+    token = authorization.removeprefix("Bearer ")
+    client = BackendClient(
+        settings.backend_base_url, token, transport, search_mode=settings.search_mode
+    )
+    try:
+        async with asyncio.timeout(settings.run_timeout_seconds):
+            resumed = await resume_graph(
+                PlanningNodes(model, build_tools(client, settings.search_max_results)),
+                checkpointer,
+                str(run_id),
+                request.checkpointId,
+                request.feedback,
+            )
+    except TimeoutError:
+        logger.warning("revision of run %s timed out", run_id)
+        return failed(
+            f"The revision took longer than {settings.run_timeout_seconds} seconds"
+        )
+    except Exception as error:
+        logger.exception("revision of run %s failed", run_id)
+        return failed(f"The revision failed unexpectedly: {type(error).__name__}")
+    finally:
+        await client.aclose()
+    if resumed is None:
+        raise HTTPException(
+            status_code=409, detail="checkpoint is not waiting for review"
+        )
+    final, checkpoint_id = resumed
     return to_result(final, checkpoint_id)
 
 
