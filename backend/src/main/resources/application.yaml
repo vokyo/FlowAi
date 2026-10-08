@@ -37,6 +37,11 @@ spring:
       repositories:
         enabled: false
 app:
+  # Off, every instance counts rate limits in its own memory, which is all a single
+  # instance needs. On, the instances share them through the Redis above; one that
+  # cannot reach Redis in time counts on its own until it can.
+  redis:
+    enabled: ${REDIS_ENABLED:false}
   workspace:
     invitation-ttl: 7d
   security:

@@ -17,6 +17,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
 import java.time.Duration;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -34,7 +35,8 @@ class RateLimitFilterTests {
         RateLimitService rateLimitService = new RateLimitService(
                 new RateLimitProperties(true, 1_000, Duration.ofHours(2)),
                 new FixedTimeMeter(),
-                meterRegistry
+                meterRegistry,
+                Optional.empty()
         );
         filter = new RateLimitFilter(
                 rateLimitService,
