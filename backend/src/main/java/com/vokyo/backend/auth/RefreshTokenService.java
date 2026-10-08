@@ -2,6 +2,7 @@ package com.vokyo.backend.auth;
 
 import com.vokyo.backend.security.JwtProperties;
 import com.vokyo.backend.user.User;
+import com.vokyo.backend.user.UserRepository;
 import com.vokyo.backend.workspace.WorkspaceMembership;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -25,16 +26,19 @@ public class RefreshTokenService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final JwtProperties jwtProperties;
     private final RefreshTokenReuseHandler reuseHandler;
+    private final UserRepository userRepository;
     private final SecureRandom secureRandom = new SecureRandom();
 
     public RefreshTokenService(
             RefreshTokenRepository refreshTokenRepository,
             JwtProperties jwtProperties,
-            RefreshTokenReuseHandler reuseHandler
+            RefreshTokenReuseHandler reuseHandler,
+            UserRepository userRepository
     ) {
         this.refreshTokenRepository = refreshTokenRepository;
         this.jwtProperties = jwtProperties;
         this.reuseHandler = reuseHandler;
+        this.userRepository = userRepository;
     }
 
     @Transactional
@@ -76,12 +80,17 @@ public class RefreshTokenService {
         }
     }
 
+    /**
+     * Ends the session the token belongs to: the token can no longer refresh, and
+     * every access token its user holds stops working at once.
+     */
     @Transactional
     public void revoke(String plainToken) {
         refreshTokenRepository.findByTokenHashForUpdate(hashToken(plainToken))
                 .ifPresent(token -> {
                     if (!token.isRevoked()) {
                         token.revoke();
+                        userRepository.revokeAccessTokens(token.getUser().getId());
                     }
                 });
     }
@@ -94,6 +103,7 @@ public class RefreshTokenService {
     @Transactional
     public void revokeUserSessions(UUID userId) {
         refreshTokenRepository.revokeAllByUserId(userId, Instant.now());
+        userRepository.revokeAccessTokens(userId);
     }
 
     private String generatePlainToken() {

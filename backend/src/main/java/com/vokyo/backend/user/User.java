@@ -44,6 +44,14 @@ public class User {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    /**
+     * Carried in every access token; tokens issued under an older value are refused.
+     * Only {@link UserRepository#revokeAccessTokens} writes it, in place in the
+     * database: saving a user loaded before a raise never writes the old value back.
+     */
+    @Column(name = "token_version", nullable = false, insertable = false, updatable = false)
+    private int tokenVersion;
+
     protected User() {
     }
 
@@ -83,6 +91,10 @@ public class User {
 
     public String getAvatarUrl() {
         return avatarUrl;
+    }
+
+    public int getTokenVersion() {
+        return tokenVersion;
     }
 
     public Instant getCreatedAt() {

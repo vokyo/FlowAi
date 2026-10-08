@@ -2,6 +2,7 @@ package com.vokyo.backend.security;
 
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import com.nimbusds.jose.proc.SecurityContext;
+import com.vokyo.backend.user.UserRepository;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -34,8 +35,18 @@ class JwtConfiguration {
         return new NimbusJwtEncoder(jwkSource);
     }
 
+    /**
+     * Decodes the users' access tokens. Besides the signature, expiry and audience, it
+     * checks each token against its user's current token version, one primary-key read
+     * per request, so a logout ends the token at once. The agent's tokens go through a
+     * decoder of their own and are not affected.
+     */
     @Bean
-    JwtDecoder jwtDecoder(SecretKey jwtSecretKey) {
-        return AudienceJwtDecoders.forAudience(jwtSecretKey, JwtService.API_AUDIENCE);
+    JwtDecoder jwtDecoder(SecretKey jwtSecretKey, UserRepository userRepository) {
+        return AudienceJwtDecoders.forAudience(
+                jwtSecretKey,
+                JwtService.API_AUDIENCE,
+                new TokenVersionValidator(userRepository::findTokenVersionById)
+        );
     }
 }

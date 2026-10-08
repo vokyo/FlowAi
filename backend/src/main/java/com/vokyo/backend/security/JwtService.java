@@ -24,6 +24,7 @@ public class JwtService {
     private static final String WORKSPACE_ID_CLAIM = "workspaceId";
     private static final String MEMBERSHIP_ID_CLAIM = "membershipId";
     private static final String ROLE_CLAIM = "role";
+    public static final String TOKEN_VERSION_CLAIM = "tokenVersion";
     public static final String API_AUDIENCE = "flowai-api";
 
     private final JwtEncoder jwtEncoder;
@@ -49,6 +50,7 @@ public class JwtService {
                 .claim(WORKSPACE_ID_CLAIM, membership.getWorkspace().getId().toString())
                 .claim(MEMBERSHIP_ID_CLAIM, membership.getId().toString())
                 .claim(ROLE_CLAIM, membership.getRole().name())
+                .claim(TOKEN_VERSION_CLAIM, user.getTokenVersion())
                 .build();
 
         JwsHeader header = JwsHeader.with(MacAlgorithm.HS256).build();
