@@ -54,6 +54,7 @@ The deployment above runs the same containers as `docker compose up`: an Nginx i
 - Stateless Spring Security, BCrypt password hashing, role-aware access checks, and token-bucket rate limiting that Redis shares across instances.
 - Rotated refresh tokens whose replay revokes the membership's sessions instead of only failing the request.
 - Logging out, changing the password or signing out everywhere ends existing access tokens on their next request, not when they expire.
+- Personal access tokens for AI apps, created and revoked in settings: shown once, stored as a hash, bound to one workspace, expiring after 30, 90 or 365 days, and usable only at the MCP endpoint.
 - Docker Compose stack with a non-root backend image and same-origin Nginx reverse proxy.
 - Unit, integration, migration, component, and Playwright end-to-end tests in GitHub Actions.
 
@@ -95,7 +96,7 @@ In the containerized stack, Nginx serves the frontend and proxies API requests t
 | --- | --- |
 | Backend | Java 21, Spring Boot 3.5, Spring Web, Spring Validation |
 | Security | Spring Security, JWT Resource Server, BCrypt, rotating refresh tokens, Bucket4j |
-| Data | PostgreSQL 17, Spring Data JPA, Hibernate, Flyway (22 migrations), Redis 8 for state shared between instances |
+| Data | PostgreSQL 17, Spring Data JPA, Hibernate, Flyway (23 migrations), Redis 8 for state shared between instances |
 | Frontend | React 19, TypeScript, Vite, React Router, TanStack Query |
 | UI | Tailwind CSS 4, shadcn/ui, Radix UI, dnd-kit, React Hook Form, Zod |
 | AI | Spring AI 1.0, structured generation, validation/repair, persisted suggestion lifecycle |
@@ -267,6 +268,7 @@ For the complete set of options, see [`application.yaml`](./backend/src/main/res
 | --- | --- |
 | Authentication | `POST /api/auth/register`, `/login`, `/refresh`, `/logout`, `/register-with-invitation` |
 | Current session | `GET /api/me`, `PATCH /api/me/profile`, `PUT /api/me/password`, `DELETE /api/me/sessions` |
+| Access tokens for AI apps | `GET`/`POST /api/me/access-tokens`, `DELETE /api/me/access-tokens/{id}` |
 | Workspaces | `/api/workspaces`, `POST /api/workspaces/{id}/switch`, `/api/workspaces/current/members` |
 | Invitations | `/api/workspaces/current/invitations` (create, reissue, revoke), `/api/workspace-invitations/{token}` (view, accept) |
 | Projects | `/api/projects`, project members, labels, workflow states, archive/restore |
