@@ -486,6 +486,13 @@ The live instance runs the two images built from this repository on a container 
 - `DEMO_SEED_ENABLED=true` on a public demo instance, which populates the workspace described under [Demo Data](#demo-data). Leave it unset anywhere real.
 - `REDIS_ENABLED=true` and `REDIS_URL` once more than one backend instance runs, so they share rate limits and the planning-run lock. A single instance does not need Redis.
 
+The planning agent is a third service, built from [`agent/Dockerfile`](./agent/Dockerfile) with the repository's `agent/` directory as its root, and it gets no public address: the agent does not check the tokens it is given, so only the backend may reach it, over the platform's private network. It listens on every IPv4 and IPv6 address, which a private network may use either of.
+
+- Once, create the agent's role and schema with [`agent/db/init-checkpoint-schema.sh`](./agent/db/init-checkpoint-schema.sh), passing the database's URL as `DATABASE_URL` and a new password as `AGENT_DB_PASSWORD`.
+- On the agent: `OPENAI_API_KEY`, `CHECKPOINT_DATABASE_URL` for that role at the database's private address, `BACKEND_BASE_URL` at the backend's private address, and `PORT` if the platform does not set it.
+- On the backend: `AGENT_ENABLED=true`, `AGENT_BASE_URL` at the agent's private address with its port, and `SPRING_AI_MODEL_EMBEDDING=openai` with `OPENAI_API_KEY` for semantic search. Issues that existed before embeddings were turned on are queued for them already.
+- A public demo shares one account between every visitor, so put a spending limit on the OpenAI key, pick a cheaper `AI_MODEL` for the agent, and tighten `AI_RATE_LIMIT_CAPACITY` and `AI_RATE_LIMIT_WINDOW`, which cover agent runs and revisions.
+
 Flyway runs on backend startup, so a deploy migrates the database before serving traffic.
 
 ## Demo Data
