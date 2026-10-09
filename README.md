@@ -68,12 +68,14 @@ The deployment above runs the same containers as `docker compose up`: an Nginx i
 | 3 | Board/list experience, filters, pagination, drag-and-drop | Complete |
 | 4 | Analytics and Spring AI Copilot | Complete |
 | 5 | Testing, deployment, and application materials | In progress (live deployment and CI done) |
-| Next | Python/FastAPI/LangGraph planning agent with checkpointing and human approval | Not started |
+| 6 | Python/FastAPI/LangGraph planning agent with semantic issue search, checkpointing, and human review | Complete |
+| 7 | Redis-shared rate limits and planning-run lock, immediate access-token revocation, MCP server for AI apps | Complete |
+| Next | Planning agent documentation and evaluation write-up | Planned |
 
 Not currently included:
 
-- The LangGraph agent service or MCP exposure.
 - A production operations or SLA commitment.
+- OAuth sign-in for AI apps: they connect with a personal access token, so an app that accepts only OAuth cannot connect yet.
 
 ## Architecture
 
@@ -239,7 +241,7 @@ Claude Code:
 claude mcp add --transport http flowai http://localhost:8080/api/mcp --header "Authorization: Bearer flowai_pat_..."
 ```
 
-Cursor, in `.cursor/mcp.json`:
+Cursor, in `~/.cursor/mcp.json`:
 
 ```json
 {
@@ -252,7 +254,7 @@ Cursor, in `.cursor/mcp.json`:
 }
 ```
 
-Use your deployment's URL in place of `http://localhost:8080`.
+Use your deployment's URL in place of `http://localhost:8080`. Keep the token out of files you commit: `claude mcp add` stores it in `~/.claude.json` by default, while `--scope project` or a project's `.cursor/mcp.json` would put it in the repository.
 
 ## Configuration Reference
 
@@ -421,6 +423,7 @@ Two consequences worth knowing:
 
 ```text
 FlowAI/
+├── agent/                    Python planning agent (FastAPI, LangGraph), evaluations, tests
 ├── backend/                  Spring Boot API, domain logic, migrations, prompts, tests
 ├── frontend/                 React application, component tests, Playwright tests
 ├── docker-compose.yml        Full application stack
