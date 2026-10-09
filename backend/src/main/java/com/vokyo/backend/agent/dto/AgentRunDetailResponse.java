@@ -21,12 +21,14 @@ public record AgentRunDetailResponse(
     Instant updatedAt
 ) {
 
+    /** createdIssueIds is empty unless this is the version that was approved. */
     public record Version(
         int version,
         boolean approvable,
         String rejectionReason,
         String contentHash,
         ProjectPlan plan,
+        List<UUID> createdIssueIds,
         Instant createdAt
     ) {
     }

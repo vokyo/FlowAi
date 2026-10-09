@@ -5,6 +5,7 @@ import com.vokyo.backend.agent.dto.AgentApprovalResponse;
 import com.vokyo.backend.agent.dto.AgentRevisionRequest;
 import com.vokyo.backend.agent.dto.AgentRunDetailResponse;
 import com.vokyo.backend.agent.dto.AgentRunResponse;
+import com.vokyo.backend.agent.dto.AgentRunSummaryResponse;
 import com.vokyo.backend.ai.AiFeatureException;
 import com.vokyo.backend.ai.AiGenerationRateLimiter;
 import com.vokyo.backend.ai.AiMetrics;
@@ -21,6 +22,7 @@ import com.vokyo.backend.project.ProjectAccessService;
 import com.vokyo.backend.workspace.CurrentWorkspaceContext;
 import com.vokyo.backend.workspace.WorkspaceAccessService;
 import io.micrometer.core.instrument.Timer;
+import org.springframework.data.domain.Limit;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -29,6 +31,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -45,6 +48,7 @@ import java.util.UUID;
 public class AgentRunReviewService {
 
     private static final String REVISION_METRIC_FEATURE = "project_plan_revision";
+    static final int MAX_LISTED_RUNS = 20;
 
     private final WorkspaceAccessService workspaceAccessService;
     private final ProjectAccessService projectAccessService;
@@ -91,6 +95,33 @@ public class AgentRunReviewService {
         this.transaction = new TransactionTemplate(transactionManager);
         this.readOnlyTransaction = new TransactionTemplate(transactionManager);
         this.readOnlyTransaction.setReadOnly(true);
+    }
+
+    /**
+     * The caller's latest runs on a project they can open, so a run waiting for
+     * review can be found again after the page that started it is gone.
+     */
+    public List<AgentRunSummaryResponse> list(Jwt jwt, UUID projectId) {
+        return Objects.requireNonNull(readOnlyTransaction.execute(status -> {
+            CurrentWorkspaceContext context = workspaceAccessService.requireCurrentContext(jwt);
+            Project project = projectAccessService.requireAccessibleProject(projectId, context);
+            return runRepository.findOwnedInProject(
+                    context.workspace().getId(),
+                    context.user().getId(),
+                    project.getId(),
+                    Limit.of(MAX_LISTED_RUNS)
+                ).stream()
+                .map(run -> new AgentRunSummaryResponse(
+                    run.getId(),
+                    project.getId(),
+                    run.getGoal(),
+                    run.getState(),
+                    run.getLatestVersion(),
+                    run.getCreatedAt(),
+                    run.getUpdatedAt()
+                ))
+                .toList();
+        }));
     }
 
     public AgentRunDetailResponse get(Jwt jwt, UUID runId) {
@@ -338,12 +369,23 @@ public class AgentRunReviewService {
                     version.getRejectionReason(),
                     version.getContentHash(),
                     planVersions.readPlan(version),
+                    createdIssueIds(run, version),
                     version.getCreatedAt()
                 ))
                 .toList(),
             run.getCreatedAt(),
             run.getUpdatedAt()
         );
+    }
+
+    /** Only the latest version of an approved run was approved, and created issues. */
+    private static List<UUID> createdIssueIds(AgentRun run, AgentPlanVersion version) {
+        if (run.getState() != AgentRunState.APPROVED
+            || version.getVersion() != run.getLatestVersion()
+            || version.getSuggestion() == null) {
+            return List.of();
+        }
+        return List.copyOf(version.getSuggestion().getCreatedIssueIds());
     }
 
     /**

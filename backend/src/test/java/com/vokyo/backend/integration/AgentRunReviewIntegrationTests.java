@@ -389,6 +389,55 @@ class AgentRunReviewIntegrationTests extends AbstractMockMvcIntegrationTest {
     }
 
     @Test
+    void aProjectListsTheRunsOfTheUserWhoStartedThemNewestFirst() throws Exception {
+        Graph graph = graph("list");
+        Graph elsewhere = graph("list-elsewhere");
+        answerEveryRunAndRevision();
+        String older = start(graph).get("runId").asText();
+        cancel(graph, older).andExpect(status().isOk());
+        String newer = start(graph).get("runId").asText();
+        Project otherProject = anotherProjectOf(graph);
+        postJson(RUNS, """
+                { "projectId": "%s", "goal": "Plan the other project" }
+                """.formatted(otherProject.getId()), graph.accessToken())
+            .andExpect(status().isOk());
+        String teammate = jwtService.generateAccessToken(graph.teammate(), graph.teammateMembership());
+
+        listRuns(graph.project().getId(), graph.accessToken())
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(2))
+            .andExpect(jsonPath("$[0].runId").value(newer))
+            .andExpect(jsonPath("$[0].state").value("REVIEWING"))
+            .andExpect(jsonPath("$[0].goal").value("Clear the login debt"))
+            .andExpect(jsonPath("$[0].latestVersion").value(1))
+            .andExpect(jsonPath("$[1].runId").value(older))
+            .andExpect(jsonPath("$[1].state").value("CANCELLED"));
+        listRuns(graph.project().getId(), teammate)
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(0));
+        listRuns(elsewhere.project().getId(), graph.accessToken())
+            .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void anApprovedRunShowsTheIssuesItsVersionCreated() throws Exception {
+        Graph graph = graph("created");
+        answerEveryRunAndRevision();
+        JsonNode first = start(graph);
+        String runId = first.get("runId").asText();
+        getRun(graph, runId)
+            .andExpect(jsonPath("$.versions[0].createdIssueIds.length()").value(0));
+
+        JsonNode approved = readJson(approve(graph, runId, 1, first.get("contentHash").asText())
+            .andExpect(status().isOk()));
+
+        getRun(graph, runId)
+            .andExpect(jsonPath("$.state").value("APPROVED"))
+            .andExpect(jsonPath("$.versions[0].createdIssueIds")
+                .value(contains(toArray(approved.get("createdIssueIds")))));
+    }
+
+    @Test
     void aRunIsNotFoundForAnyoneButTheUserWhoStartedIt() throws Exception {
         Graph graph = graph("owner");
         answerEveryRunAndRevision();
@@ -482,6 +531,21 @@ class AgentRunReviewIntegrationTests extends AbstractMockMvcIntegrationTest {
 
     private ResultActions cancel(Graph graph, String runId) throws Exception {
         return postJson(RUNS + "/" + runId + "/cancel", "{}", graph.accessToken());
+    }
+
+    private Project anotherProjectOf(Graph graph) {
+        Workspace workspace = graph.project().getWorkspace();
+        Project project = projectRepository.save(new Project(
+            workspace, graph.owner(), "Another project", "Another description"));
+        projectMemberRepository.save(new ProjectMember(workspace, project, graph.owner(), ProjectRole.OWNER));
+        workflowStateRepository.save(new ProjectWorkflowState(
+            workspace, project, "Todo", WorkflowStateCategory.TODO, 10_000));
+        return project;
+    }
+
+    private ResultActions listRuns(UUID projectId, String accessToken) throws Exception {
+        return mockMvc.perform(get(RUNS).param("projectId", projectId.toString())
+            .header("Authorization", bearer(accessToken)));
     }
 
     private ResultActions getRun(Graph graph, String runId) throws Exception {
