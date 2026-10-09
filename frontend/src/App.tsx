@@ -140,6 +140,14 @@ function AppRoutes() {
         element={renderProjectShell()}
       />
       <Route
+        path="/app/workspaces/:workspaceId/projects/:projectId/agent"
+        element={renderProjectShell()}
+      />
+      <Route
+        path="/app/workspaces/:workspaceId/projects/:projectId/agent/runs/:runId"
+        element={renderProjectShell()}
+      />
+      <Route
         path="/app/workspaces/:workspaceId/projects/:projectId/issues/:issueId"
         element={renderProjectShell()}
       />

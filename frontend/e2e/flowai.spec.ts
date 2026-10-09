@@ -605,3 +605,100 @@ test('keeps edited AI breakdown fields after Apply fails and retries safely', as
   await expect(page.getByText('2 issues created')).toBeVisible()
   expect(applyAttempts).toBe(2)
 })
+
+test('plans with the agent, reopens the run after a reload and approves it', async ({ page, request }) => {
+  const registered = await registerUser(request, uniqueValue('Agent workspace'))
+  const project = await createProject(request, registered.accessToken, 'Agent project')
+  const workflowStates = await listWorkflowStates(request, registered.accessToken, project.id)
+  const todo = workflowStates.find((state) => state.category === 'TODO')
+  expect(todo).toBeTruthy()
+  const existing = await createIssue(request, registered.accessToken, project.id, todo!.id, 'Reset passwords by email')
+  // Stands in for the issue the approval creates, so its link leads somewhere real.
+  const created = await createIssue(request, registered.accessToken, project.id, todo!.id, 'Add rate limiting to login')
+
+  // The planning agent is a separate service the e2e stack does not run, so only its
+  // endpoints are answered here. The issues and the member the plan names are real.
+  const runId = 'run-e2e'
+  const goal = 'Get the login flow ready for the security review'
+  const contentHash = 'a'.repeat(64)
+  const plan = {
+    overview: 'Rate limit the login and reuse the reset flow',
+    existingIssues: [{ issueId: existing.id, reason: 'Already covers the password reset' }],
+    items: [{
+      clientItemId: 'item-1',
+      title: 'Add rate limiting to login',
+      description: 'Five attempts a minute',
+      priority: 'HIGH',
+      suggestedAssigneeUserId: registered.user.id,
+      dueDate: null,
+    }],
+  }
+  let state: 'REVIEWING' | 'APPROVED' | null = null
+  const approvals: unknown[] = []
+  const json = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+
+  await page.route('**/api/ai/status', (route) => route.fulfill(json({
+    enabled: false,
+    breakdownAvailable: false,
+    issueSummaryAvailable: false,
+    projectSummaryAvailable: false,
+    agentAvailable: true,
+    disabledReason: 'AI_DISABLED',
+  })))
+  await page.route(/\/api\/agent\/runs(\/|\?|$)/, (route) => {
+    const method = route.request().method()
+    const path = new URL(route.request().url()).pathname
+    const createdAt = '2026-10-09T01:00:00Z'
+    if (method === 'POST' && path === '/api/agent/runs') {
+      state = 'REVIEWING'
+      return route.fulfill(json({
+        runId, status: 'PLANNED', version: 1, approvable: true, contentHash, plan,
+        stats: { decisionRounds: 2, toolCalls: 3 },
+      }))
+    }
+    if (method === 'GET' && path === '/api/agent/runs') {
+      return route.fulfill(json(state ? [{
+        runId, projectId: project.id, goal, state, latestVersion: 1, createdAt, updatedAt: createdAt,
+      }] : []))
+    }
+    if (method === 'GET' && path === `/api/agent/runs/${runId}` && state) {
+      return route.fulfill(json({
+        runId, projectId: project.id, goal, generatedOn: '2026-10-09', state, latestVersion: 1,
+        versions: [{
+          version: 1, approvable: true, rejectionReason: null, contentHash, plan,
+          createdIssueIds: state === 'APPROVED' ? [created.id] : [], createdAt,
+        }],
+        createdAt, updatedAt: createdAt,
+      }))
+    }
+    if (method === 'POST' && path === `/api/agent/runs/${runId}/approve`) {
+      approvals.push(route.request().postDataJSON())
+      state = 'APPROVED'
+      return route.fulfill(json({ runId, version: 1, createdIssueIds: [created.id], approvedAt: createdAt }))
+    }
+    return route.fulfill({ status: 404, contentType: 'application/json', body: '{"code":"AI_AGENT_RUN_NOT_FOUND"}' })
+  })
+
+  await login(page, registered.user.email)
+  await page.getByRole('button', { name: 'Planning agent' }).click()
+  await expect(page).toHaveURL(new RegExp(`/projects/${project.id}/agent$`))
+  await expect(page.getByText('No runs on this project yet.')).toBeVisible()
+
+  await page.getByLabel('Goal').fill(goal)
+  await page.getByRole('button', { name: 'Generate plan' }).click()
+  await expect(page).toHaveURL(new RegExp(`/projects/${project.id}/agent/runs/${runId}$`))
+  const runPanel = page.getByRole('region', { name: goal })
+  await expect(runPanel.getByRole('link', { name: 'Reset passwords by email' })).toBeVisible()
+  await expect(runPanel.locator('.agent-item').getByText(registered.user.displayName)).toBeVisible()
+  await expect(runPanel.getByText('The agent made 3 lookups over 2 rounds for this version.')).toBeVisible()
+
+  await page.reload()
+  await expect(runPanel.getByRole('heading', { name: goal })).toBeVisible()
+  await expect(page.getByRole('button', { name: new RegExp(goal) })).toHaveAttribute('aria-current', 'true')
+
+  await runPanel.getByRole('button', { name: 'Approve and create 1 issue' }).click()
+  await expect(runPanel.getByText('Approved. 1 issue was created:')).toBeVisible()
+  expect(approvals).toEqual([{ version: 1, contentHash }])
+  await runPanel.getByRole('link', { name: 'Add rate limiting to login' }).click()
+  await expect(page).toHaveURL(new RegExp(`/issues/${created.id}$`))
+})

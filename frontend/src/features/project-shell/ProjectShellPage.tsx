@@ -4,6 +4,7 @@ import { useLocation, useNavigate, useParams, useSearchParams } from 'react-rout
 import { Button } from '@/components/ui/button'
 import { useInvitationMutations } from '@/features/invitations/useInvitationMutations'
 import { useInvitationQuery } from '@/features/invitations/useInvitationQuery'
+import { AgentRouteContainer } from '@/features/project-shell/AgentRouteContainer'
 import { AnalyticsRouteContainer } from '@/features/project-shell/AnalyticsRouteContainer'
 import { IssueDetailRouteContainer } from '@/features/project-shell/IssueDetailRouteContainer'
 import { ProjectRouteContainer } from '@/features/project-shell/ProjectRouteContainer'
@@ -17,11 +18,13 @@ import {
   analyticsRangeFromSearchParams,
   analyticsSearchParams,
   boardIssueViewFromSearchParams,
+  isProjectAgentPath,
   isProjectAnalyticsPath,
   issueViewModeFromSearchParams,
   issueViewSearchParams,
   normalizeAppSearchParams,
   pathWithSearchParams,
+  projectAgentPath,
   projectAnalyticsPath,
   projectPath,
   workViewSearchParams,
@@ -37,6 +40,15 @@ const WorkspaceInvitationsDialog = lazy(() =>
   })),
 )
 
+type ProjectSection = 'work' | 'analytics' | 'agent'
+
+/** The same section of another project: analytics stays analytics, the agent stays the agent. */
+function sectionPath(section: ProjectSection, workspaceId: string, projectId: string) {
+  if (section === 'analytics') return projectAnalyticsPath(workspaceId, projectId)
+  if (section === 'agent') return projectAgentPath(workspaceId, projectId)
+  return projectPath(workspaceId, projectId)
+}
+
 type ProjectShellPageProps = {
   onSignOut: () => void
   onSessionChanged: () => void
@@ -46,6 +58,7 @@ type AppRouteParams = {
   workspaceId?: string
   projectId?: string
   issueId?: string
+  runId?: string
 }
 
 export function ProjectShellPage({ onSignOut, onSessionChanged }: ProjectShellPageProps) {
@@ -56,6 +69,7 @@ export function ProjectShellPage({ onSignOut, onSessionChanged }: ProjectShellPa
     workspaceId: routeWorkspaceId,
     projectId: routeProjectId,
     issueId: routeIssueId,
+    runId: routeRunId,
   } = useParams<AppRouteParams>()
   const [isCreateProjectDialogOpen, setIsCreateProjectDialogOpen] = useState(false)
   const [areProjectsOpen, setAreProjectsOpen] = useState(true)
@@ -66,6 +80,8 @@ export function ProjectShellPage({ onSignOut, onSessionChanged }: ProjectShellPa
   const [latestInvitationLink, setLatestInvitationLink] = useState<string | null>(null)
 
   const isAnalyticsRoute = isProjectAnalyticsPath(location.pathname)
+  const isAgentRoute = isProjectAgentPath(location.pathname)
+  const section: ProjectSection = isAnalyticsRoute ? 'analytics' : isAgentRoute ? 'agent' : 'work'
   const issueViewMode = issueViewModeFromSearchParams(searchParams)
   const boardIssueView = boardIssueViewFromSearchParams(searchParams)
   const analyticsRangeDays = analyticsRangeFromSearchParams(searchParams)
@@ -148,21 +164,19 @@ export function ProjectShellPage({ onSignOut, onSessionChanged }: ProjectShellPa
       routeProjectId && projects.some((project) => project.id === routeProjectId),
     )
     if (!routeProjectId || !hasRouteProject) {
-      const firstProjectPath = isAnalyticsRoute
-        ? projectAnalyticsPath(currentWorkspaceId, projects[0].id)
-        : projectPath(currentWorkspaceId, projects[0].id)
+      const firstProjectPath = sectionPath(section, currentWorkspaceId, projects[0].id)
       navigate(pathWithSearchParams(firstProjectPath, normalizedSearchString), { replace: true })
     }
   }, [
     canLoadCurrentWorkspace,
     currentWorkspaceId,
-    isAnalyticsRoute,
     navigate,
     normalizedSearchString,
     projects,
     projectsQuery.isSuccess,
     routeIssueId,
     routeProjectId,
+    section,
   ])
 
   function handleWorkspaceSelect(workspaceId: string) {
@@ -209,12 +223,9 @@ export function ProjectShellPage({ onSignOut, onSessionChanged }: ProjectShellPa
 
   function handleProjectSelect(projectId: string) {
     if (!currentWorkspaceId) return
-    const nextPath = isAnalyticsRoute
-      ? projectAnalyticsPath(currentWorkspaceId, projectId)
-      : projectPath(currentWorkspaceId, projectId)
     navigate(
       pathWithSearchParams(
-        nextPath,
+        sectionPath(section, currentWorkspaceId, projectId),
         isAnalyticsRoute ? normalizedAppSearchParams : normalizedWorkViewSearchParams,
       ),
     )
@@ -269,6 +280,7 @@ export function ProjectShellPage({ onSignOut, onSessionChanged }: ProjectShellPa
         projects={projects}
         selectedProjectId={selectedProjectId}
         isAnalyticsRoute={isAnalyticsRoute}
+        isAgentRoute={isAgentRoute}
         issueViewMode={issueViewMode}
         boardIssueView={boardIssueView}
         isLoadingProjects={projectsQuery.isLoading}
@@ -285,6 +297,16 @@ export function ProjectShellPage({ onSignOut, onSessionChanged }: ProjectShellPa
               pathWithSearchParams(
                 projectAnalyticsPath(currentWorkspaceId, selectedProjectId),
                 analyticsSearchParams(searchParams, analyticsRangeDays),
+              ),
+            )
+          }
+        }}
+        onAgentSelect={() => {
+          if (currentWorkspaceId && selectedProjectId) {
+            navigate(
+              pathWithSearchParams(
+                projectAgentPath(currentWorkspaceId, selectedProjectId),
+                normalizedWorkViewSearchParams,
               ),
             )
           }
@@ -316,6 +338,14 @@ export function ProjectShellPage({ onSignOut, onSessionChanged }: ProjectShellPa
             workspaceId={currentWorkspaceId}
             selectedProject={selectedProject}
             selectedProjectId={selectedProjectId}
+            canLoadCurrentWorkspace={canLoadCurrentWorkspace}
+          />
+        ) : isAgentRoute ? (
+          <AgentRouteContainer
+            workspaceId={currentWorkspaceId}
+            selectedProject={selectedProject}
+            selectedProjectId={selectedProjectId}
+            runId={routeRunId ?? null}
             canLoadCurrentWorkspace={canLoadCurrentWorkspace}
           />
         ) : (

@@ -99,6 +99,15 @@ export function projectAnalyticsPath(workspaceId: string, projectId: string) {
   return `${projectPath(workspaceId, projectId)}/analytics`
 }
 
+export function projectAgentPath(workspaceId: string, projectId: string) {
+  return `${projectPath(workspaceId, projectId)}/agent`
+}
+
+/** A run has its own address, so refreshing the page reopens it. */
+export function agentRunPath(workspaceId: string, projectId: string, runId: string) {
+  return `${projectAgentPath(workspaceId, projectId)}/runs/${runId}`
+}
+
 export function projectSettingsPath(workspaceId: string, projectId: string) {
   return `${projectPath(workspaceId, projectId)}/settings`
 }
@@ -109,4 +118,8 @@ export function issuePath(workspaceId: string, projectId: string, issueId: strin
 
 export function isProjectAnalyticsPath(pathname: string) {
   return pathname.endsWith('/analytics')
+}
+
+export function isProjectAgentPath(pathname: string) {
+  return /\/projects\/[^/]+\/agent(\/runs\/[^/]+)?$/.test(pathname)
 }

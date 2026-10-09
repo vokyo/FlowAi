@@ -8,3 +8,4 @@
 @import '../pages/settings.css';
 @import '../features/analytics/analytics.css';
 @import '../features/ai-copilot/ai-copilot.css';
+@import '../features/agent/agent.css';

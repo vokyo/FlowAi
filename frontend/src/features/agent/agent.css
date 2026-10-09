@@ -1,0 +1,401 @@
+/* Planning agent: a narrow column to start and find runs, a wide one for the plan
+   under review. Cards, fields and notices reuse the Copilot and shell tokens. */
+.agent-page {
+  gap: 20px;
+}
+
+.agent-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  align-items: start;
+  gap: 20px;
+}
+
+.agent-sidebar,
+.agent-main {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.agent-main > .empty-state {
+  max-width: none;
+}
+
+.agent-card,
+.agent-panel {
+  display: grid;
+  gap: 14px;
+  border-radius: var(--md-shape-lg);
+  background: var(--surface-card);
+  padding: 18px;
+  box-shadow: var(--elevation-card);
+}
+
+.agent-panel {
+  gap: 16px;
+  padding: 20px;
+}
+
+.agent-card h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--md-on-surface);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.agent-card h2 svg {
+  width: 16px;
+  height: 16px;
+  color: var(--md-tertiary);
+}
+
+.agent-start-form,
+.agent-revise-form {
+  display: grid;
+  gap: 10px;
+}
+
+.agent-start-form > button,
+.agent-revise-form > button {
+  justify-self: end;
+}
+
+.agent-start-form label,
+.agent-revise-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--md-on-surface-variant);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.agent-start-form textarea,
+.agent-revise-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  border: 1px solid var(--field-border);
+  border-radius: var(--md-shape-sm);
+  background: var(--field-surface);
+  padding: 8px 10px;
+  color: var(--md-on-surface);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  outline: none;
+  box-shadow: var(--elevation-control);
+  transition: border-color var(--md-duration-short) var(--md-easing),
+    box-shadow var(--md-duration-short) var(--md-easing);
+}
+
+.agent-start-form textarea:hover,
+.agent-revise-form textarea:hover {
+  border-color: var(--field-border-hover);
+}
+
+.agent-start-form textarea:focus,
+.agent-revise-form textarea:focus {
+  border-color: var(--md-primary);
+  box-shadow: var(--field-focus-ring);
+}
+
+.agent-muted {
+  margin: 0;
+  color: var(--md-on-surface-variant);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.agent-working {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: var(--md-shape-sm);
+  background: var(--md-surface-container-high);
+  padding: 10px 12px;
+  color: var(--md-on-surface-variant);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.agent-working svg {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+}
+
+.agent-working-time {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-notice {
+  display: grid;
+  gap: 6px;
+  border-radius: var(--md-shape-sm);
+  background: var(--md-surface-container-high);
+  padding: 12px 14px;
+  color: var(--md-on-surface-variant);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.agent-notice[data-tone='warning'] {
+  background: var(--md-error-container);
+  color: var(--md-on-error-container);
+}
+
+.agent-notice[data-tone='success'] {
+  background: color-mix(in oklab, var(--status-done), transparent 88%);
+  color: var(--md-on-surface);
+}
+
+.agent-notice p,
+.agent-notice ul {
+  margin: 0;
+}
+
+.agent-notice ul {
+  padding-left: 20px;
+}
+
+.agent-notice a {
+  color: inherit;
+  font-weight: 600;
+}
+
+.agent-run-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-run-link {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  border-radius: var(--md-shape-sm);
+  background: transparent;
+  padding: 8px 10px;
+  color: var(--md-on-surface);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--md-duration-short) var(--md-easing);
+}
+
+.agent-run-link:hover {
+  background: var(--md-surface-container-low);
+}
+
+.agent-run-link[data-active='true'] {
+  background: var(--md-surface-container-high);
+}
+
+.agent-run-link strong {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-run-link > span {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-run-link small {
+  color: var(--md-on-surface-variant);
+  font-size: 11px;
+}
+
+.agent-state-badge {
+  width: fit-content;
+  border-radius: var(--md-shape-xs);
+  background: var(--md-primary-container);
+  padding: 2px 8px;
+  color: var(--md-on-primary-container);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.agent-state-badge[data-state='APPROVED'] {
+  background: color-mix(in oklab, var(--status-done), transparent 84%);
+  color: var(--status-done);
+}
+
+.agent-state-badge[data-state='CANCELLED'] {
+  background: var(--md-surface-container-high);
+  color: var(--md-on-surface-variant);
+}
+
+.agent-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.agent-panel-header > div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.agent-panel-header h2 {
+  margin: 0;
+  color: var(--md-on-surface);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.agent-panel-header p {
+  margin: 0;
+  color: var(--md-on-surface-variant);
+  font-size: 12px;
+}
+
+.agent-version-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.agent-plan {
+  display: grid;
+  gap: 18px;
+}
+
+.agent-plan-overview {
+  margin: 0;
+  color: var(--md-on-surface);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.agent-plan-section {
+  display: grid;
+  gap: 10px;
+}
+
+.agent-plan-section h3 {
+  margin: 0;
+  color: var(--md-on-surface);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.agent-existing-list,
+.agent-item-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-existing-list li {
+  display: grid;
+  gap: 4px;
+  border-left: 3px solid var(--status-done);
+  padding: 2px 0 2px 12px;
+  font-size: 13px;
+}
+
+.agent-existing-list a {
+  color: var(--md-on-surface);
+  font-weight: 600;
+}
+
+.agent-existing-list p {
+  margin: 0;
+  color: var(--md-on-surface-variant);
+}
+
+.agent-item {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-shape-sm);
+  padding: 12px 14px;
+}
+
+.agent-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agent-item-head strong {
+  color: var(--md-on-surface);
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.agent-item-description {
+  margin: 0;
+  color: var(--md-on-surface-variant);
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.agent-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  color: var(--md-on-surface-variant);
+  font-size: 12px;
+}
+
+.agent-item-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.agent-item-meta svg {
+  width: 14px;
+  height: 14px;
+}
+
+.agent-review {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--md-outline-variant);
+  padding-top: 16px;
+}
+
+.agent-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 920px) {
+  .agent-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* On one column an open run comes first; without one, the form does. */
+  .agent-layout[data-run-open='true'] .agent-main {
+    order: -1;
+  }
+}

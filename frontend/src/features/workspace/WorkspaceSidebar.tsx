@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router'
 import {
+  Bot,
   ChartColumn,
   Check,
   ChevronDown,
@@ -51,6 +52,7 @@ export function WorkspaceSidebar({
   projects,
   selectedProjectId,
   isAnalyticsRoute,
+  isAgentRoute,
   issueViewMode,
   boardIssueView,
   isLoadingProjects,
@@ -62,6 +64,7 @@ export function WorkspaceSidebar({
   canSelectViews,
   onViewSelect,
   onAnalyticsSelect,
+  onAgentSelect,
   onProjectSelect,
   onSignOut,
   isMobileOpen,
@@ -84,6 +87,7 @@ export function WorkspaceSidebar({
   projects: Project[]
   selectedProjectId: string | null
   isAnalyticsRoute: boolean
+  isAgentRoute: boolean
   issueViewMode: IssueViewMode
   boardIssueView: BoardIssueView
   isLoadingProjects: boolean
@@ -95,12 +99,14 @@ export function WorkspaceSidebar({
   canSelectViews: boolean
   onViewSelect: (view: BoardIssueView) => void
   onAnalyticsSelect: () => void
+  onAgentSelect: () => void
   onProjectSelect: (projectId: string) => void
   onSignOut: () => void
   isMobileOpen: boolean
   onMobileClose: () => void
 }) {
   const navigate = useNavigate()
+  const isWorkRoute = !isAnalyticsRoute && !isAgentRoute
   return (
     <aside className="app-sidebar" data-mobile-open={isMobileOpen}>
       <div className="sidebar-brand-row">
@@ -159,7 +165,7 @@ export function WorkspaceSidebar({
             variant="ghost"
             className="sidebar-list-item sidebar-view-item"
             data-active={
-              !isAnalyticsRoute && issueViewMode === 'BOARD' && boardIssueView === 'ALL'
+              isWorkRoute && issueViewMode === 'BOARD' && boardIssueView === 'ALL'
             }
             type="button"
             disabled={!canSelectViews}
@@ -168,7 +174,7 @@ export function WorkspaceSidebar({
               onViewSelect('ALL')
             }}
             aria-current={
-              !isAnalyticsRoute && issueViewMode === 'BOARD' && boardIssueView === 'ALL'
+              isWorkRoute && issueViewMode === 'BOARD' && boardIssueView === 'ALL'
                 ? 'page'
                 : undefined
             }
@@ -182,7 +188,7 @@ export function WorkspaceSidebar({
             variant="ghost"
             className="sidebar-list-item sidebar-view-item"
             data-active={
-              !isAnalyticsRoute && issueViewMode === 'BOARD' && boardIssueView === 'MINE'
+              isWorkRoute && issueViewMode === 'BOARD' && boardIssueView === 'MINE'
             }
             type="button"
             disabled={!canSelectViews}
@@ -191,7 +197,7 @@ export function WorkspaceSidebar({
               onViewSelect('MINE')
             }}
             aria-current={
-              !isAnalyticsRoute && issueViewMode === 'BOARD' && boardIssueView === 'MINE'
+              isWorkRoute && issueViewMode === 'BOARD' && boardIssueView === 'MINE'
                 ? 'page'
                 : undefined
             }
@@ -205,7 +211,7 @@ export function WorkspaceSidebar({
             variant="ghost"
             className="sidebar-list-item sidebar-view-item"
             data-active={
-              !isAnalyticsRoute &&
+              isWorkRoute &&
               issueViewMode === 'BOARD' &&
               boardIssueView === 'UNASSIGNED'
             }
@@ -216,7 +222,7 @@ export function WorkspaceSidebar({
               onViewSelect('UNASSIGNED')
             }}
             aria-current={
-              !isAnalyticsRoute &&
+              isWorkRoute &&
               issueViewMode === 'BOARD' &&
               boardIssueView === 'UNASSIGNED'
                 ? 'page'
@@ -243,6 +249,23 @@ export function WorkspaceSidebar({
             <ChartColumn aria-hidden="true" />
             <span>
               <strong>Analytics</strong>
+            </span>
+          </Button>
+          <Button
+            variant="ghost"
+            className="sidebar-list-item sidebar-view-item"
+            data-active={isAgentRoute}
+            type="button"
+            disabled={!canSelectViews}
+            onClick={() => {
+              onMobileClose()
+              onAgentSelect()
+            }}
+            aria-current={isAgentRoute ? 'page' : undefined}
+          >
+            <Bot aria-hidden="true" />
+            <span>
+              <strong>Planning agent</strong>
             </span>
           </Button>
         </div>

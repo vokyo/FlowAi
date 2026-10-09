@@ -1,14 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import {
+  agentRunPath,
   analyticsRangeFromSearchParams,
   analyticsSearchParams,
   boardIssueViewFromSearchParams,
+  isProjectAgentPath,
   isProjectAnalyticsPath,
   issuePath,
   issueViewModeFromSearchParams,
   issueViewSearchParams,
   normalizeAppSearchParams,
   pathWithSearchParams,
+  projectAgentPath,
   projectAnalyticsPath,
   projectPath,
   workViewSearchParams,
@@ -53,5 +56,14 @@ describe('project route query conversion', () => {
     )
     expect(pathWithSearchParams('/app', '?layout=list')).toBe('/app?layout=list')
     expect(isProjectAnalyticsPath('/app/workspaces/w/projects/p/analytics')).toBe(true)
+  })
+
+  it('gives the planning agent and each of its runs an address of their own', () => {
+    expect(projectAgentPath('w', 'p')).toBe('/app/workspaces/w/projects/p/agent')
+    expect(agentRunPath('w', 'p', 'r')).toBe('/app/workspaces/w/projects/p/agent/runs/r')
+    expect(isProjectAgentPath('/app/workspaces/w/projects/p/agent')).toBe(true)
+    expect(isProjectAgentPath('/app/workspaces/w/projects/p/agent/runs/r')).toBe(true)
+    expect(isProjectAgentPath('/app/workspaces/w/projects/p/issues/agent')).toBe(false)
+    expect(isProjectAgentPath('/app/workspaces/w/projects/p/analytics')).toBe(false)
   })
 })
