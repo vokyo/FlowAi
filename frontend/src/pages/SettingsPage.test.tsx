@@ -115,6 +115,7 @@ describe('SettingsPage', () => {
     await userEvent.selectOptions(screen.getByLabelText('Expires after'), '30')
     await userEvent.click(screen.getByRole('button', { name: /Create token/ }))
 
+    expect(screen.getByText(`${window.location.origin}/api/mcp`)).toBeInTheDocument()
     expect(createAccessToken).toHaveBeenCalledWith({ name: 'Claude Code', lifetimeDays: 30 })
     expect(await screen.findByText('flowai_pat_secret-value')).toBeInTheDocument()
     expect(screen.getByText('It will not be shown again.', { exact: false })).toBeInTheDocument()

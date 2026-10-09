@@ -287,6 +287,7 @@ function AccessTokenSettings() {
           <p>Let an AI app such as Claude Code or Cursor read this workspace over MCP. A token can only read, and only from there.</p>
         </div>
       </div>
+      <p className="settings-inline-state">MCP endpoint: <code className="settings-token-value">{`${window.location.origin}/api/mcp`}</code></p>
       <form className="settings-inline-form" onSubmit={(event) => { event.preventDefault(); createMutation.mutate() }}>
         <input aria-label="Token name" placeholder="Name, e.g. Claude Code on my laptop" maxLength={100} required value={name} onChange={(event) => setName(event.target.value)} />
         <select aria-label="Expires after" value={lifetimeDays} onChange={(event) => setLifetimeDays(Number(event.target.value) as AccessTokenLifetime)}>
