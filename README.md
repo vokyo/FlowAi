@@ -294,6 +294,8 @@ Backend properties (set them on the backend process or add them to the Compose s
 | `AI_MAX_BREAKDOWN_ITEMS` | `8` | Cap on generated child tasks |
 | `AI_RATE_LIMIT_CAPACITY` / `AI_RATE_LIMIT_WINDOW` | `10` / `1m` | AI generation limit per user and workspace |
 | `MCP_RATE_LIMIT_CAPACITY` / `MCP_RATE_LIMIT_WINDOW` | `60` / `1m` | Requests each personal access token may make to the MCP endpoint |
+| `AGENT_ENABLED` | `false` | Whether this deployment runs the planning agent. Off, the agent page says so and starting or revising a run is refused; existing runs can still be read, approved and cancelled |
+| `AGENT_BASE_URL` | `http://localhost:8000` | Where the backend reaches the planning agent service |
 
 For the complete set of options, see [`application.yaml`](./backend/src/main/resources/application.yaml) and [`application-prod.yaml`](./backend/src/main/resources/application-prod.yaml). The prod profile additionally parameterizes the AI context limits (`AI_INCLUDE_COMMENTS_LIMIT`, `AI_INCLUDE_ACTIVITY_LIMIT`, `AI_MAX_CONTEXT_ISSUES`).
 
@@ -310,6 +312,7 @@ For the complete set of options, see [`application.yaml`](./backend/src/main/res
 | Projects | `/api/projects`, project members, labels, workflow states, archive/restore |
 | Issues | `/api/issues`, `/api/issues/board`, `PATCH /api/issues/reorder`, state changes, comments, activities |
 | Analytics | `GET /api/analytics/overview` |
+| Planning agent | `POST /api/agent/runs`, `GET /api/agent/runs?projectId=` (your runs, newest first), `GET /api/agent/runs/{id}`, `POST /api/agent/runs/{id}/revisions`, `/approve`, `/cancel` |
 | AI Copilot | `GET /api/ai/status`, `POST /api/ai/issues/{id}/breakdown`, `POST /api/ai/issues/{id}/summary`, `POST /api/ai/projects/{id}/summary`, `GET`/`POST .../dismiss`/`POST .../apply` under `/api/ai/suggestions/{id}` |
 
 Protected requests use:
