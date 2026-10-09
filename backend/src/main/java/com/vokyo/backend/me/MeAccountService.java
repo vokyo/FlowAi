@@ -1,5 +1,6 @@
 package com.vokyo.backend.me;
 
+import com.vokyo.backend.accesstoken.PersonalAccessTokenService;
 import com.vokyo.backend.auth.RefreshTokenService;
 import com.vokyo.backend.auth.dto.UserResponse;
 import com.vokyo.backend.me.dto.ChangePasswordRequest;
@@ -21,15 +22,18 @@ public class MeAccountService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final RefreshTokenService refreshTokenService;
+    private final PersonalAccessTokenService accessTokenService;
 
     public MeAccountService(
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
-            RefreshTokenService refreshTokenService
+            RefreshTokenService refreshTokenService,
+            PersonalAccessTokenService accessTokenService
     ) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.refreshTokenService = refreshTokenService;
+        this.accessTokenService = accessTokenService;
     }
 
     @Transactional
@@ -50,11 +54,16 @@ public class MeAccountService {
         }
         user.changePasswordHash(passwordEncoder.encode(request.newPassword()));
         refreshTokenService.revokeUserSessions(user.getId());
+        // A password change is how a user takes an account back, so tokens made for
+        // AI apps go too, in case whoever had the account made one.
+        accessTokenService.revokeAllForUser(user.getId());
     }
 
     @Transactional
     public void revokeAllSessions(Jwt jwt) {
-        refreshTokenService.revokeUserSessions(requireUser(jwt).getId());
+        User user = requireUser(jwt);
+        refreshTokenService.revokeUserSessions(user.getId());
+        accessTokenService.revokeAllForUser(user.getId());
     }
 
     private User requireUser(Jwt jwt) {
