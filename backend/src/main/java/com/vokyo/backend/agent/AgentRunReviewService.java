@@ -55,6 +55,7 @@ public class AgentRunReviewService {
     private final AgentTokenService agentTokenService;
     private final AgentServiceClient agentServiceClient;
     private final AgentCheckpoints checkpoints;
+    private final AgentRunLock runLock;
     private final AiMetrics metrics;
     private final Clock clock;
     private final TransactionTemplate transaction;
@@ -70,6 +71,7 @@ public class AgentRunReviewService {
         AgentTokenService agentTokenService,
         AgentServiceClient agentServiceClient,
         AgentCheckpoints checkpoints,
+        AgentRunLock runLock,
         AiMetrics metrics,
         Clock clock,
         PlatformTransactionManager transactionManager
@@ -83,6 +85,7 @@ public class AgentRunReviewService {
         this.agentTokenService = agentTokenService;
         this.agentServiceClient = agentServiceClient;
         this.checkpoints = checkpoints;
+        this.runLock = runLock;
         this.metrics = metrics;
         this.clock = clock;
         this.transaction = new TransactionTemplate(transactionManager);
@@ -113,23 +116,11 @@ public class AgentRunReviewService {
             ));
             rateLimiter.requirePermit(scope.context());
 
-            String feedback = request.feedback().strip();
-            AgentRunResult result = agentServiceClient.resume(
-                agentTokenService.issue(scope.context(), scope.project().getId(), runId),
-                runId,
-                scope.checkpointId(),
-                feedback
+            AgentRunResponse response = runLock.whileHeld(
+                scope.context().user().getId(),
+                scope.project().getId(),
+                () -> reviseWithTheAgent(scope, runId, request)
             );
-            AgentRunService.logRun(runId, scope.project(), result);
-
-            AgentRunResponse response = switch (result.status()) {
-                case PLANNED -> saveRevision(
-                    scope.context(), runId, request.basedOnVersion(), AgentRunService.requirePlan(result),
-                    result, feedback
-                );
-                case INSUFFICIENT_INFO -> AgentRunService.insufficient(runId, result);
-                case FAILED -> throw AiFeatureException.agentRunFailed();
-            };
             metricResult = AgentRunService.metricResult(response);
             return response;
         } catch (AiRateLimitExceededException exception) {
@@ -144,6 +135,26 @@ public class AgentRunReviewService {
         } finally {
             metrics.complete(timer, REVISION_METRIC_FEATURE, metricResult, null, null);
         }
+    }
+
+    private AgentRunResponse reviseWithTheAgent(RevisionScope scope, UUID runId, AgentRevisionRequest request) {
+        String feedback = request.feedback().strip();
+        AgentRunResult result = agentServiceClient.resume(
+            agentTokenService.issue(scope.context(), scope.project().getId(), runId),
+            runId,
+            scope.checkpointId(),
+            feedback
+        );
+        AgentRunService.logRun(runId, scope.project(), result);
+
+        return switch (result.status()) {
+            case PLANNED -> saveRevision(
+                scope.context(), runId, request.basedOnVersion(), AgentRunService.requirePlan(result),
+                result, feedback
+            );
+            case INSUFFICIENT_INFO -> AgentRunService.insufficient(runId, result);
+            case FAILED -> throw AiFeatureException.agentRunFailed();
+        };
     }
 
     /**

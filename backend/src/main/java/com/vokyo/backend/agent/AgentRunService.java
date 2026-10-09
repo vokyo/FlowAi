@@ -52,6 +52,7 @@ public class AgentRunService {
     private final AgentServiceClient agentServiceClient;
     private final AgentPlanVersions planVersions;
     private final AgentCheckpoints checkpoints;
+    private final AgentRunLock runLock;
     private final AiMetrics metrics;
     private final Clock clock;
     private final TransactionTemplate readOnlyTransaction;
@@ -64,6 +65,7 @@ public class AgentRunService {
         AgentServiceClient agentServiceClient,
         AgentPlanVersions planVersions,
         AgentCheckpoints checkpoints,
+        AgentRunLock runLock,
         AiMetrics metrics,
         Clock clock,
         PlatformTransactionManager transactionManager
@@ -75,6 +77,7 @@ public class AgentRunService {
         this.agentServiceClient = agentServiceClient;
         this.planVersions = planVersions;
         this.checkpoints = checkpoints;
+        this.runLock = runLock;
         this.metrics = metrics;
         this.clock = clock;
         this.readOnlyTransaction = new TransactionTemplate(transactionManager);
@@ -92,38 +95,8 @@ public class AgentRunService {
             Project project = scope.project();
             rateLimiter.requirePermit(context);
 
-            UUID runId = UUID.randomUUID();
-            // One UTC date for the whole run: the model schedules from it and the plan's
-            // due dates are validated against it.
-            LocalDate today = LocalDate.now(clock);
-            String goal = request.goal().strip();
-            AgentRunResult result = agentServiceClient.run(
-                agentTokenService.issue(context, project.getId(), runId),
-                runId,
-                goal,
-                today
-            );
-            logRun(runId, project, result);
-
-            AgentRunResponse response;
-            try {
-                response = switch (result.status()) {
-                    case PLANNED -> planVersions.plannedResponse(
-                        planVersions.startRun(context, project, runId, goal, today, requirePlan(result),
-                            result.checkpointId()),
-                        result.stats()
-                    );
-                    case INSUFFICIENT_INFO -> insufficient(runId, result);
-                    case FAILED -> throw AiFeatureException.agentRunFailed();
-                };
-            } catch (RuntimeException exception) {
-                // The agent finished, but no run was saved for anyone to revise.
-                checkpoints.discard(context, project.getId(), runId);
-                throw exception;
-            }
-            if (response.status() != AgentRunStatus.PLANNED) {
-                checkpoints.discard(context, project.getId(), runId);
-            }
+            AgentRunResponse response = runLock.whileHeld(
+                context.user().getId(), project.getId(), () -> runTheAgent(context, project, request));
             metricResult = metricResult(response);
             return response;
         } catch (AiRateLimitExceededException exception) {
@@ -138,6 +111,46 @@ public class AgentRunService {
         } finally {
             metrics.complete(timer, METRIC_FEATURE, metricResult, null, null);
         }
+    }
+
+    private AgentRunResponse runTheAgent(
+        CurrentWorkspaceContext context,
+        Project project,
+        AgentRunRequest request
+    ) {
+        UUID runId = UUID.randomUUID();
+        // One UTC date for the whole run: the model schedules from it and the plan's
+        // due dates are validated against it.
+        LocalDate today = LocalDate.now(clock);
+        String goal = request.goal().strip();
+        AgentRunResult result = agentServiceClient.run(
+            agentTokenService.issue(context, project.getId(), runId),
+            runId,
+            goal,
+            today
+        );
+        logRun(runId, project, result);
+
+        AgentRunResponse response;
+        try {
+            response = switch (result.status()) {
+                case PLANNED -> planVersions.plannedResponse(
+                    planVersions.startRun(context, project, runId, goal, today, requirePlan(result),
+                        result.checkpointId()),
+                    result.stats()
+                );
+                case INSUFFICIENT_INFO -> insufficient(runId, result);
+                case FAILED -> throw AiFeatureException.agentRunFailed();
+            };
+        } catch (RuntimeException exception) {
+            // The agent finished, but no run was saved for anyone to revise.
+            checkpoints.discard(context, project.getId(), runId);
+            throw exception;
+        }
+        if (response.status() != AgentRunStatus.PLANNED) {
+            checkpoints.discard(context, project.getId(), runId);
+        }
+        return response;
     }
 
     /**
@@ -229,6 +242,7 @@ public class AgentRunService {
             case "AI_AGENT_TIMEOUT" -> "timeout";
             case "AI_AGENT_INVALID_RESPONSE" -> "invalid_response";
             case "AI_AGENT_RUN_FAILED" -> "agent_failed";
+            case "AI_AGENT_RUN_IN_PROGRESS" -> "in_progress";
             case "AI_REQUEST_INVALID", "AI_AGENT_RUN_NOT_FOUND", "AI_AGENT_RUN_CLOSED",
                  "AI_PLAN_VERSION_OUTDATED", "AI_PLAN_VERSION_LIMIT" -> "request_rejected";
             default -> "failed";

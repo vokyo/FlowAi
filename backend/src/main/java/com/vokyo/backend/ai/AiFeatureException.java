@@ -162,6 +162,15 @@ public class AiFeatureException extends RuntimeException {
         );
     }
 
+    /** The same person is already running the agent on the project, from this or another instance. */
+    public static AiFeatureException agentRunInProgress() {
+        return new AiFeatureException(
+                HttpStatus.CONFLICT,
+                "AI_AGENT_RUN_IN_PROGRESS",
+                "A planning run of yours on this project is still going"
+        );
+    }
+
     /** The run was approved or cancelled, so its plan can no longer change. */
     public static AiFeatureException agentRunClosed(String message) {
         return new AiFeatureException(

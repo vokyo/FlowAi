@@ -1,6 +1,7 @@
 package com.vokyo.backend.integration;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.vokyo.backend.agent.AgentRunLock;
 import com.vokyo.backend.agent.AgentRunRepository;
 import com.vokyo.backend.agent.AgentRunState;
 import com.vokyo.backend.agent.AgentTokenService;
@@ -55,11 +56,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Reviews a run the way a user would: revising its plan, approving a version, or
  * cancelling it, with a real HTTP server standing in for the agent. Checks that only
  * the latest version can be approved, only once, and that nothing is written to the
- * project before that.
+ * project before that. Redis is on, so every run and revision here also takes and
+ * lets go of its person's run lock.
  */
-@Import(TestcontainersConfiguration.class)
+@Import({TestcontainersConfiguration.class, RedisTestcontainersConfiguration.class})
 @AutoConfigureMockMvc
-@SpringBootTest(properties = "spring.ai.openai.api-key=dummy")
+@SpringBootTest(properties = {"spring.ai.openai.api-key=dummy", "app.redis.enabled=true"})
 class AgentRunReviewIntegrationTests extends AbstractMockMvcIntegrationTest {
 
     private static final String RUNS = "/api/agent/runs";
@@ -79,6 +81,7 @@ class AgentRunReviewIntegrationTests extends AbstractMockMvcIntegrationTest {
     @Autowired private IssueRepository issueRepository;
     @Autowired private AiSuggestionRepository suggestionRepository;
     @Autowired private AgentRunRepository runRepository;
+    @Autowired private AgentRunLock runLock;
     @Autowired private JwtService jwtService;
     @Autowired private SecretKey jwtSecretKey;
     @Autowired private JdbcTemplate jdbcTemplate;
@@ -130,6 +133,26 @@ class AgentRunReviewIntegrationTests extends AbstractMockMvcIntegrationTest {
             .andExpect(jsonPath("$.version").value(3));
         assertThat(AGENT.received().get(2).body().get("checkpointId").asText()).isEqualTo("checkpoint-2");
         assertThat(AGENT.deletions()).isEmpty();
+    }
+
+    @Test
+    void aRevisionIsRefusedWhileAnotherRunOfTheSamePersonOnTheProjectIsGoing() throws Exception {
+        Graph graph = graph("revision-in-progress");
+        answerEveryRunAndRevision();
+        String runId = start(graph).get("runId").asText();
+        UUID owner = graph.owner().getId();
+        UUID project = graph.project().getId();
+        assertThat(runLock.tryLock(owner, project, "a-run-on-another-instance")).isTrue();
+
+        revise(graph, runId, 1, "Drop the documentation task")
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("AI_AGENT_RUN_IN_PROGRESS"));
+        assertThat(AGENT.received()).as("only the first run reached the agent").hasSize(1);
+
+        runLock.unlock(owner, project, "a-run-on-another-instance");
+        revise(graph, runId, 1, "Drop the documentation task")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.version").value(2));
     }
 
     @Test

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import com.vokyo.backend.agent.AgentRunLock;
 import com.vokyo.backend.agent.AgentRunRepository;
 import com.vokyo.backend.agent.AgentTokenService;
 import com.vokyo.backend.ai.suggestion.AiSuggestion;
@@ -41,6 +42,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -72,11 +74,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Starts planning runs through the real security chain, with a real HTTP server
  * standing in for the Python agent, so the token, the request body and every way a
- * run can end are checked on the wire.
+ * run can end are checked on the wire. Redis is on, as it is with more than one
+ * instance, so every run here also takes and lets go of its person's run lock.
  */
-@Import(TestcontainersConfiguration.class)
+@Import({TestcontainersConfiguration.class, RedisTestcontainersConfiguration.class})
 @AutoConfigureMockMvc
-@SpringBootTest(properties = "spring.ai.openai.api-key=dummy")
+@SpringBootTest(properties = {"spring.ai.openai.api-key=dummy", "app.redis.enabled=true"})
 class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
 
     private static final String RUNS = "/api/agent/runs";
@@ -97,6 +100,8 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
     @Autowired private IssueCreationService issueCreationService;
     @Autowired private AiSuggestionRepository suggestionRepository;
     @Autowired private AgentRunRepository runRepository;
+    @Autowired private AgentRunLock runLock;
+    @Autowired private StringRedisTemplate redis;
     @Autowired private JwtService jwtService;
     @Autowired private AgentTokenService agentTokenService;
     @Autowired private SecretKey jwtSecretKey;
@@ -294,6 +299,38 @@ class AgentRunIntegrationTests extends AbstractMockMvcIntegrationTest {
         assertThat(runRepository.count()).isZero();
         assertThat(AGENT.deletions()).containsExactly("/runs/" + AGENT.received().getFirst().body().get("runId").asText());
         assertThat(suggestionRepository.count()).isZero();
+    }
+
+    @Test
+    void aRunIsRefusedWhileAnotherRunOfTheSamePersonOnTheProjectIsGoing() throws Exception {
+        Graph graph = graph("in-progress");
+        UUID owner = graph.owner().getId();
+        UUID project = graph.project().getId();
+        assertThat(runLock.tryLock(owner, project, "a-run-on-another-instance")).isTrue();
+
+        startRun(graph, project, "Clear the login debt")
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("AI_AGENT_RUN_IN_PROGRESS"));
+        assertThat(AGENT.received()).as("the model is not paid for twice").isEmpty();
+
+        runLock.unlock(owner, project, "a-run-on-another-instance");
+        AGENT.answer(request -> ok("""
+            {"status": "INSUFFICIENT_INFO", "missing": ["No issue mentions the login module"]}
+            """));
+        startRun(graph, project, "Clear the login debt").andExpect(status().isOk());
+    }
+
+    @Test
+    void aRunLetsGoOfItsLockEvenWhenItFails() throws Exception {
+        Graph graph = graph("lock-after-failure");
+        AGENT.answer(request -> ok("""
+            {"status": "FAILED", "reason": "backend unavailable after retries"}
+            """));
+
+        startRun(graph, graph.project().getId(), "Clear the login debt").andExpect(status().isBadGateway());
+
+        assertThat(redis.hasKey("agent-run-lock:" + graph.owner().getId() + ":" + graph.project().getId()))
+            .isFalse();
     }
 
     @Test
