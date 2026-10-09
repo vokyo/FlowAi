@@ -346,7 +346,9 @@ test('manages profile and project configuration from settings', async ({ page, r
 
   // Project settings are their own route now, so /app/settings only signposts
   // them — there is no picker here to choose a project from.
-  await expect(page.locator('.settings-card-wide select')).toHaveCount(0)
+  const projectLinks = page.getByRole('region', { name: 'Projects', exact: true })
+  await expect(projectLinks).toBeVisible()
+  await expect(projectLinks.locator('select')).toHaveCount(0)
   await page.getByRole('button', { name: 'Open settings for Settings project' }).click()
   await expect(page).toHaveURL(new RegExp(`/projects/${project.id}/settings$`))
   await expect(page.getByRole('heading', { name: 'Settings project', level: 1 })).toBeVisible()
