@@ -4,7 +4,7 @@
 
 **Live demo:** [hospitable-friendship-production-52e2.up.railway.app](https://hospitable-friendship-production-52e2.up.railway.app)
 
-FlowAI is a multi-tenant, AI-assisted project and issue management application. It combines Linear-inspired workflows with reviewable AI suggestions, while keeping authorization, tenant isolation, validation, and transactional writes on the server.
+FlowAI is a multi-tenant, AI-assisted project and issue management application. Its centerpiece is a **planning agent**: given a goal, a LangGraph agent searches the project's own issues and members through read-only tools, proposes a plan that reuses work already tracked, and stops for a person to review, revise, or approve it. Nothing is written to the project until a version is approved. Around it sit Linear-inspired workflows and reviewable Copilot suggestions, with authorization, tenant isolation, validation, and transactional writes kept on the server.
 
 The repository is a production-shaped portfolio MVP: it is designed to be runnable, testable, and easy to evaluate without claiming the operational maturity of a hosted production service. This README is the single source of documentation for the project.
 
@@ -20,8 +20,19 @@ The deployment above runs the same containers as `docker compose up`: an Nginx i
 - The instance runs on a small hosting plan, so the first request after an idle period can be slow while the container starts.
 - Treat it as a demo: do not store real data, and expect the database to be reset from time to time.
 - AI Copilot actions require a provider key on the server. `GET /api/ai/status` reports per-feature availability, and the UI disables the Copilot buttons instead of failing on submit when AI is off. The live demo runs with AI off and ships a **pre-generated** Copilot draft instead, so the review-and-apply flow is still explorable — see [Demo Data](#demo-data) for the link that opens it.
+- The planning agent is a separate service that the live demo does not run, so its page says so; see [Planning Agent](#planning-agent) for running it.
 
 ## Highlights
+
+### AI planning agent
+
+- A goal becomes a plan built from the project's own data. The agent searches issues by meaning (pgvector) and lists members through two read-only tools, within a budget of 4 model rounds and 8 tool calls, and names the existing issues that already cover part of the goal before it proposes new ones.
+- Every plan is checked twice: the agent drops assignees who are not members and issues it never saw, and the backend validates limits, membership, active issues, and due dates when a version is saved and again when it is approved.
+- A run stops at a LangGraph interrupt and keeps its state in a PostgreSQL checkpoint. A revision resumes from the checkpoint of the version under review, so a failed or interrupted revision cannot swallow the next one, and a run survives a restart of the agent service.
+- Up to five versions per run. Only the latest can be approved, and only with the content hash of the version the person read; approval creates the issues in one idempotent transaction.
+- The agent never sees the user's token. It gets one bound to a single run and project, reads through internal endpoints with a security chain of their own, and keeps its checkpoints in its own schema under a database role that cannot touch the application's tables.
+- Measured rather than assumed: on a 985-issue project the agent found 65% of the issues people marked relevant, against 50% for a single retrieval and 12% for the newest 100 issues, while sending every issue costs 9.4 times the tokens. See [Evaluation](#evaluation).
+- A Planning agent page in every project starts runs, reviews and revises plans, and approves or cancels them; the open run lives in the URL.
 
 ### Workspace and project management
 
@@ -70,7 +81,7 @@ The deployment above runs the same containers as `docker compose up`: an Nginx i
 | 5 | Testing, deployment, and application materials | In progress (live deployment and CI done) |
 | 6 | Python/FastAPI/LangGraph planning agent with semantic issue search, checkpointing, and human review | Complete |
 | 7 | Redis-shared rate limits and planning-run lock, immediate access-token revocation, MCP server for AI apps | Complete |
-| Next | Planning agent documentation and evaluation write-up | Planned |
+| Next | A standalone agent README, a larger evaluation set, and deploying the agent | Planned |
 
 Not currently included:
 
@@ -85,11 +96,17 @@ flowchart LR
     AiApp["AI app (Claude Code, Cursor)"] -->|"MCP at /api/mcp"| Nginx
     Nginx -->|"/api/*"| API["Spring Boot REST API"]
     API --> Security["JWT + tenant authorization"]
-    API --> Database[("PostgreSQL 17")]
+    API --> Database[("PostgreSQL 17 + pgvector")]
     API -. "when REDIS_ENABLED" .-> Redis[("Redis 8")]
     API -. "when AI is enabled" .-> Provider["OpenAI via Spring AI"]
+    API -. "when AGENT_ENABLED: runs and revisions" .-> Agent["Planning agent: FastAPI + LangGraph"]
+    Agent -->|"read-only internal API, run-scoped token"| API
+    Agent -->|"checkpoints, own schema and role"| Database
+    Agent --> Model["OpenAI chat model"]
     Flyway["Flyway migrations"] --> Database
 ```
+
+The planning agent is a separate Python service that only the backend calls. The backend checks access, applies the AI rate limit and the run lock, and stores every version of a plan; the agent holds a run's working state in its checkpoints and reads project data back through the backend, never from the application's tables.
 
 In the containerized stack, Nginx serves the frontend and proxies API requests to the backend under the same origin, so the browser never makes a cross-origin call and the refresh cookie stays `SameSite=Strict`. During local development, Vite provides the equivalent `/api` proxy. PostgreSQL remains the system of record; AI output is treated as an untrusted draft until it passes validation and a user confirms Apply.
 
@@ -103,9 +120,60 @@ In the containerized stack, Nginx serves the frontend and proxies API requests t
 | Frontend | React 19, TypeScript, Vite, React Router, TanStack Query |
 | UI | Tailwind CSS 4, shadcn/ui, Radix UI, dnd-kit, React Hook Form, Zod |
 | AI | Spring AI 1.1, structured generation, validation/repair, persisted suggestion lifecycle, MCP server (Streamable HTTP) |
+| Agent | Python 3.14, FastAPI, LangGraph with a PostgreSQL checkpointer, LangChain OpenAI, Pydantic; pytest, Ruff, Pyright in strict mode |
 | Observability | Spring Boot Actuator, Micrometer metrics, structured logs, trace IDs |
 | Testing | JUnit 5, Testcontainers, Vitest, Testing Library, Playwright |
 | Delivery | Docker Compose, multi-stage images, Nginx, GitHub Actions |
+
+## Planning Agent
+
+### How a run works
+
+1. A person writes a goal on the project's Planning agent page. The backend checks project access, the AI rate limit, and a per-person, per-project run lock, then signs an agent token for this run and project only (15 minutes) and calls the agent.
+2. The agent loops between the model and two tools, `search_project_issues` and `get_project_members`, which call the backend's internal read-only endpoints with that token. The loop ends when the model has enough to plan, or reports what is missing once the budget runs out.
+3. The agent writes a structured plan: an overview, the existing issues that already cover part of the goal with a reason for each, and up to five new issues with priority, assignee, and due date. Its own check drops assignees outside the member list and issue ids that no search returned.
+4. The run stops at a LangGraph interrupt. The backend validates the plan against the project as it is now and stores it as version 1 with a content hash.
+5. The person approves it, cancels it, or says what should change. A revision resumes from the checkpoint the version under review stopped at, with a budget of its own, and becomes the next version.
+6. Approving validates the latest version again and creates its new issues in one transaction keyed by run and version, so a repeated approval returns the same issues. Once a run is over, its checkpoints are deleted.
+
+Timeouts are nested so the inner one fires first: the backend waits up to 60 seconds for the agent, the agent stops a run at 50, and each of its calls to the backend has 5.
+
+### Evaluation
+
+The scripts are in [`agent/evals/`](./agent/evals). Recall is the share of the issues people marked relevant to a goal that the run retrieved. An LLM judge was tried first and dropped: it gave runs that had seen no project data credit for using it.
+
+Search modes on a 56-issue project (gpt-4o-mini, 10 goals, 3 runs each, 36 relevant issues):
+
+| Search | Recall (mean) | Range over runs | Tokens per goal |
+| --- | --- | --- | --- |
+| Keyword | 33% | 31%–39% | 4,274 |
+| PostgreSQL full text | 36% | 33%–39% | 4,120 |
+| Semantic (pgvector) | 82% | 72%–92% | 10,957 |
+| Semantic, with the tool described for it | 87% | 86%–89% | 8,061 |
+
+Full text barely helped because the misses were synonyms and other languages, such as a goal written in Chinese against issues written in English. A semantic search always returns results, so recall also rises with how many issues a run sees: picking as many at random would find 56% of them on a project this small. The larger project below is the honest test.
+
+Scale on a 985-issue project (the 56 issues plus generated distractors; 8 goals, 26 relevant issues; 2 runs each, 1 for every issue):
+
+| Approach | Model | Recall | Issues seen per goal | Tokens per goal |
+| --- | --- | --- | --- | --- |
+| Agent | gpt-4o | 65% | 30 | 7,065 |
+| Agent | gpt-4o-mini | 62% | 28 | 7,623 |
+| One search with the goal, top 20 | gpt-4o-mini | 50% | 20 | 2,315 |
+| Newest 100 issues | gpt-4o-mini | 12% | 100 | 7,707 |
+| Every issue in the prompt | gpt-4o-mini | 100% | 985 | 66,349 |
+
+Picking 30 issues at random would find about 3%. The agent beats a single search by splitting a goal into several searches; on a 56-issue project, sending every issue in one prompt is simpler and at least as good, so the agent earns its place once a project no longer fits.
+
+Reusing existing issues cut duplicated work from 43 repeated tasks to 16 over the same 10 goals and 3 runs. With gpt-4o, now the default, 5% of the new tasks repeated an existing issue, against 23% with gpt-4o-mini, at about 20 times the cost per run. Both figures leave out the goal that asks to break down an existing issue: issues have no subtasks yet, so every task written for it counts as a repeat.
+
+### Limits
+
+- A run is one synchronous request of up to about 50 seconds; the page shows how long it has waited, not which step the agent is on.
+- Plans have no dependencies, risks, or assumptions yet, so there is no dependency-cycle check.
+- With gpt-4o-mini, revisions were seen to change tasks the feedback did not mention.
+- The evaluation is 10 goals, labeled by AI against written criteria and reviewed by hand; a larger set with regression runs is planned.
+- The live demo does not run the agent.
 
 ## Quick Start
 
@@ -179,6 +247,17 @@ npm run dev
 ```
 
 Open [http://localhost:5173](http://localhost:5173).
+
+#### Optional: the planning agent
+
+Requirements: Python 3.14 and [uv](https://docs.astral.sh/uv/). The agent keeps its checkpoints in PostgreSQL under a role of its own, which the Compose PostgreSQL creates on a fresh volume (an existing volume needs [`agent/db/init-checkpoint-schema.sh`](./agent/db/init-checkpoint-schema.sh) run once), and the template already holds `CHECKPOINT_DATABASE_URL` for it. Put a real `OPENAI_API_KEY` in `.env`, then:
+
+```bash
+cd agent
+uv run --env-file ../.env fastapi dev src/flowai_agent/main.py
+```
+
+Start the backend with `AGENT_ENABLED=true` so it offers the agent and calls it on port 8000. The agent searches by meaning by default, which needs issue embeddings on the backend (`SPRING_AI_MODEL_EMBEDDING=openai`); without them, start the agent with `SEARCH_MODE=keyword`.
 
 ## Container Operations
 
@@ -297,6 +376,19 @@ Backend properties (set them on the backend process or add them to the Compose s
 | `AGENT_ENABLED` | `false` | Whether this deployment runs the planning agent. Off, the agent page says so and starting or revising a run is refused; existing runs can still be read, approved and cancelled |
 | `AGENT_BASE_URL` | `http://localhost:8000` | Where the backend reaches the planning agent service |
 
+Planning agent (environment of the Python service):
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | Empty | Required for runs; without it a run is answered with 503 |
+| `CHECKPOINT_DATABASE_URL` | Required | PostgreSQL URL of the agent's own role and schema; the service refuses to start without it |
+| `BACKEND_BASE_URL` | `http://localhost:8080` | Where the agent reaches the backend's internal API |
+| `AI_MODEL` | `gpt-4o` | Chat model. The backend reads the same name for the Copilot, so a shared `.env` sets both |
+| `SEARCH_MODE` | `semantic` | `semantic`, `fulltext`, or `keyword`; semantic needs the backend's issue embeddings |
+| `SEARCH_MAX_RESULTS` | `20` | Issues per search, 1 to 20 |
+| `MAX_DECISION_ROUNDS` / `MAX_TOOL_CALLS` | `4` / `8` | Budget of a first run; a revision gets 2 and 4 |
+| `RUN_TIMEOUT_SECONDS` | `50` | When the agent gives up on a run |
+
 For the complete set of options, see [`application.yaml`](./backend/src/main/resources/application.yaml) and [`application-prod.yaml`](./backend/src/main/resources/application-prod.yaml). The prod profile additionally parameterizes the AI context limits (`AI_INCLUDE_COMMENTS_LIMIT`, `AI_INCLUDE_ACTIVITY_LIMIT`, `AI_MAX_CONTEXT_ISSUES`).
 
 ## API Overview
@@ -362,6 +454,15 @@ npm test
 npm run build
 ```
 
+Planning agent checks (the checkpoint tests start PostgreSQL in Docker):
+
+```bash
+cd agent
+uv run ruff check
+uv run pyright
+uv run pytest
+```
+
 Browser end-to-end tests (Docker and Chromium required):
 
 ```bash
@@ -372,7 +473,7 @@ npm run test:e2e
 
 Playwright starts an isolated Spring Boot test application on port `18080` against a temporary Testcontainers PostgreSQL database, plus Vite on port `4173`. It does not reuse the development database or the normal `5173`/`8080` services.
 
-CI runs frontend lint/test/build, backend unit tests, Testcontainers integration tests, a fresh-database Flyway check, a fresh-database demo seeder check, Playwright workflows, and a Docker Compose stack check that verifies `/health` plus same-origin registration over both plain HTTP and a TLS-terminated `X-Forwarded-Proto: https` request.
+CI runs frontend lint/test/build, backend unit tests, Testcontainers integration tests, the agent's Ruff, Pyright, and pytest against a fake model, a fresh-database Flyway check, a fresh-database demo seeder check, Playwright workflows, and a Docker Compose stack check that verifies `/health` plus same-origin registration over both plain HTTP and a TLS-terminated `X-Forwarded-Proto: https` request.
 
 ## Deployment Notes
 
