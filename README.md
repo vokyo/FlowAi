@@ -80,6 +80,7 @@ Not currently included:
 ```mermaid
 flowchart LR
     Browser["Browser"] -->|"HTTP :8080"| Nginx["Nginx + React SPA"]
+    AiApp["AI app (Claude Code, Cursor)"] -->|"MCP at /api/mcp"| Nginx
     Nginx -->|"/api/*"| API["Spring Boot REST API"]
     API --> Security["JWT + tenant authorization"]
     API --> Database[("PostgreSQL 17")]
@@ -99,7 +100,7 @@ In the containerized stack, Nginx serves the frontend and proxies API requests t
 | Data | PostgreSQL 17, Spring Data JPA, Hibernate, Flyway (23 migrations), Redis 8 for state shared between instances |
 | Frontend | React 19, TypeScript, Vite, React Router, TanStack Query |
 | UI | Tailwind CSS 4, shadcn/ui, Radix UI, dnd-kit, React Hook Form, Zod |
-| AI | Spring AI 1.0, structured generation, validation/repair, persisted suggestion lifecycle |
+| AI | Spring AI 1.1, structured generation, validation/repair, persisted suggestion lifecycle, MCP server (Streamable HTTP) |
 | Observability | Spring Boot Actuator, Micrometer metrics, structured logs, trace IDs |
 | Testing | JUnit 5, Testcontainers, Vitest, Testing Library, Playwright |
 | Delivery | Docker Compose, multi-stage images, Nginx, GitHub Actions |
@@ -222,6 +223,37 @@ AI_MODEL=gpt-4o-mini
 
 Do not commit `.env` or expose provider keys to frontend code. Model name, timeout, context limits, suggestion TTL, and rate limits are all overridable through [`application.yaml`](./backend/src/main/resources/application.yaml).
 
+## Connect an AI App over MCP
+
+FlowAI is a read-only [MCP](https://modelcontextprotocol.io) server at `/api/mcp`, so an AI app such as Claude Code or Cursor can look up your work while it helps you. Create a token under **Settings → Access tokens for AI apps**. It reads only the workspace it was created in, and only through this endpoint.
+
+| Tool | What it returns |
+| --- | --- |
+| `list_projects` | The workspace's projects you can open, with their ids |
+| `search_issues` | A project's issues matching a query: by meaning when issue embeddings are on (`SPRING_AI_MODEL_EMBEDDING=openai`), as exact text otherwise |
+| `list_project_members` | A project's active members and their roles |
+
+Claude Code:
+
+```bash
+claude mcp add --transport http flowai http://localhost:8080/api/mcp --header "Authorization: Bearer flowai_pat_..."
+```
+
+Cursor, in `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "flowai": {
+      "url": "http://localhost:8080/api/mcp",
+      "headers": { "Authorization": "Bearer flowai_pat_..." }
+    }
+  }
+}
+```
+
+Use your deployment's URL in place of `http://localhost:8080`.
+
 ## Configuration Reference
 
 Forwarded by `docker-compose.yml`:
@@ -259,6 +291,7 @@ Backend properties (set them on the backend process or add them to the Compose s
 | `AI_SUGGESTION_TTL` | `7d` | Suggestion expiry |
 | `AI_MAX_BREAKDOWN_ITEMS` | `8` | Cap on generated child tasks |
 | `AI_RATE_LIMIT_CAPACITY` / `AI_RATE_LIMIT_WINDOW` | `10` / `1m` | AI generation limit per user and workspace |
+| `MCP_RATE_LIMIT_CAPACITY` / `MCP_RATE_LIMIT_WINDOW` | `60` / `1m` | Requests each personal access token may make to the MCP endpoint |
 
 For the complete set of options, see [`application.yaml`](./backend/src/main/resources/application.yaml) and [`application-prod.yaml`](./backend/src/main/resources/application-prod.yaml). The prod profile additionally parameterizes the AI context limits (`AI_INCLUDE_COMMENTS_LIMIT`, `AI_INCLUDE_ACTIVITY_LIMIT`, `AI_MAX_CONTEXT_ISSUES`).
 
@@ -269,6 +302,7 @@ For the complete set of options, see [`application.yaml`](./backend/src/main/res
 | Authentication | `POST /api/auth/register`, `/login`, `/refresh`, `/logout`, `/register-with-invitation` |
 | Current session | `GET /api/me`, `PATCH /api/me/profile`, `PUT /api/me/password`, `DELETE /api/me/sessions` |
 | Access tokens for AI apps | `GET`/`POST /api/me/access-tokens`, `DELETE /api/me/access-tokens/{id}` |
+| MCP | `POST /api/mcp`, Streamable HTTP and stateless, with a personal access token (see [Connect an AI App over MCP](#connect-an-ai-app-over-mcp)) |
 | Workspaces | `/api/workspaces`, `POST /api/workspaces/{id}/switch`, `/api/workspaces/current/members` |
 | Invitations | `/api/workspaces/current/invitations` (create, reissue, revoke), `/api/workspace-invitations/{token}` (view, accept) |
 | Projects | `/api/projects`, project members, labels, workflow states, archive/restore |
@@ -402,6 +436,7 @@ FlowAI/
 - Cross-tenant relationships are constrained in PostgreSQL as well as in service-layer checks.
 - Rotation gives a stolen refresh token away: the token is accepted once, so a second presentation means two holders. That replay revokes every session for the membership, which also signs the user's other devices out — the blunt response is chosen over carrying chain identity in the schema. Replays within `JWT_REFRESH_REUSE_GRACE` are treated as concurrent tabs rather than theft.
 - Access tokens are stateless JWTs that carry their user's token version. A logout, a password change, signing out everywhere and a replayed refresh token each raise it, and every request reads the current version by primary key and refuses an older token, so ending a session takes effect at once rather than up to 15 minutes later. Other devices of the same user refresh once and carry on. The version lives in PostgreSQL rather than in a Redis blacklist: the raise commits in the same transaction that revokes the refresh tokens, it has no clock to compare (a JWT's `iat` only has whole seconds), and no outage can let revoked tokens through.
+- The MCP endpoint is stateless: no MCP session lives in one instance's memory, so any instance can answer. It takes personal access tokens only, through Spring Security's opaque-token introspection, rate-limits each token, checks project access on every call, and searches through the same service as the planning agent. Its tools only read and say so (`readOnlyHint`), so a prompt injected through an issue's text cannot make an AI app change FlowAI.
 - One person runs the planning agent on one project at a time, across instances. Starting or revising a run takes a Redis lock keyed by person and project whose value is a random token of its own, and a second attempt while it is held gets 409 before the model is called. The lock outlives the longest call to the agent, only its holder can release it (a Lua script compares and deletes in one step), and it is released in a `finally` even when taking it timed out, since a write that timed out may still land. It guards cost rather than data, so without Redis, or while Redis does not answer, runs go ahead unlocked.
 - AI prompts use bounded server-owned context, and generated content cannot write to domain tables until validation and explicit user confirmation succeed.
 - Apply operations are transactional and idempotent so a safe retry does not duplicate created issues.
