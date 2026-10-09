@@ -13,6 +13,27 @@ spring:
           model: ${AI_EMBEDDING_MODEL:text-embedding-3-small}
     retry:
       max-attempts: 3
+    # AI apps reach the workspace through this MCP endpoint with a personal access
+    # token. Stateless, so no MCP session lives in one instance's memory and any
+    # instance can answer; under /api, so Nginx already forwards it.
+    mcp:
+      server:
+        name: flowai
+        version: 1.0.0
+        type: sync
+        protocol: stateless
+        instructions: >-
+          Read-only access to one FlowAI workspace, the one the personal access token
+          was created in. Call list_projects first, then search a project's issues or
+          list its members by projectId.
+        annotation-scanner:
+          enabled: false
+        capabilities:
+          resource: false
+          prompt: false
+          completion: false
+        streamable-http:
+          mcp-endpoint: /api/mcp
   jpa:
     hibernate:
       ddl-auto: validate
@@ -45,6 +66,12 @@ app:
     enabled: ${REDIS_ENABLED:false}
   workspace:
     invitation-ttl: 7d
+  # Each personal access token's requests to the MCP endpoint, shared through Redis
+  # like every other limit.
+  mcp:
+    rate-limit:
+      capacity: ${MCP_RATE_LIMIT_CAPACITY:60}
+      window: ${MCP_RATE_LIMIT_WINDOW:1m}
   security:
     rate-limit:
       enabled: ${RATE_LIMIT_ENABLED:true}
