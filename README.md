@@ -247,7 +247,7 @@ Backend properties (set them on the backend process or add them to the Compose s
 | --- | --- | --- |
 | `SPRING_DATASOURCE_URL` / `_USERNAME` / `_PASSWORD` | Local PostgreSQL | Datasource for a non-Compose run |
 | `RATE_LIMIT_ENABLED` | `true` | Master switch for the rate limiter that auth and AI both use |
-| `REDIS_ENABLED` | `false` | Counts rate limits in Redis so every instance shares them; off, each instance counts in its own memory (see [Design Boundaries](#design-boundaries)). The Compose stack turns it on |
+| `REDIS_ENABLED` | `false` | Counts rate limits and keeps the planning-run lock in Redis so every instance shares them; off, each instance counts in its own memory and runs are not locked (see [Design Boundaries](#design-boundaries)). The Compose stack turns it on |
 | `REDIS_URL` | `redis://localhost:6379` | Redis to use, `rediss://` for TLS; the Compose stack points it at its `redis` service |
 | `REDIS_TIMEOUT` / `REDIS_CONNECT_TIMEOUT` | `300ms` / `300ms` | How long the backend waits for a Redis command or connection before it counts on its own instead |
 | `AI_ENABLED` | `false` | Enables AI application workflows |
@@ -342,7 +342,7 @@ The live instance runs the two images built from this repository on a container 
 - `REFRESH_COOKIE_SECURE=true`, since the platform terminates TLS. Nginx forwards the original scheme through `X-Forwarded-Proto`, and the backend reads it with `forward-headers-strategy: framework`, so redirect and cookie decisions see `https`.
 - `JWT_SECRET`, datasource credentials, and — only if the Copilot should be live — `AI_ENABLED`, `SPRING_AI_MODEL_CHAT`, and `OPENAI_API_KEY`.
 - `DEMO_SEED_ENABLED=true` on a public demo instance, which populates the workspace described under [Demo Data](#demo-data). Leave it unset anywhere real.
-- `REDIS_ENABLED=true` and `REDIS_URL` once more than one backend instance runs, so they share rate limits. A single instance does not need Redis.
+- `REDIS_ENABLED=true` and `REDIS_URL` once more than one backend instance runs, so they share rate limits and the planning-run lock. A single instance does not need Redis.
 
 Flyway runs on backend startup, so a deploy migrates the database before serving traffic.
 
@@ -400,6 +400,7 @@ FlowAI/
 - Cross-tenant relationships are constrained in PostgreSQL as well as in service-layer checks.
 - Rotation gives a stolen refresh token away: the token is accepted once, so a second presentation means two holders. That replay revokes every session for the membership, which also signs the user's other devices out — the blunt response is chosen over carrying chain identity in the schema. Replays within `JWT_REFRESH_REUSE_GRACE` are treated as concurrent tabs rather than theft.
 - Access tokens are stateless JWTs that carry their user's token version. A logout, a password change, signing out everywhere and a replayed refresh token each raise it, and every request reads the current version by primary key and refuses an older token, so ending a session takes effect at once rather than up to 15 minutes later. Other devices of the same user refresh once and carry on. The version lives in PostgreSQL rather than in a Redis blacklist: the raise commits in the same transaction that revokes the refresh tokens, it has no clock to compare (a JWT's `iat` only has whole seconds), and no outage can let revoked tokens through.
+- One person runs the planning agent on one project at a time, across instances. Starting or revising a run takes a Redis lock keyed by person and project whose value is a random token of its own, and a second attempt while it is held gets 409 before the model is called. The lock outlives the longest call to the agent, only its holder can release it (a Lua script compares and deletes in one step), and it is released in a `finally` even when taking it timed out, since a write that timed out may still land. It guards cost rather than data, so without Redis, or while Redis does not answer, runs go ahead unlocked.
 - AI prompts use bounded server-owned context, and generated content cannot write to domain tables until validation and explicit user confirmation succeed.
 - Apply operations are transactional and idempotent so a safe retry does not duplicate created issues.
 - Rate limits are token buckets. With `REDIS_ENABLED`, every instance draws from the same buckets in Redis, and one Lua script takes a token in a single step, so two instances cannot both take the last one. Redis is never required: an instance that cannot reach it within `REDIS_TIMEOUT` counts in its own memory until it can, so during an outage the effective limit multiplies by the number of instances instead of requests failing or waiting. Without Redis, each instance always counts alone, which is right for a single instance.
