@@ -28,8 +28,10 @@ import java.util.UUID;
 public class AgentServiceClient {
 
     private final RestClient restClient;
+    private final boolean enabled;
 
     public AgentServiceClient(RestClient.Builder restClientBuilder, AgentProperties properties) {
+        this.enabled = properties.enabled();
         // The JDK client is chosen explicitly so that a slow agent surfaces as an
         // HttpTimeoutException whatever other HTTP libraries are on the classpath.
         // It is held to HTTP/1.1: by default it offers an h2c upgrade on plain http,
@@ -42,6 +44,16 @@ public class AgentServiceClient {
                     .withConnectTimeout(properties.connectTimeout())
                     .withReadTimeout(properties.readTimeout())))
             .build();
+    }
+
+    /**
+     * Refuses a run up front when this deployment has no agent, before it takes a
+     * rate-limit permit or a lock, instead of waiting for a connection to fail.
+     */
+    public void requireEnabled() {
+        if (!enabled) {
+            throw AiFeatureException.agentDisabled();
+        }
     }
 
     public AgentRunResult run(String agentToken, UUID runId, String goal, LocalDate today) {

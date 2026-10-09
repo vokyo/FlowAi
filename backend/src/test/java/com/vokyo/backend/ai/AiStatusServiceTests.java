@@ -49,14 +49,27 @@ class AiStatusServiceTests {
         assertThat(response.agentAvailable()).isFalse();
     }
 
+    @Test
+    void reportsTheAgentByItsOwnSwitchWhateverTheCopilotDoes() {
+        assertThat(service(false, AVAILABLE_GATEWAY, true).getStatus().agentAvailable()).isTrue();
+        assertThat(service(true, AVAILABLE_GATEWAY, true).getStatus().agentAvailable()).isTrue();
+        assertThat(service(true, null, true).getStatus().agentAvailable()).isTrue();
+        assertThat(service(true, AVAILABLE_GATEWAY, false).getStatus().agentAvailable()).isFalse();
+    }
+
     private AiStatusService service(boolean enabled, AiModelGateway gateway) {
+        return service(enabled, gateway, false);
+    }
+
+    private AiStatusService service(boolean enabled, AiModelGateway gateway, boolean agentEnabled) {
         StaticListableBeanFactory beanFactory = new StaticListableBeanFactory();
         if (gateway != null) {
             beanFactory.addBean("aiModelGateway", gateway);
         }
         return new AiStatusService(
                 properties(enabled),
-                beanFactory.getBeanProvider(AiModelGateway.class)
+                beanFactory.getBeanProvider(AiModelGateway.class),
+                agentEnabled
         );
     }
 

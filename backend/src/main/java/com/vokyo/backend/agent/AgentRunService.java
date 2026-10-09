@@ -88,6 +88,7 @@ public class AgentRunService {
         Timer.Sample timer = metrics.start();
         String metricResult = "internal_error";
         try {
+            agentServiceClient.requireEnabled();
             RunScope scope = Objects.requireNonNull(readOnlyTransaction.execute(
                 status -> requireRunScope(jwt, request.projectId())
             ));

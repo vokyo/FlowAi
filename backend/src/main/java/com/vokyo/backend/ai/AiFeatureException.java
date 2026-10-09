@@ -79,6 +79,14 @@ public class AiFeatureException extends RuntimeException {
         );
     }
 
+    public static AiFeatureException agentDisabled() {
+        return new AiFeatureException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "AI_AGENT_UNAVAILABLE",
+                "The planning agent is not enabled on this server"
+        );
+    }
+
     public static AiFeatureException agentTimeout(Throwable cause) {
         return new AiFeatureException(
                 HttpStatus.GATEWAY_TIMEOUT,

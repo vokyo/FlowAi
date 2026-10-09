@@ -231,6 +231,7 @@ class AgentServiceClientTests {
             closedPort = socket.getLocalPort();
         }
         AgentServiceClient client = new AgentServiceClient(RestClient.builder(), new AgentProperties(
+            true,
             URI.create("http://127.0.0.1:" + closedPort),
             Duration.ofSeconds(2),
             Duration.ofSeconds(5)
@@ -241,6 +242,22 @@ class AgentServiceClientTests {
                 exception -> assertThat(exception.code()).isEqualTo("AI_AGENT_UNAVAILABLE"));
     }
 
+    @Test
+    void aDeploymentWithoutTheAgentRefusesBeforeCallingIt() {
+        AgentServiceClient client = new AgentServiceClient(RestClient.builder(), new AgentProperties(
+            false,
+            URI.create("http://127.0.0.1:" + server.getAddress().getPort()),
+            Duration.ofSeconds(2),
+            Duration.ofSeconds(5)
+        ));
+
+        assertThatThrownBy(client::requireEnabled)
+            .isInstanceOfSatisfying(AiFeatureException.class, exception -> {
+                assertThat(exception.code()).isEqualTo("AI_AGENT_UNAVAILABLE");
+                assertThat(exception.status().value()).isEqualTo(503);
+            });
+    }
+
     private void assertAgentError(Duration readTimeout, String code) {
         assertThatThrownBy(() -> client(readTimeout).run("agent-token", RUN_ID, "Goal", TODAY))
             .isInstanceOfSatisfying(AiFeatureException.class,
@@ -249,6 +266,7 @@ class AgentServiceClientTests {
 
     private AgentServiceClient client(Duration readTimeout) {
         return new AgentServiceClient(RestClient.builder(), new AgentProperties(
+            true,
             URI.create("http://127.0.0.1:" + server.getAddress().getPort()),
             Duration.ofSeconds(2),
             readTimeout

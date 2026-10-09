@@ -101,7 +101,10 @@ app:
       window: ${AI_RATE_LIMIT_WINDOW:1m}
   # The planning agent is a separate Python service reached only from the backend.
   # A run is a synchronous call, so the read timeout caps how long a request waits.
+  # Off unless a deployment runs the agent: the status endpoint then tells the UI,
+  # and starting or revising a run is refused without trying to reach it.
   agent:
+    enabled: ${AGENT_ENABLED:false}
     base-url: ${AGENT_BASE_URL:http://localhost:8000}
     connect-timeout: ${AGENT_CONNECT_TIMEOUT:2s}
     read-timeout: ${AGENT_READ_TIMEOUT:60s}

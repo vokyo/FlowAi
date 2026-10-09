@@ -109,7 +109,8 @@ class AiStatusControllerTests {
                             20,
                             100
                     ),
-                    gateways
+                    gateways,
+                    false
             );
         }
 

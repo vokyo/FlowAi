@@ -142,6 +142,7 @@ public class AgentRunReviewService {
         Timer.Sample timer = metrics.start();
         String metricResult = "internal_error";
         try {
+            agentServiceClient.requireEnabled();
             RevisionScope scope = Objects.requireNonNull(readOnlyTransaction.execute(
                 status -> requireRevisionScope(jwt, runId, request.basedOnVersion())
             ));
