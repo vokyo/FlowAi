@@ -1,7 +1,16 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, ChevronRight, FolderKanban, KeyRound, Save, Shield, Trash2, UserRound } from 'lucide-react'
+import { ArrowLeft, Bot, ChevronRight, Copy, FolderKanban, KeyRound, Save, Shield, Trash2, UserRound } from 'lucide-react'
 import { useNavigate } from 'react-router'
+import {
+  ACCESS_TOKEN_LIFETIMES,
+  createAccessToken,
+  listAccessTokens,
+  revokeAccessToken,
+  type AccessToken,
+  type AccessTokenLifetime,
+  type CreatedAccessToken,
+} from '@/api/access-token-api'
 import { changePassword, getCurrentSession, revokeAllSessions, updateProfile } from '@/api/auth-api'
 import { clearClientSession } from '@/auth/client-session'
 import { Button } from '@/components/ui/button'
@@ -81,6 +90,7 @@ export function SettingsPage({ onSessionChanged }: { onSessionChanged: () => voi
           error={membersQuery.error}
           onChanged={() => queryClient.invalidateQueries({ queryKey: ['workspace-members'] })}
         />
+        <AccessTokenSettings />
         <ProjectSettingsLinks
           projects={projectsQuery.data ?? []}
           isLoading={projectsQuery.isLoading}
@@ -244,6 +254,87 @@ function WorkspaceMemberSettings({ currentUserId, currentRole, members, isLoadin
       <MutationMessage mutation={removeMutation} />
     </section>
   )
+}
+
+/**
+ * Tokens an AI app such as Claude Code or Cursor uses to read this workspace over
+ * MCP. A new token is shown once, here, because only its hash is kept.
+ */
+function AccessTokenSettings() {
+  const queryClient = useQueryClient()
+  const tokensQuery = useQuery({ queryKey: ['access-tokens'], queryFn: listAccessTokens })
+  const [name, setName] = useState('')
+  const [lifetimeDays, setLifetimeDays] = useState<AccessTokenLifetime>(90)
+  const [created, setCreated] = useState<CreatedAccessToken | null>(null)
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ['access-tokens'] })
+  const createMutation = useMutation({
+    mutationFn: () => createAccessToken({ name: name.trim(), lifetimeDays }),
+    onSuccess: async (token) => {
+      setCreated(token)
+      setName('')
+      await refresh()
+    },
+  })
+  const revokeMutation = useMutation({ mutationFn: (id: string) => revokeAccessToken(id), onSuccess: refresh })
+  const tokens = tokensQuery.data ?? []
+
+  return (
+    <section className="settings-card settings-card-wide" aria-labelledby="access-token-settings-title">
+      <div className="settings-card-heading">
+        <Bot aria-hidden="true" />
+        <div>
+          <h2 id="access-token-settings-title">Access tokens for AI apps</h2>
+          <p>Let an AI app such as Claude Code or Cursor read this workspace over MCP. A token can only read, and only from there.</p>
+        </div>
+      </div>
+      <form className="settings-inline-form" onSubmit={(event) => { event.preventDefault(); createMutation.mutate() }}>
+        <input aria-label="Token name" placeholder="Name, e.g. Claude Code on my laptop" maxLength={100} required value={name} onChange={(event) => setName(event.target.value)} />
+        <select aria-label="Expires after" value={lifetimeDays} onChange={(event) => setLifetimeDays(Number(event.target.value) as AccessTokenLifetime)}>
+          {ACCESS_TOKEN_LIFETIMES.map((days) => <option key={days} value={days}>{days} days</option>)}
+        </select>
+        <Button type="submit" disabled={createMutation.isPending || !name.trim()}><KeyRound aria-hidden="true" /> Create token</Button>
+      </form>
+      <MutationMessage mutation={createMutation} />
+      {created ? (
+        <div className="settings-token-created" role="status">
+          <p><strong>Copy this token now.</strong> It will not be shown again.</p>
+          <code className="settings-token-value">{created.token}</code>
+          <div className="settings-row-actions">
+            <Button size="sm" variant="outline" onClick={() => void navigator.clipboard?.writeText(created.token)}><Copy aria-hidden="true" /> Copy</Button>
+            <Button size="sm" variant="ghost" onClick={() => setCreated(null)}>Done</Button>
+          </div>
+        </div>
+      ) : null}
+      {tokensQuery.isLoading ? <SettingsInlineState>Loading tokens…</SettingsInlineState> : null}
+      {tokensQuery.error ? <SettingsError error={tokensQuery.error} compact /> : null}
+      {!tokensQuery.isLoading && !tokensQuery.error && tokens.length === 0 ? (
+        <SettingsInlineState>No tokens yet.</SettingsInlineState>
+      ) : null}
+      <div className="settings-list">
+        {tokens.map((token) => (
+          <div className="settings-list-row" key={token.id}>
+            <div><strong>{token.name}</strong><small>{describeToken(token)}</small></div>
+            <div className="settings-row-actions">
+              <Button size="sm" variant="ghost" className="settings-danger-text" aria-label={`Revoke ${token.name}`} disabled={revokeMutation.isPending} onClick={() => {
+                if (window.confirm(`Revoke ${token.name}? Apps using it stop working at once.`)) revokeMutation.mutate(token.id)
+              }}>Revoke</Button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <MutationMessage mutation={revokeMutation} />
+    </section>
+  )
+}
+
+function describeToken(token: AccessToken) {
+  const expiry = `${token.expired ? 'Expired' : 'Expires'} ${formatDay(token.expiresAt)}`
+  const use = token.lastUsedAt ? `last used ${formatDay(token.lastUsedAt)}` : 'never used'
+  return `${expiry} · ${use}`
+}
+
+function formatDay(instant: string) {
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(instant))
 }
 
 function titleCaseRole(role: string) {

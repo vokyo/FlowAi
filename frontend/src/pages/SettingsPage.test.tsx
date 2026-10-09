@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createAccessToken, listAccessTokens, revokeAccessToken } from '@/api/access-token-api'
 import { getCurrentSession } from '@/api/auth-api'
 import { listProjects } from '@/api/work-api'
 import { SettingsPage } from './SettingsPage'
@@ -12,6 +13,13 @@ vi.mock('@/api/auth-api', () => ({
   changePassword: vi.fn(),
   revokeAllSessions: vi.fn(),
   updateProfile: vi.fn(),
+}))
+
+vi.mock('@/api/access-token-api', () => ({
+  ACCESS_TOKEN_LIFETIMES: [30, 90, 365],
+  createAccessToken: vi.fn(),
+  listAccessTokens: vi.fn(async () => []),
+  revokeAccessToken: vi.fn(async () => undefined),
 }))
 
 vi.mock('@/api/work-api', () => ({
@@ -80,5 +88,60 @@ describe('SettingsPage', () => {
     await userEvent.click(await screen.findByLabelText('Open settings for Apollo'))
 
     expect(await screen.findByText('project settings route')).toBeInTheDocument()
+  })
+
+  // Only a hash of a token is kept, so the page is the one chance to copy it.
+  it('shows a new access token once and lists it without the token', async () => {
+    vi.mocked(createAccessToken).mockResolvedValue({
+      id: 'token-1',
+      name: 'Claude Code',
+      token: 'flowai_pat_secret-value',
+      createdAt: '2026-10-09T00:00:00Z',
+      expiresAt: '2027-01-07T00:00:00Z',
+    })
+    vi.mocked(listAccessTokens)
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([{
+        id: 'token-1',
+        name: 'Claude Code',
+        createdAt: '2026-10-09T00:00:00Z',
+        expiresAt: '2027-01-07T00:00:00Z',
+        lastUsedAt: null,
+        expired: false,
+      }])
+    renderSettings()
+
+    await userEvent.type(await screen.findByLabelText('Token name'), '  Claude Code  ')
+    await userEvent.selectOptions(screen.getByLabelText('Expires after'), '30')
+    await userEvent.click(screen.getByRole('button', { name: /Create token/ }))
+
+    expect(createAccessToken).toHaveBeenCalledWith({ name: 'Claude Code', lifetimeDays: 30 })
+    expect(await screen.findByText('flowai_pat_secret-value')).toBeInTheDocument()
+    expect(screen.getByText('It will not be shown again.', { exact: false })).toBeInTheDocument()
+    expect(await screen.findByText(/never used/)).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }))
+    expect(screen.queryByText('flowai_pat_secret-value')).not.toBeInTheDocument()
+  })
+
+  it('revokes an access token only once the user confirms', async () => {
+    vi.mocked(listAccessTokens).mockResolvedValue([{
+      id: 'token-1',
+      name: 'Cursor',
+      createdAt: '2026-10-09T00:00:00Z',
+      expiresAt: '2027-01-07T00:00:00Z',
+      lastUsedAt: '2026-10-09T01:00:00Z',
+      expired: false,
+    }])
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
+    renderSettings()
+
+    const revoke = await screen.findByRole('button', { name: 'Revoke Cursor' })
+    await userEvent.click(revoke)
+    expect(revokeAccessToken).not.toHaveBeenCalled()
+
+    await userEvent.click(revoke)
+    expect(revokeAccessToken).toHaveBeenCalledWith('token-1')
+    confirm.mockRestore()
   })
 })
