@@ -4,6 +4,8 @@ import com.vokyo.backend.ai.springai.SpringAiModelGateway;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration;
+import org.springframework.ai.model.tool.autoconfigure.ToolCallingAutoConfiguration;
+import org.springframework.ai.retry.autoconfigure.SpringAiRetryAutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.web.client.RestClientCustomizer;
@@ -95,7 +97,13 @@ class AiConfigurationTests {
     @Test
     void createsGatewayAfterOpenAiChatModelAutoConfiguration() {
         contextRunner
-                .withConfiguration(AutoConfigurations.of(OpenAiChatAutoConfiguration.class))
+                // Spring AI 1.1's OpenAI chat model needs the error handler and the tool
+                // calling manager the retry and tool auto-configurations provide.
+                .withConfiguration(AutoConfigurations.of(
+                        SpringAiRetryAutoConfiguration.class,
+                        ToolCallingAutoConfiguration.class,
+                        OpenAiChatAutoConfiguration.class
+                ))
                 .withPropertyValues(
                         "app.ai.enabled=true",
                         "spring.ai.model.chat=openai",
