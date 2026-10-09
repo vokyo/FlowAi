@@ -28,11 +28,21 @@ public class WorkspaceAccessService {
 
     @Transactional(readOnly = true)
     public CurrentWorkspaceContext requireCurrentContext(Jwt jwt) {
-        UUID userId = UUID.fromString(jwt.getSubject());
+        return requireContext(
+                UUID.fromString(jwt.getSubject()),
+                UUID.fromString(jwt.getClaimAsString(MEMBERSHIP_ID_CLAIM))
+        );
+    }
+
+    /**
+     * The same checks for a caller that holds no access token, such as an AI app with a
+     * personal access token: the user exists, and the membership is theirs and active.
+     */
+    @Transactional(readOnly = true)
+    public CurrentWorkspaceContext requireContext(UUID userId, UUID membershipId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Current user not found"));
 
-        UUID membershipId = UUID.fromString(jwt.getClaimAsString(MEMBERSHIP_ID_CLAIM));
         WorkspaceMembership membership = membershipRepository.findById(membershipId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Current workspace membership not found"));
 

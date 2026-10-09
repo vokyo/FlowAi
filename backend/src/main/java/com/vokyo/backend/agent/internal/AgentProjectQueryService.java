@@ -36,7 +36,7 @@ public class AgentProjectQueryService {
 
     private static final Logger log = LoggerFactory.getLogger(AgentProjectQueryService.class);
 
-    static final int MAX_ISSUE_RESULTS = 20;
+    public static final int MAX_ISSUE_RESULTS = 20;
     static final int MAX_QUERY_LENGTH = 100;
     static final int MAX_MEMBER_RESULTS = 50;
 
@@ -73,12 +73,27 @@ public class AgentProjectQueryService {
             Project project = agentAccessService.requireAccessibleProject(agentJwt);
             return new SearchScope(project.getWorkspace().getId(), project.getId());
         }));
+        AgentSearchMode searchMode = AgentSearchMode.parse(mode)
+            .orElseThrow(() -> badRequest("mode must be one of " + AgentSearchMode.ACCEPTED));
+        return searchIssues(scope.workspaceId(), scope.projectId(), query, limit, searchMode);
+    }
+
+    /**
+     * The search itself, for a project the caller has already been checked against.
+     * The MCP endpoint shares it with the agent's internal endpoint.
+     */
+    public AgentIssueSearchResponse searchIssues(
+        UUID workspaceId,
+        UUID projectId,
+        String query,
+        int limit,
+        AgentSearchMode searchMode
+    ) {
+        SearchScope scope = new SearchScope(workspaceId, projectId);
         String normalizedQuery = normalizeQuery(query);
         if (limit < 1 || limit > MAX_ISSUE_RESULTS) {
             throw badRequest("limit must be between 1 and " + MAX_ISSUE_RESULTS);
         }
-        AgentSearchMode searchMode = AgentSearchMode.parse(mode)
-            .orElseThrow(() -> badRequest("mode must be one of " + AgentSearchMode.ACCEPTED));
         // Without a query every mode lists the newest issues, which needs no matching at all.
         AgentSearchMode effectiveMode = normalizedQuery == null ? AgentSearchMode.KEYWORD : searchMode;
         float[] queryVector = effectiveMode == AgentSearchMode.SEMANTIC ? embed(normalizedQuery) : null;
@@ -103,7 +118,12 @@ public class AgentProjectQueryService {
 
     @Transactional(readOnly = true)
     public AgentProjectMembersResponse listMembers(Jwt agentJwt) {
-        Project project = agentAccessService.requireAccessibleProject(agentJwt);
+        return listMembers(agentAccessService.requireAccessibleProject(agentJwt));
+    }
+
+    /** The active members of a project the caller has already been checked against. */
+    @Transactional(readOnly = true)
+    public AgentProjectMembersResponse listMembers(Project project) {
         List<ProjectMember> activeMembers = projectAccessService.listActiveProjectMembers(project);
         return new AgentProjectMembersResponse(
             activeMembers.stream().limit(MAX_MEMBER_RESULTS).map(this::toMemberItem).toList(),
@@ -140,6 +160,11 @@ public class AgentProjectQueryService {
             member.getUser().getDisplayName(),
             member.getRole()
         );
+    }
+
+    /** Semantic when issue embeddings are on, keyword otherwise. */
+    public AgentSearchMode defaultSearchMode() {
+        return textEmbedder.getIfAvailable() != null ? AgentSearchMode.SEMANTIC : AgentSearchMode.KEYWORD;
     }
 
     private float[] embed(String query) {

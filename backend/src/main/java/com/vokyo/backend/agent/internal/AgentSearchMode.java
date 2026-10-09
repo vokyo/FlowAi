@@ -7,8 +7,9 @@ import java.util.Optional;
 /**
  * How the agent's issue search matches its query. The agent service picks one from its
  * configuration, so an evaluation can compare them on the same goals; the model never does.
+ * The MCP endpoint uses the same search, in the mode the backend is set up for.
  */
-enum AgentSearchMode {
+public enum AgentSearchMode {
 
     /** The whole query as one case-insensitive substring of the title or description. */
     KEYWORD,
