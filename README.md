@@ -10,7 +10,7 @@ The repository is a production-shaped portfolio MVP: it is designed to be runnab
 
 ## Live Demo
 
-The deployment above runs the same containers as `docker compose up`: an Nginx image that serves the React build and proxies `/api` to the Spring Boot backend, plus managed PostgreSQL.
+The deployment above runs the same containers as `docker compose up`: an Nginx image that serves the React build and proxies `/api` to the Spring Boot backend, plus the planning agent, Redis, and managed PostgreSQL.
 
 **Press "Explore the demo workspace" on the sign-in page** to land in a workspace that has been worked in: two projects, four members, 74 issues spread across every column, eight weeks of history, and comment threads. No typing, no sign-up. The account behind the button is `demo@flowai.dev` / `demo1234` if you would rather sign in by hand, and registering your own email still works and creates a fresh workspace isolated from the demo one.
 
@@ -20,7 +20,7 @@ The deployment above runs the same containers as `docker compose up`: an Nginx i
 - The instance runs on a small hosting plan, so the first request after an idle period can be slow while the container starts.
 - Treat it as a demo: do not store real data, and expect the database to be reset from time to time.
 - AI Copilot actions require a provider key on the server. `GET /api/ai/status` reports per-feature availability, and the UI disables the Copilot buttons instead of failing on submit when AI is off. The live demo runs with AI off and ships a **pre-generated** Copilot draft instead, so the review-and-apply flow is still explorable — see [Demo Data](#demo-data) for the link that opens it.
-- The planning agent is a separate service that the live demo does not run, so its page says so; see [Planning Agent](#planning-agent) for running it.
+- The planning agent runs on the live demo, on gpt-4o-mini and with a few runs an hour, because every visitor shares the demo account. Open **Planning agent** in a project's sidebar; a plan takes 10 to 40 seconds.
 
 ## Highlights
 
@@ -81,7 +81,7 @@ The deployment above runs the same containers as `docker compose up`: an Nginx i
 | 5 | Testing, deployment, and application materials | In progress (live deployment and CI done) |
 | 6 | Python/FastAPI/LangGraph planning agent with semantic issue search, checkpointing, and human review | Complete |
 | 7 | Redis-shared rate limits and planning-run lock, immediate access-token revocation, MCP server for AI apps | Complete |
-| Next | A standalone agent README, a larger evaluation set, and deploying the agent | Planned |
+| Next | A standalone agent README and a larger evaluation set | Planned |
 
 Not currently included:
 
@@ -173,7 +173,6 @@ Reusing existing issues cut duplicated work from 43 repeated tasks to 16 over th
 - Plans have no dependencies, risks, or assumptions yet, so there is no dependency-cycle check.
 - With gpt-4o-mini, revisions were seen to change tasks the feedback did not mention.
 - The evaluation is 10 goals, labeled by AI against written criteria and reviewed by hand; a larger set with regression runs is planned.
-- The live demo does not run the agent.
 
 ## Quick Start
 
@@ -477,14 +476,14 @@ CI runs frontend lint/test/build, backend unit tests, Testcontainers integration
 
 ## Deployment Notes
 
-The live instance runs the two images built from this repository on a container PaaS, with managed PostgreSQL. What the platform environment needs beyond the Compose defaults:
+The live instance runs the three images built from this repository on a container PaaS, with managed PostgreSQL and Redis. What the platform environment needs beyond the Compose defaults:
 
 - `SPRING_PROFILES_ACTIVE=prod` for the graceful-shutdown, forwarded-headers, and structured-logging configuration.
 - `BACKEND_UPSTREAM` pointing at the platform's private backend hostname. Nginx re-resolves it every 10 seconds so a backend redeploy does not leave the proxy holding a stale IP.
 - `REFRESH_COOKIE_SECURE=true`, since the platform terminates TLS. Nginx forwards the original scheme through `X-Forwarded-Proto`, and the backend reads it with `forward-headers-strategy: framework`, so redirect and cookie decisions see `https`.
 - `JWT_SECRET`, datasource credentials, and — only if the Copilot should be live — `AI_ENABLED`, `SPRING_AI_MODEL_CHAT`, and `OPENAI_API_KEY`.
 - `DEMO_SEED_ENABLED=true` on a public demo instance, which populates the workspace described under [Demo Data](#demo-data). Leave it unset anywhere real.
-- `REDIS_ENABLED=true` and `REDIS_URL` once more than one backend instance runs, so they share rate limits and the planning-run lock. A single instance does not need Redis.
+- `REDIS_ENABLED=true` and `REDIS_URL` so instances share rate limits and the planning-run lock. The live instance runs one backend and turns Redis on anyway; a single instance also works without it. Point `REDIS_URL` at the Redis service's private URL, and give that service no public address.
 
 The planning agent is a third service, built from [`agent/Dockerfile`](./agent/Dockerfile) with the repository's `agent/` directory as its root, and it gets no public address: the agent does not check the tokens it is given, so only the backend may reach it, over the platform's private network. It listens on every IPv4 and IPv6 address, which a private network may use either of.
 
