@@ -91,22 +91,30 @@ Not currently included:
 ## Architecture
 
 ```mermaid
-flowchart LR
-    Browser["Browser"] -->|"HTTP :8080"| Nginx["Nginx + React SPA"]
-    AiApp["AI app (Claude Code, Cursor)"] -->|"MCP at /api/mcp"| Nginx
-    Nginx -->|"/api/*"| API["Spring Boot REST API"]
-    API --> Security["JWT + tenant authorization"]
-    API --> Database[("PostgreSQL 17 + pgvector")]
-    API -. "when REDIS_ENABLED" .-> Redis[("Redis 8")]
-    API -. "when AI is enabled" .-> Provider["OpenAI via Spring AI"]
-    API -. "when AGENT_ENABLED: runs and revisions" .-> Agent["Planning agent: FastAPI + LangGraph"]
-    Agent -->|"read-only internal API, run-scoped token"| API
-    Agent -->|"checkpoints, own schema and role"| Database
-    Agent --> Model["OpenAI chat model"]
-    Flyway["Flyway migrations"] --> Database
+flowchart TB
+    Browser["Browser"]
+    AiApp["AI app<br/>Claude Code, Cursor"]
+    Nginx["Nginx<br/>React app, /api proxy"]
+    API["Spring Boot API<br/>REST and MCP<br/>JWT, tenant checks"]
+    Redis[("Redis 8<br/>rate limits, run lock")]
+    Agent["Planning agent<br/>FastAPI, LangGraph"]
+    DB[("PostgreSQL 17 + pgvector<br/>app data<br/>agent checkpoints")]
+    OpenAI["OpenAI<br/>chat, embeddings"]
+
+    Browser --> Nginx
+    AiApp -->|MCP| Nginx
+    Nginx --> API
+    API --> Redis
+    API <-->|"runs, read-only tools"| Agent
+    API --> DB
+    API --> OpenAI
+    Agent --> DB
+    Agent --> OpenAI
 ```
 
-The planning agent is a separate Python service that only the backend calls. The backend checks access, applies the AI rate limit and the run lock, and stores every version of a plan; the agent holds a run's working state in its checkpoints and reads project data back through the backend, never from the application's tables.
+The planning agent is a separate Python service that only the backend calls. The backend checks access, applies the AI rate limit and the run lock, and stores every version of a plan; the agent holds a run's working state in its checkpoints, which it keeps in a schema of its own under a database role that cannot reach the application's tables, and reads project data back through the backend's read-only endpoints with a token scoped to one run.
+
+Redis, the planning agent, and the AI features are each turned on by configuration (`REDIS_ENABLED`, `AGENT_ENABLED`, `AI_ENABLED` and the Spring AI model settings), and the application works with any of them off; the live demo runs Redis and the agent. Flyway migrates PostgreSQL when the backend starts.
 
 In the containerized stack, Nginx serves the frontend and proxies API requests to the backend under the same origin, so the browser never makes a cross-origin call and the refresh cookie stays `SameSite=Strict`. During local development, Vite provides the equivalent `/api` proxy. PostgreSQL remains the system of record; AI output is treated as an untrusted draft until it passes validation and a user confirms Apply.
 
