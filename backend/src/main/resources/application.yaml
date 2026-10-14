@@ -73,6 +73,13 @@ app:
       capacity: ${MCP_RATE_LIMIT_CAPACITY:60}
       window: ${MCP_RATE_LIMIT_WINDOW:1m}
   security:
+    # Each user's token version, kept in the Redis above so that checking an access
+    # token need not read the users table every time. The TTL is also the longest a
+    # logout can go unnoticed if its write to Redis fails; after a Redis failure an
+    # instance reads the database alone for skip-after-failure.
+    token-version-cache:
+      ttl: ${TOKEN_VERSION_CACHE_TTL:5m}
+      skip-after-failure: ${TOKEN_VERSION_CACHE_SKIP:30s}
     rate-limit:
       enabled: ${RATE_LIMIT_ENABLED:true}
       max-entries: ${RATE_LIMIT_MAX_ENTRIES:10000}

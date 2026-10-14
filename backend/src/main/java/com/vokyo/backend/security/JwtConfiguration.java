@@ -15,7 +15,11 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 
 @Configuration
-@EnableConfigurationProperties({JwtProperties.class, RefreshTokenCookieProperties.class})
+@EnableConfigurationProperties({
+        JwtProperties.class,
+        RefreshTokenCookieProperties.class,
+        TokenVersionCacheProperties.class
+})
 class JwtConfiguration {
 
     private static final String HMAC_ALGORITHM = "HmacSHA256";
