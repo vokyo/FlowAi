@@ -49,9 +49,14 @@ public class TokenVersionCache {
 
     /** The user's current token version, or empty when there is no such user. */
     public Optional<Integer> currentVersion(UUID userId) {
-        String cached = redis.opsForValue().get(key(userId));
-        if (cached != null) {
-            return Optional.of(Integer.parseInt(cached));
+        try {
+            String cached = redis.opsForValue().get(key(userId));
+            if (cached != null) {
+                return Optional.of(Integer.parseInt(cached));
+            }
+        } catch (DataAccessException | NumberFormatException exception) {
+            log.warn("event=token_version_cache_read_failed reason={}", exception.toString());
+            return userRepository.findTokenVersionById(userId);
         }
         Optional<Integer> fromDatabase = userRepository.findTokenVersionById(userId);
         fromDatabase.ifPresent(version -> cacheVersion(userId, version));
