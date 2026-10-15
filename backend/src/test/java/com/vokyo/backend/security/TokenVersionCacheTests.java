@@ -5,14 +5,20 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.script.RedisScript;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 class TokenVersionCacheTests {
@@ -45,10 +51,21 @@ class TokenVersionCacheTests {
     }
 
     @Test
-    void aMissReadsTheDatabase() {
+    void aMissReadsTheDatabaseAndStoresTheVersionForFiveMinutes() {
         when(values.get(KEY)).thenReturn(null);
         when(users.findTokenVersionById(USER_ID)).thenReturn(Optional.of(1));
 
         assertThat(cache.currentVersion(USER_ID)).contains(1);
+        verify(redis).execute(any(RedisScript.class), eq(List.of(KEY)), eq("1"), eq("300000"));
+    }
+
+    @Test
+    void aMissingUserIsNotStored() {
+        when(values.get(KEY)).thenReturn(null);
+        when(users.findTokenVersionById(USER_ID)).thenReturn(Optional.empty());
+
+        assertThat(cache.currentVersion(USER_ID)).isEmpty();
+        verify(redis).opsForValue();
+        verifyNoMoreInteractions(redis);
     }
 }

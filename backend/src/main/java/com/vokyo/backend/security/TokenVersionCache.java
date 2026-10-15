@@ -53,7 +53,9 @@ public class TokenVersionCache {
         if (cached != null) {
             return Optional.of(Integer.parseInt(cached));
         }
-        return userRepository.findTokenVersionById(userId);
+        Optional<Integer> fromDatabase = userRepository.findTokenVersionById(userId);
+        fromDatabase.ifPresent(version -> cacheVersion(userId, version));
+        return fromDatabase;
     }
 
     /**
