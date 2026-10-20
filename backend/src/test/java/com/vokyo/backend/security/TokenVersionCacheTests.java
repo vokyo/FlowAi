@@ -1,6 +1,7 @@
 package com.vokyo.backend.security;
 
 import com.vokyo.backend.user.UserRepository;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -11,6 +12,9 @@ import org.springframework.dao.QueryTimeoutException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.data.redis.core.script.RedisScript;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionSynchronizationUtils;
 
 import java.time.Duration;
 import java.util.List;
@@ -19,11 +23,13 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -47,6 +53,14 @@ class TokenVersionCacheTests {
     @BeforeEach
     void connectRedis() {
         when(redis.opsForValue()).thenReturn(values);
+    }
+
+    @AfterEach
+    void leaveTheTransaction() {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+        TransactionSynchronizationManager.setActualTransactionActive(false);
     }
 
     @Test
@@ -154,6 +168,91 @@ class TokenVersionCacheTests {
 
         assertThat(cacheWith(false).currentVersion(USER_ID)).contains(2);
         verifyNoInteractions(redis);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked") // any(RedisScript.class) is a raw type
+    void aRevocationStoresTheRaisedVersionOnlyOnceCommitted() {
+        when(users.findTokenVersionById(USER_ID)).thenReturn(Optional.of(4));
+        beginTransaction();
+
+        cache.revokeAccessTokens(USER_ID);
+
+        verify(users).revokeAccessTokens(USER_ID);
+        verifyNoInteractions(redis);
+        commit();
+        verify(redis).execute(any(RedisScript.class), eq(List.of(KEY)), eq("4"), eq("300000"));
+    }
+
+    @Test
+    void aRolledBackRevocationLeavesRedisAlone() {
+        when(users.findTokenVersionById(USER_ID)).thenReturn(Optional.of(4));
+        beginTransaction();
+
+        cache.revokeAccessTokens(USER_ID);
+        rollBack();
+
+        verifyNoInteractions(redis);
+    }
+
+    @Test
+    void aRevocationOutsideATransactionIsRefusedBeforeTheDatabaseChanges() {
+        assertThatThrownBy(() -> cache.revokeAccessTokens(USER_ID)).isInstanceOf(IllegalStateException.class);
+        verifyNoInteractions(users, redis);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked") // any(RedisScript.class) is a raw type
+    void aFailedWriteAfterCommitIsLoggedAndDoesNotFailTheRevocation(CapturedOutput output) {
+        when(users.findTokenVersionById(USER_ID)).thenReturn(Optional.of(4));
+        when(redis.execute(any(RedisScript.class), anyList(), any(), any()))
+                .thenThrow(new QueryTimeoutException("Redis did not answer"));
+        beginTransaction();
+        cache.revokeAccessTokens(USER_ID);
+
+        assertThatCode(this::commit).doesNotThrowAnyException();
+        assertThat(output.getAll()).contains("event=token_version_cache_write_failed");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked") // any(RedisScript.class) is a raw type
+    void aRevocationIsStoredEvenWhileReadsLeaveRedisAlone() {
+        when(values.get(KEY)).thenThrow(new QueryTimeoutException("Redis did not answer"));
+        when(users.findTokenVersionById(USER_ID)).thenReturn(Optional.of(4));
+        cache.currentVersion(USER_ID);
+        beginTransaction();
+
+        cache.revokeAccessTokens(USER_ID);
+        commit();
+
+        verify(redis).execute(any(RedisScript.class), eq(List.of(KEY)), eq("4"), eq("300000"));
+    }
+
+    @Test
+    void withRedisSwitchedOffARevocationOnlyRaisesTheDatabaseVersion() {
+        TokenVersionCache switchedOff = cacheWith(false);
+        beginTransaction();
+
+        switchedOff.revokeAccessTokens(USER_ID);
+        commit();
+
+        verify(users).revokeAccessTokens(USER_ID);
+        verify(users, never()).findTokenVersionById(USER_ID);
+        verifyNoInteractions(redis);
+    }
+
+    // What @Transactional sets up around the caller, by hand.
+    private void beginTransaction() {
+        TransactionSynchronizationManager.initSynchronization();
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+    }
+
+    private void commit() {
+        TransactionSynchronizationUtils.triggerAfterCommit();
+    }
+
+    private void rollBack() {
+        TransactionSynchronizationUtils.triggerAfterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK);
     }
 
     private TokenVersionCache cacheWith(boolean redisEnabled) {

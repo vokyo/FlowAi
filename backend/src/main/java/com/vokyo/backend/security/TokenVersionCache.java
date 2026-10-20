@@ -10,6 +10,8 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
 import java.util.Optional;
@@ -87,6 +89,34 @@ public class TokenVersionCache {
         Optional<Integer> fromDatabase = userRepository.findTokenVersionById(userId);
         fromDatabase.ifPresent(version -> cacheVersion(userId, version));
         return fromDatabase;
+    }
+
+    /**
+     * Ends every access token the user holds by raising their version, and once the
+     * caller's transaction commits, stores the raised version in Redis so that token
+     * checks see it at once. A rolled-back raise never reaches Redis: a version that
+     * is not committed would refuse the user's valid tokens.
+     *
+     * Must run inside the transaction that raises the version. The raised version is
+     * read in that transaction, so nothing touches the database after the commit.
+     * The write is tried even while reads leave Redis alone: of all writes, missing
+     * this one is what lets an ended token keep working until the entry expires.
+     */
+    public void revokeAccessTokens(UUID userId) {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException("Revoking access tokens needs a transaction to publish the new version after");
+        }
+        userRepository.revokeAccessTokens(userId);
+        if (!enabled) {
+            return;
+        }
+        userRepository.findTokenVersionById(userId).ifPresent(raised ->
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        cacheVersion(userId, raised);
+                    }
+                }));
     }
 
     /**
