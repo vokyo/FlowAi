@@ -241,6 +241,43 @@ class TokenVersionCacheTests {
         verifyNoInteractions(redis);
     }
 
+    @Test
+    @SuppressWarnings("unchecked") // any(RedisScript.class) is a raw type
+    void aTokenNewerThanTheCacheRechecksTheDatabaseAndRepairsTheCache() {
+        // A logout raised the version to 1, but its write to Redis failed.
+        when(values.get(KEY)).thenReturn("0");
+        when(users.findTokenVersionById(USER_ID)).thenReturn(Optional.of(1));
+
+        assertThat(cache.currentVersion(USER_ID, 1)).contains(1);
+        verify(redis).execute(any(RedisScript.class), eq(List.of(KEY)), eq("1"), eq("300000"));
+    }
+
+    @Test
+    void theTokensOwnVersionIsNeverTakenAsTheAnswer() {
+        // The user has ended their sessions again since the token was issued.
+        when(values.get(KEY)).thenReturn("0");
+        when(users.findTokenVersionById(USER_ID)).thenReturn(Optional.of(2));
+
+        assertThat(cache.currentVersion(USER_ID, 1)).contains(2);
+    }
+
+    @Test
+    void aTokenTheCacheAgreesWithIsNotRechecked() {
+        when(values.get(KEY)).thenReturn("1");
+
+        assertThat(cache.currentVersion(USER_ID, 1)).contains(1);
+        verifyNoInteractions(users);
+    }
+
+    @Test
+    void anOlderTokenIsNotRechecked() {
+        // The cache can fall behind the database, never run ahead of it.
+        when(values.get(KEY)).thenReturn("1");
+
+        assertThat(cache.currentVersion(USER_ID, 0)).contains(1);
+        verifyNoInteractions(users);
+    }
+
     // What @Transactional sets up around the caller, by hand.
     private void beginTransaction() {
         TransactionSynchronizationManager.initSynchronization();

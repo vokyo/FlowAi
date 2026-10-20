@@ -92,6 +92,31 @@ public class TokenVersionCache {
     }
 
     /**
+     * The user's current token version, for checking a token issued under
+     * issuedVersion. A cached version can only fall behind the database, never run
+     * ahead of it, and it falls behind when a revocation's write to Redis failed. A
+     * token newer than the cached version is then the sign: without a second look,
+     * the user's fresh tokens would be refused until the stale entry expired. The
+     * database settles it and the entry is repaired. The token's own version is
+     * never the answer, as the user may have ended their sessions again since.
+     */
+    public Optional<Integer> currentVersion(UUID userId, int issuedVersion) {
+        Optional<Integer> current = currentVersion(userId);
+        if (current.isEmpty() || current.get() >= issuedVersion) {
+            return current;
+        }
+        Optional<Integer> fromDatabase = userRepository.findTokenVersionById(userId);
+        fromDatabase.ifPresent(version -> {
+            log.info("event=token_version_cache_repaired userId={} cached={} current={}",
+                    userId, current.get(), version);
+            if (!skipRedis()) {
+                cacheVersion(userId, version);
+            }
+        });
+        return fromDatabase;
+    }
+
+    /**
      * Ends every access token the user holds by raising their version, and once the
      * caller's transaction commits, stores the raised version in Redis so that token
      * checks see it at once. A rolled-back raise never reaches Redis: a version that
