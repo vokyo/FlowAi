@@ -1,6 +1,8 @@
 package com.vokyo.backend.security;
 
 import com.vokyo.backend.user.UserRepository;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,6 +50,7 @@ class TokenVersionCacheTests {
     private final ValueOperations<String, String> values = mock(ValueOperations.class);
     // The cache's clock, in nanoseconds, moved by hand so no test waits.
     private final AtomicLong now = new AtomicLong();
+    private final MeterRegistry meters = new SimpleMeterRegistry();
     private final TokenVersionCache cache = cacheWith(true);
 
     @BeforeEach
@@ -278,6 +281,40 @@ class TokenVersionCacheTests {
         verifyNoInteractions(users);
     }
 
+    @Test
+    void readsAreCountedByHowTheyWereAnswered() {
+        when(values.get(KEY))
+                .thenReturn(null)
+                .thenReturn("1")
+                .thenThrow(new QueryTimeoutException("Redis did not answer"));
+        when(users.findTokenVersionById(USER_ID)).thenReturn(Optional.of(1));
+
+        cache.currentVersion(USER_ID);
+        cache.currentVersion(USER_ID);
+        cache.currentVersion(USER_ID);
+        cache.currentVersion(USER_ID);
+
+        assertThat(readsCounted("miss")).isEqualTo(1);
+        assertThat(readsCounted("hit")).isEqualTo(1);
+        assertThat(readsCounted("error")).isEqualTo(1);
+        assertThat(readsCounted("skipped")).isEqualTo(1);
+    }
+
+    @Test
+    void aRepairedEntryIsCounted() {
+        when(values.get(KEY)).thenReturn("0");
+        when(users.findTokenVersionById(USER_ID)).thenReturn(Optional.of(1));
+
+        cache.currentVersion(USER_ID, 1);
+
+        assertThat(readsCounted("hit")).isEqualTo(1);
+        assertThat(readsCounted("repaired")).isEqualTo(1);
+    }
+
+    private double readsCounted(String result) {
+        return meters.counter("flowai.auth.token_version_cache", "result", result).count();
+    }
+
     // What @Transactional sets up around the caller, by hand.
     private void beginTransaction() {
         TransactionSynchronizationManager.initSynchronization();
@@ -297,6 +334,7 @@ class TokenVersionCacheTests {
                 users,
                 redis,
                 new TokenVersionCacheProperties(Duration.ofMinutes(5), Duration.ofSeconds(30)),
+                meters,
                 redisEnabled,
                 now::get
         );

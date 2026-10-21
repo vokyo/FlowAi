@@ -1,6 +1,7 @@
 package com.vokyo.backend.security;
 
 import com.vokyo.backend.user.UserRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,11 +36,15 @@ public class TokenVersionCache {
     private static final RedisScript<Long> KEEP_GREATER =
             RedisScript.of(new ClassPathResource("redis/token-version-max.lua"), Long.class);
     private static final long BREAKER_CLOSED = Long.MIN_VALUE;
+    // Counted by result: hit, miss, error, skipped, repaired. The hit rate is
+    // hit / (hit + miss); skipped counts reads that went straight to the database.
+    private static final String READS = "flowai.auth.token_version_cache";
 
     private final UserRepository userRepository;
     private final StringRedisTemplate redis;
     private final TokenVersionCacheProperties properties;
     private final boolean enabled;
+    private final MeterRegistry meterRegistry;
     private final LongSupplier nanoTime;
     // Until when, by nanoTime, this instance reads the database without asking Redis.
     private final AtomicLong skipRedisUntil = new AtomicLong(BREAKER_CLOSED);
@@ -49,21 +54,24 @@ public class TokenVersionCache {
             UserRepository userRepository,
             StringRedisTemplate redis,
             TokenVersionCacheProperties properties,
+            MeterRegistry meterRegistry,
             @Value("${app.redis.enabled}") boolean enabled
     ) {
-        this(userRepository, redis, properties, enabled, System::nanoTime);
+        this(userRepository, redis, properties, meterRegistry, enabled, System::nanoTime);
     }
 
     TokenVersionCache(
             UserRepository userRepository,
             StringRedisTemplate redis,
             TokenVersionCacheProperties properties,
+            MeterRegistry meterRegistry,
             boolean enabled,
             LongSupplier nanoTime
     ) {
         this.userRepository = userRepository;
         this.redis = redis;
         this.properties = properties;
+        this.meterRegistry = meterRegistry;
         this.enabled = enabled;
         this.nanoTime = nanoTime;
     }
@@ -71,14 +79,18 @@ public class TokenVersionCache {
     /** The user's current token version, or empty when there is no such user. */
     public Optional<Integer> currentVersion(UUID userId) {
         if (skipRedis()) {
+            count("skipped");
             return userRepository.findTokenVersionById(userId);
         }
         try {
             String cached = redis.opsForValue().get(key(userId));
             if (cached != null) {
-                return Optional.of(Integer.parseInt(cached));
+                Optional<Integer> hit = Optional.of(Integer.parseInt(cached));
+                count("hit");
+                return hit;
             }
         } catch (DataAccessException | NumberFormatException exception) {
+            count("error");
             // A value that is not a number is one bad entry, not a Redis in trouble.
             if (exception instanceof DataAccessException) {
                 openBreaker();
@@ -86,6 +98,7 @@ public class TokenVersionCache {
             log.warn("event=token_version_cache_read_failed reason={}", exception.toString());
             return userRepository.findTokenVersionById(userId);
         }
+        count("miss");
         Optional<Integer> fromDatabase = userRepository.findTokenVersionById(userId);
         fromDatabase.ifPresent(version -> cacheVersion(userId, version));
         return fromDatabase;
@@ -107,6 +120,7 @@ public class TokenVersionCache {
         }
         Optional<Integer> fromDatabase = userRepository.findTokenVersionById(userId);
         fromDatabase.ifPresent(version -> {
+            count("repaired");
             log.info("event=token_version_cache_repaired userId={} cached={} current={}",
                     userId, current.get(), version);
             if (!skipRedis()) {
@@ -183,6 +197,10 @@ public class TokenVersionCache {
      */
     private void openBreaker() {
         skipRedisUntil.set(nanoTime.getAsLong() + properties.skipAfterFailure().toNanos());
+    }
+
+    private void count(String result) {
+        meterRegistry.counter(READS, "result", result).increment();
     }
 
     static String key(UUID userId) {
