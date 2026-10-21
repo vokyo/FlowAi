@@ -65,6 +65,7 @@ The deployment above runs the same containers as `docker compose up`: an Nginx i
 - Stateless Spring Security, BCrypt password hashing, role-aware access checks, and token-bucket rate limiting that Redis shares across instances.
 - Rotated refresh tokens whose replay revokes the membership's sessions instead of only failing the request.
 - Logging out, changing the password or signing out everywhere ends existing access tokens on their next request, not when they expire.
+- Checking an access token reads its user's token version from Redis, with PostgreSQL as the source of truth: once a user's version is cached, each authenticated request runs one database query fewer (`GET /api/me` runs 3 instead of 4), and 99.99% of reads hit Redis under the benchmark's load. A raise reaches Redis only once its transaction commits, and a Redis that fails or hangs sends checks back to the database. See [Design Boundaries](#design-boundaries).
 - Personal access tokens for AI apps, created and revoked in settings: shown once, stored as a hash, bound to one workspace, expiring after 30, 90 or 365 days, and usable only at the MCP endpoint.
 - Docker Compose stack with a non-root backend image and same-origin Nginx reverse proxy.
 - Unit, integration, migration, component, and Playwright end-to-end tests in GitHub Actions.
@@ -81,6 +82,7 @@ The deployment above runs the same containers as `docker compose up`: an Nginx i
 | 5 | Testing, deployment, and application materials | In progress (live deployment and CI done) |
 | 6 | Python/FastAPI/LangGraph planning agent with semantic issue search, checkpointing, and human review | Complete |
 | 7 | Redis-shared rate limits and planning-run lock, immediate access-token revocation, MCP server for AI apps | Complete |
+| 8 | Redis cache for access-token versions, with a benchmark | Complete (timings still to be measured on an idle machine) |
 | Next | A standalone agent README and a larger evaluation set | Planned |
 
 Not currently included:
@@ -96,7 +98,7 @@ flowchart TB
     AiApp["AI app<br/>Claude Code, Cursor"]
     Nginx["Nginx<br/>React app, /api proxy"]
     API["Spring Boot API<br/>REST and MCP<br/>JWT, tenant checks"]
-    Redis[("Redis 8<br/>rate limits, run lock")]
+    Redis[("Redis 8<br/>rate limits, run lock<br/>token versions")]
     Agent["Planning agent<br/>FastAPI, LangGraph"]
     DB[("PostgreSQL 17 + pgvector<br/>app data<br/>agent checkpoints")]
     OpenAI["OpenAI<br/>chat, embeddings"]
@@ -368,9 +370,11 @@ Backend properties (set them on the backend process or add them to the Compose s
 | --- | --- | --- |
 | `SPRING_DATASOURCE_URL` / `_USERNAME` / `_PASSWORD` | Local PostgreSQL | Datasource for a non-Compose run |
 | `RATE_LIMIT_ENABLED` | `true` | Master switch for the rate limiter that auth and AI both use |
-| `REDIS_ENABLED` | `false` | Counts rate limits and keeps the planning-run lock in Redis so every instance shares them; off, each instance counts in its own memory and runs are not locked (see [Design Boundaries](#design-boundaries)). The Compose stack turns it on |
+| `REDIS_ENABLED` | `false` | Counts rate limits, keeps the planning-run lock and caches users' token versions in Redis so every instance shares them; off, each instance counts in its own memory, runs are not locked and every token check reads the database (see [Design Boundaries](#design-boundaries)). The Compose stack turns it on |
 | `REDIS_URL` | `redis://localhost:6379` | Redis to use, `rediss://` for TLS; the Compose stack points it at its `redis` service |
 | `REDIS_TIMEOUT` / `REDIS_CONNECT_TIMEOUT` | `300ms` / `300ms` | How long the backend waits for a Redis command or connection before it counts on its own instead |
+| `TOKEN_VERSION_CACHE_TTL` | `5m` | How long a cached token version lives; also the longest an ended session's tokens keep working if its write to Redis fails |
+| `TOKEN_VERSION_CACHE_SKIP` | `30s` | How long an instance checks tokens against the database alone after a Redis command fails |
 | `AI_ENABLED` | `false` | Enables AI application workflows |
 | `AI_MODEL` | `gpt-4o-mini` | Chat model name |
 | `SPRING_AI_MODEL_EMBEDDING` | `none` | Set to `openai` to enable the planning agent's semantic issue search |
@@ -461,6 +465,13 @@ npm test
 npm run build
 ```
 
+Token version cache benchmark (local PostgreSQL and Redis running, demo workspace seeded, `ab` and `jq` installed): it builds the backend from before the cache, as it is now, and without the token check, counts the SQL statements of one request, and load-tests the three in turns. Run it on an otherwise idle machine; the summary records the load average.
+
+```bash
+cd backend
+bench/token-version-cache.sh
+```
+
 Planning agent checks (the checkpoint tests start PostgreSQL in Docker):
 
 ```bash
@@ -491,7 +502,7 @@ The live instance runs the three images built from this repository on a containe
 - `REFRESH_COOKIE_SECURE=true`, since the platform terminates TLS. Nginx forwards the original scheme through `X-Forwarded-Proto`, and the backend reads it with `forward-headers-strategy: framework`, so redirect and cookie decisions see `https`.
 - `JWT_SECRET`, datasource credentials, and — only if the Copilot should be live — `AI_ENABLED`, `SPRING_AI_MODEL_CHAT`, and `OPENAI_API_KEY`.
 - `DEMO_SEED_ENABLED=true` on a public demo instance, which populates the workspace described under [Demo Data](#demo-data). Leave it unset anywhere real.
-- `REDIS_ENABLED=true` and `REDIS_URL` so instances share rate limits and the planning-run lock. The live instance runs one backend and turns Redis on anyway; a single instance also works without it. Point `REDIS_URL` at the Redis service's private URL, and give that service no public address.
+- `REDIS_ENABLED=true` and `REDIS_URL` so instances share rate limits, the planning-run lock and cached token versions. The live instance runs one backend and turns Redis on anyway; a single instance also works without it. Point `REDIS_URL` at the Redis service's private URL, and give that service no public address.
 
 The planning agent is a third service, built from [`agent/Dockerfile`](./agent/Dockerfile) with the repository's `agent/` directory as its root, and it gets no public address: the agent does not check the tokens it is given, so only the backend may reach it, over the platform's private network. It listens on every IPv4 and IPv6 address, which a private network may use either of.
 
@@ -556,7 +567,8 @@ FlowAI/
 - Project resources require an active project membership; inaccessible resources are not exposed across tenants.
 - Cross-tenant relationships are constrained in PostgreSQL as well as in service-layer checks.
 - Rotation gives a stolen refresh token away: the token is accepted once, so a second presentation means two holders. That replay revokes every session for the membership, which also signs the user's other devices out — the blunt response is chosen over carrying chain identity in the schema. Replays within `JWT_REFRESH_REUSE_GRACE` are treated as concurrent tabs rather than theft.
-- Access tokens are stateless JWTs that carry their user's token version. A logout, a password change, signing out everywhere and a replayed refresh token each raise it, and every request reads the current version by primary key and refuses an older token, so ending a session takes effect at once rather than up to 15 minutes later. Other devices of the same user refresh once and carry on. The version lives in PostgreSQL rather than in a Redis blacklist: the raise commits in the same transaction that revokes the refresh tokens, it has no clock to compare (a JWT's `iat` only has whole seconds), and no outage can let revoked tokens through.
+- Access tokens are stateless JWTs that carry their user's token version. A logout, a password change, signing out everywhere and a replayed refresh token each raise it, and every request checks the current version (from the cache below when Redis is on, otherwise by primary key) and refuses an older token, so ending a session takes effect at once rather than up to 15 minutes later. Other devices of the same user refresh once and carry on. The version lives in PostgreSQL rather than in a Redis blacklist: the raise commits in the same transaction that revokes the refresh tokens, it has no clock to compare (a JWT's `iat` only has whole seconds), and losing Redis cannot let revoked tokens through.
+- With `REDIS_ENABLED`, token versions are cached in Redis for `TOKEN_VERSION_CACHE_TTL` (cache-aside: a check reads Redis, and on a miss reads the database and stores what it found). A raise is written to Redis only after its transaction commits, by a Lua script that keeps the greater version. Versions only ever rise, so keeping the greater value means a version read before a logout and written back after it cannot undo the logout, a race that deleting the entry would leave open. A token newer than the cached version sends its check to the database and repairs the entry, so a write to Redis that failed cannot lock a user out. The one gap: if a raise's write to Redis fails while Redis stays up, older tokens keep working until the entry expires. A failing or hanging Redis sends token checks to the database and is left alone for `TOKEN_VERSION_CACHE_SKIP`, so it delays one check rather than every one; each instance keeps its own pause. Reads are counted as `flowai.auth.token_version_cache` by result.
 - The MCP endpoint is stateless: no MCP session lives in one instance's memory, so any instance can answer. It takes personal access tokens only, through Spring Security's opaque-token introspection, rate-limits each token, checks project access on every call, and searches through the same service as the planning agent. Its tools only read and say so (`readOnlyHint`), so a prompt injected through an issue's text cannot make an AI app change FlowAI.
 - One person runs the planning agent on one project at a time, across instances. Starting or revising a run takes a Redis lock keyed by person and project whose value is a random token of its own, and a second attempt while it is held gets 409 before the model is called. The lock outlives the longest call to the agent, only its holder can release it (a Lua script compares and deletes in one step), and it is released in a `finally` even when taking it timed out, since a write that timed out may still land. It guards cost rather than data, so without Redis, or while Redis does not answer, runs go ahead unlocked.
 - AI prompts use bounded server-owned context, and generated content cannot write to domain tables until validation and explicit user confirmation succeed.
