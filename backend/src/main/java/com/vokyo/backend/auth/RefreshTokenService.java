@@ -1,8 +1,8 @@
 package com.vokyo.backend.auth;
 
 import com.vokyo.backend.security.JwtProperties;
+import com.vokyo.backend.security.TokenVersionCache;
 import com.vokyo.backend.user.User;
-import com.vokyo.backend.user.UserRepository;
 import com.vokyo.backend.workspace.WorkspaceMembership;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -26,19 +26,19 @@ public class RefreshTokenService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final JwtProperties jwtProperties;
     private final RefreshTokenReuseHandler reuseHandler;
-    private final UserRepository userRepository;
+    private final TokenVersionCache tokenVersionCache;
     private final SecureRandom secureRandom = new SecureRandom();
 
     public RefreshTokenService(
             RefreshTokenRepository refreshTokenRepository,
             JwtProperties jwtProperties,
             RefreshTokenReuseHandler reuseHandler,
-            UserRepository userRepository
+            TokenVersionCache tokenVersionCache
     ) {
         this.refreshTokenRepository = refreshTokenRepository;
         this.jwtProperties = jwtProperties;
         this.reuseHandler = reuseHandler;
-        this.userRepository = userRepository;
+        this.tokenVersionCache = tokenVersionCache;
     }
 
     @Transactional
@@ -90,7 +90,7 @@ public class RefreshTokenService {
                 .ifPresent(token -> {
                     if (!token.isRevoked()) {
                         token.revoke();
-                        userRepository.revokeAccessTokens(token.getUser().getId());
+                        tokenVersionCache.revokeAccessTokens(token.getUser().getId());
                     }
                 });
     }
@@ -103,7 +103,7 @@ public class RefreshTokenService {
     @Transactional
     public void revokeUserSessions(UUID userId) {
         refreshTokenRepository.revokeAllByUserId(userId, Instant.now());
-        userRepository.revokeAccessTokens(userId);
+        tokenVersionCache.revokeAccessTokens(userId);
     }
 
     private String generatePlainToken() {

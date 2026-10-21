@@ -162,11 +162,11 @@ class AccessTokenRevocationIntegrationTests extends AbstractMockMvcIntegrationTe
         assertRefused(session.accessToken());
     }
 
-    private void assertWorks(String accessToken) throws Exception {
+    void assertWorks(String accessToken) throws Exception {
         currentWorkspace(accessToken).andExpect(status().isOk());
     }
 
-    private void assertRefused(String accessToken) throws Exception {
+    void assertRefused(String accessToken) throws Exception {
         currentWorkspace(accessToken).andExpect(status().isUnauthorized());
     }
 
@@ -174,7 +174,7 @@ class AccessTokenRevocationIntegrationTests extends AbstractMockMvcIntegrationTe
         return mockMvc.perform(get("/api/workspaces/current").header("Authorization", bearer(accessToken)));
     }
 
-    private Session register(String prefix) throws Exception {
+    Session register(String prefix) throws Exception {
         String email = prefix + "+" + uniqueId() + "@example.com";
         return session(email, postJson(
                 "/api/auth/register",
@@ -190,7 +190,7 @@ class AccessTokenRevocationIntegrationTests extends AbstractMockMvcIntegrationTe
         ).andExpect(status().isOk()));
     }
 
-    private Session login(String email) throws Exception {
+    Session login(String email) throws Exception {
         return session(email, postJson(
                 "/api/auth/login",
                 """
@@ -232,6 +232,6 @@ class AccessTokenRevocationIntegrationTests extends AbstractMockMvcIntegrationTe
         assertThat(updated).isEqualTo(1);
     }
 
-    private record Session(String email, String accessToken, String refreshToken) {
+    record Session(String email, String accessToken, String refreshToken) {
     }
 }

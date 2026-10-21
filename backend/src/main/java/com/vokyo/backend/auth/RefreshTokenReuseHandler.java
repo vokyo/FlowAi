@@ -1,6 +1,6 @@
 package com.vokyo.backend.auth;
 
-import com.vokyo.backend.user.UserRepository;
+import com.vokyo.backend.security.TokenVersionCache;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,16 +18,16 @@ public class RefreshTokenReuseHandler {
     private static final Logger log = LoggerFactory.getLogger(RefreshTokenReuseHandler.class);
 
     private final RefreshTokenRepository refreshTokenRepository;
-    private final UserRepository userRepository;
+    private final TokenVersionCache tokenVersionCache;
     private final MeterRegistry meterRegistry;
 
     public RefreshTokenReuseHandler(
             RefreshTokenRepository refreshTokenRepository,
-            UserRepository userRepository,
+            TokenVersionCache tokenVersionCache,
             MeterRegistry meterRegistry
     ) {
         this.refreshTokenRepository = refreshTokenRepository;
-        this.userRepository = userRepository;
+        this.tokenVersionCache = tokenVersionCache;
         this.meterRegistry = meterRegistry;
     }
 
@@ -37,7 +37,7 @@ public class RefreshTokenReuseHandler {
         UUID membershipId = reusedToken.getWorkspaceMembership().getId();
         int revokedSessions = refreshTokenRepository.revokeAllByMembershipId(membershipId, Instant.now());
         // Whoever replayed it may hold an access token too, and it is not known which.
-        userRepository.revokeAccessTokens(reusedToken.getUser().getId());
+        tokenVersionCache.revokeAccessTokens(reusedToken.getUser().getId());
 
         meterRegistry.counter("flowai.authentication.refresh_token_reuse").increment();
         log.warn(

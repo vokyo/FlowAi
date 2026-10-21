@@ -5,6 +5,8 @@ import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
 import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
 import org.springframework.security.oauth2.jwt.Jwt;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -40,14 +42,26 @@ class TokenVersionValidatorTests {
 
     @Test
     void refusesATokenWhoseUserNoLongerExists() {
-        OAuth2TokenValidatorResult result = new TokenVersionValidator(id -> Optional.empty())
+        OAuth2TokenValidatorResult result = new TokenVersionValidator((id, issued) -> Optional.empty())
                 .validate(withVersion(0));
 
         assertThat(result.hasErrors()).isTrue();
     }
 
+    @Test
+    void tellsTheLookupWhichVersionTheTokenWasIssuedUnder() {
+        List<Integer> asked = new ArrayList<>();
+
+        new TokenVersionValidator((id, issued) -> {
+            asked.add(issued);
+            return Optional.of(issued);
+        }).validate(withVersion(4));
+
+        assertThat(asked).containsExactly(4);
+    }
+
     private static OAuth2TokenValidatorResult validate(Jwt jwt, int currentVersion) {
-        return new TokenVersionValidator(id -> id.equals(USER_ID) ? Optional.of(currentVersion) : Optional.empty())
+        return new TokenVersionValidator((id, issued) -> id.equals(USER_ID) ? Optional.of(currentVersion) : Optional.empty())
                 .validate(jwt);
     }
 

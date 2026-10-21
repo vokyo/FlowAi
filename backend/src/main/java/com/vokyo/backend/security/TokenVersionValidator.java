@@ -8,7 +8,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 
 import java.util.Optional;
 import java.util.UUID;
-import java.util.function.Function;
+import java.util.function.BiFunction;
 
 /**
  * Refuses an access token issued before its user's sessions last ended. The token
@@ -16,6 +16,9 @@ import java.util.function.Function;
  * changing the password, signing out everywhere and a replayed refresh token each
  * raise it, so older tokens stop working on their next request rather than when they
  * expire. Tokens from before the version existed carry none and count as version 0.
+ *
+ * The lookup is told the token's version too, so that a cache which has fallen
+ * behind the database can be told apart from an old token; see TokenVersionCache.
  */
 class TokenVersionValidator implements OAuth2TokenValidator<Jwt> {
 
@@ -25,16 +28,17 @@ class TokenVersionValidator implements OAuth2TokenValidator<Jwt> {
             null
     );
 
-    private final Function<UUID, Optional<Integer>> currentVersion;
+    private final BiFunction<UUID, Integer, Optional<Integer>> currentVersion;
 
-    TokenVersionValidator(Function<UUID, Optional<Integer>> currentVersion) {
+    TokenVersionValidator(BiFunction<UUID, Integer, Optional<Integer>> currentVersion) {
         this.currentVersion = currentVersion;
     }
 
     @Override
     public OAuth2TokenValidatorResult validate(Jwt jwt) {
-        Optional<Integer> current = currentVersion.apply(UUID.fromString(jwt.getSubject()));
-        if (current.isEmpty() || current.get() != issuedVersion(jwt)) {
+        int issued = issuedVersion(jwt);
+        Optional<Integer> current = currentVersion.apply(UUID.fromString(jwt.getSubject()), issued);
+        if (current.isEmpty() || current.get() != issued) {
             return OAuth2TokenValidatorResult.failure(REVOKED);
         }
         return OAuth2TokenValidatorResult.success();

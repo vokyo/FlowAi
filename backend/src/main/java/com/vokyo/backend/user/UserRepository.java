@@ -20,7 +20,9 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     /**
      * Ends every access token the user holds by raising the version they were issued
      * under. One statement in the database, so two raises at once both count and
-     * nothing else about the user is written.
+     * nothing else about the user is written. Callers go through
+     * TokenVersionCache#revokeAccessTokens, which also tells Redis once the raise
+     * commits; a raise made here alone leaves Redis behind until its entry expires.
      */
     @Modifying
     @Query("update User user set user.tokenVersion = user.tokenVersion + 1 where user.id = :id")
