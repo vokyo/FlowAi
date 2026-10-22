@@ -31,8 +31,13 @@ if load.exists():
     print("Load average (1, 5, 15 minutes) on a machine with "
           + next(csv.reader(open(load), delimiter="\t"))[2] + " cores:")
     for moment, averages, _ in csv.reader(open(load), delimiter="\t"):
-        print(f"- at the {moment}: {averages.strip()}")
-    print("A load near the core count means other work skewed every build; measure again when it is quiet.\n")
+        when = "before anything started" if moment == "start" else "at the end, under the benchmark's own load"
+        print(f"- {when}: {averages.strip()}")
+    print("A load above about 2 before the start means other work skewed every build; measure again when it is quiet.")
+    conditions = run / "conditions"
+    if conditions.exists() and "low-power-mode" in conditions.read_text():
+        print("Low Power Mode was on, which slows the CPU: compare the builds with each other, not with other runs.")
+    print()
 
 statements = run / "statements.tsv"
 if statements.exists():
@@ -68,12 +73,19 @@ for endpoint in ("me", "issues"):
             print(f"| {names[endpoint]} | {concurrency} | {variant} | {ms:.3f} ({spread(group, 'server_mean_ms')}) "
                   f"| {vs_ms} | {rps:.0f} | {vs_rps} |")
 
-print("\nRounds in which cached beat before, on backend time:\n")
+print("\nRound by round: each build against before in the same round, which drift on the machine")
+print("affects alike. Median of the per-round differences, and the rounds in which the build was faster:\n")
+print("| Endpoint | Concurrency | Build | Difference ms | Difference | Faster in |")
+print("| --- | --- | --- | --- | --- | --- |")
 for endpoint in ("me", "issues"):
     for concurrency in (1, 20):
         by_rep = defaultdict(dict)
         for row in rows:
             if row["endpoint"] == endpoint and int(row["concurrency"]) == concurrency:
                 by_rep[row["rep"]][row["variant"]] = float(row["server_mean_ms"])
-        wins = sum(1 for times in by_rep.values() if times["cached"] < times["before"])
-        print(f"- {names[endpoint]}, concurrency {concurrency}: {wins} of {len(by_rep)}")
+        for variant in ("cached", "bound"):
+            diffs = [times[variant] - times["before"] for times in by_rep.values()]
+            shares = [(times[variant] - times["before"]) / times["before"] for times in by_rep.values()]
+            faster = sum(1 for d in diffs if d < 0)
+            print(f"| {names[endpoint]} | {concurrency} | {variant} | {statistics.median(diffs):+.2f} "
+                  f"| {statistics.median(shares):+.0%} | {faster} of {len(diffs)} |")

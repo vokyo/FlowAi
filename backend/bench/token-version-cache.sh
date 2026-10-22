@@ -31,6 +31,20 @@ JAVA=${JAVA_HOME:+$JAVA_HOME/bin/}java
 mkdir -p "$OUT"
 : > "$OUT/pids"
 
+# Other work on the machine, and a laptop saving power, slow every build alike and
+# make the timings noisy. The load is recorded before anything starts, so a reader
+# can tell a quiet run from a busy one.
+load_average() { sysctl -n vm.loadavg 2>/dev/null | tr -d '{}' || cut -d' ' -f1-3 /proc/loadavg; }
+cores=$(sysctl -n hw.ncpu 2>/dev/null || nproc)
+echo "start	$(load_average)	$cores" > "$OUT/load.tsv"
+if [ "$(pmset -g 2>/dev/null | awk '/lowpowermode/ {print $2}')" = 1 ]; then
+    echo "warning: Low Power Mode is on, which slows the CPU; the timings will run slow" >&2
+    echo "low-power-mode" >> "$OUT/conditions"
+fi
+if [ "$(load_average | awk '{print ($1 > 2)}')" = 1 ]; then
+    echo "warning: the load average is $(load_average | awk '{print $1}'); timings from a busy machine are noisy" >&2
+fi
+
 set -a
 # shellcheck disable=SC1091
 . "$REPO/.env"
@@ -117,9 +131,6 @@ stop_all
 
 # --- load ---------------------------------------------------------------------
 
-load_average() { sysctl -n vm.loadavg 2>/dev/null | tr -d '{}' || cut -d' ' -f1-3 /proc/loadavg; }
-cores=$(sysctl -n hw.ncpu 2>/dev/null || nproc)
-
 VARIANTS="before cached bound"
 port_of() { case $1 in before) echo 18090 ;; cached) echo 18091 ;; bound) echo 18092 ;; esac; }
 url_of() { # variant, endpoint
@@ -160,9 +171,6 @@ done
 
 RESULTS=$OUT/results.tsv
 printf 'variant\tendpoint\tconcurrency\trep\trps\tp50_ms\tp99_ms\tserver_mean_ms\tfailed\n' > "$RESULTS"
-# Other work on the machine shows up as noise in every build alike; the load is
-# recorded so a reader can tell a quiet run from a busy one.
-echo "start	$(load_average)	$cores" > "$OUT/load.tsv"
 hits_before=$(cache_reads hit)
 misses_before=$(cache_reads miss)
 for rep in $(seq 1 "$REPS"); do
