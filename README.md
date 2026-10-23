@@ -65,7 +65,7 @@ The deployment above runs the same containers as `docker compose up`: an Nginx i
 - Stateless Spring Security, BCrypt password hashing, role-aware access checks, and token-bucket rate limiting that Redis shares across instances.
 - Rotated refresh tokens whose replay revokes the membership's sessions instead of only failing the request.
 - Logging out, changing the password or signing out everywhere ends existing access tokens on their next request, not when they expire.
-- Checking an access token reads its user's token version from Redis, with PostgreSQL as the source of truth: once a user's version is cached, each authenticated request runs one database query fewer (`GET /api/me` runs 3 instead of 4), and 99.99% of reads hit Redis under the benchmark's load. A raise reaches Redis only once its transaction commits, and a Redis that fails or hangs sends checks back to the database. See [Design Boundaries](#design-boundaries).
+- Checking an access token reads its user's token version from Redis, with PostgreSQL as the source of truth: once a user's version is cached, each authenticated request runs one database query fewer (`GET /api/me` runs 3 instead of 4), and 99.99% of reads hit Redis under the benchmark's load. It saves database work rather than time: measured locally, a request takes as long as before, since a Redis round trip costs about as much as the indexed lookup it replaces. A raise reaches Redis only once its transaction commits, and a Redis that fails or hangs sends checks back to the database. See [Design Boundaries](#design-boundaries).
 - Personal access tokens for AI apps, created and revoked in settings: shown once, stored as a hash, bound to one workspace, expiring after 30, 90 or 365 days, and usable only at the MCP endpoint.
 - Docker Compose stack with a non-root backend image and same-origin Nginx reverse proxy.
 - Unit, integration, migration, component, and Playwright end-to-end tests in GitHub Actions.
@@ -82,7 +82,7 @@ The deployment above runs the same containers as `docker compose up`: an Nginx i
 | 5 | Testing, deployment, and application materials | In progress (live deployment and CI done) |
 | 6 | Python/FastAPI/LangGraph planning agent with semantic issue search, checkpointing, and human review | Complete |
 | 7 | Redis-shared rate limits and planning-run lock, immediate access-token revocation, MCP server for AI apps | Complete |
-| 8 | Redis cache for access-token versions, with a benchmark | Complete (timings still to be measured on an idle machine) |
+| 8 | Redis cache for access-token versions, with a benchmark | Complete |
 | Next | A standalone agent README and a larger evaluation set | Planned |
 
 Not currently included:
@@ -471,6 +471,8 @@ Token version cache benchmark (local PostgreSQL and Redis running, demo workspac
 cd backend
 bench/token-version-cache.sh
 ```
+
+Three rounds on an idle MacBook Air (M4, PostgreSQL and Redis in Docker) found no change in request time from the cache. Against the backend from before it, in the same round, the cached build took between 2% more and 1% less time on `GET /api/me` with one client, 0.2% and 2.7% less with 20 clients in two rounds and 16% less in a third where the build from before ran slow, and no consistent difference on a page of issues. Taking the version check out altogether made `GET /api/me` 18% faster in every round, so the check does cost something, but reading the version from Redis costs about as much as reading it from PostgreSQL. What the cache removes is a query: `GET /api/me` runs 3 instead of 4, and 60,025 of 60,026 version reads hit Redis.
 
 Planning agent checks (the checkpoint tests start PostgreSQL in Docker):
 
