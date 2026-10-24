@@ -24,6 +24,7 @@ import {
   SettingsInlineState,
   SettingsSkeleton,
 } from '@/pages/SettingsShared'
+import { DISPLAY_LOCALE } from '@/ui/display-utils'
 
 /**
  * Settings whose scope is the signed-in user or the whole workspace. Anything
@@ -335,7 +336,7 @@ function describeToken(token: AccessToken) {
 }
 
 function formatDay(instant: string) {
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(instant))
+  return new Intl.DateTimeFormat(DISPLAY_LOCALE, { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(instant))
 }
 
 function titleCaseRole(role: string) {

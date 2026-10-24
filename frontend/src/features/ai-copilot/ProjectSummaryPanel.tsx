@@ -11,6 +11,7 @@ import {
 import type { AnalyticsRangeDays } from '@/api/analytics-api'
 import { Button } from '@/components/ui/button'
 import { InlineNotice, InlineState } from '@/ui/feature-ui'
+import { DISPLAY_LOCALE } from '@/ui/display-utils'
 import { AiErrorNotice } from './AiErrorNotice'
 
 type ProjectSummaryPanelProps = {
@@ -172,7 +173,7 @@ function ProjectSummaryContentView({ suggestion }: { suggestion: AiSuggestion<Pr
         </InlineNotice>
       ) : null}
       <section className="ai-summary-lead">
-        <span>Generated {new Date(suggestion.createdAt).toLocaleString()}</span>
+        <span>Generated {new Date(suggestion.createdAt).toLocaleString(DISPLAY_LOCALE)}</span>
         <p>{content.executiveSummary}</p>
       </section>
       {suggestion.metadata.contextTruncated || content.sourceStats.contextTruncated ? (

@@ -77,8 +77,13 @@ function isKnownPriority(priority: string): priority is (typeof ISSUE_PRIORITIES
   return ISSUE_PRIORITIES.includes(priority as (typeof ISSUE_PRIORITIES)[number])
 }
 
+// The interface is written in English, so dates and numbers follow it rather than
+// the browser's language: left to the browser, a Chinese one shows "10月24日" next
+// to English labels.
+export const DISPLAY_LOCALE = 'en-US'
+
 export function formatDate(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(DISPLAY_LOCALE, {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   }).format(new Date(value))
 }
@@ -105,7 +110,7 @@ export function invitationUrl(invitation: WorkspaceInvitationCreated) {
 }
 
 export function formatDateOnly(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(DISPLAY_LOCALE, {
     month: 'short', day: 'numeric', year: 'numeric',
   }).format(new Date(`${value}T00:00:00`))
 }

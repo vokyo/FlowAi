@@ -14,6 +14,7 @@ import {
   acceptWorkspaceInvitation,
   getWorkspaceInvitationPreview,
 } from '@/api/workspace-api'
+import { DISPLAY_LOCALE } from '@/ui/display-utils'
 
 type InvitationPageProps = {
   onSessionChanged: () => void
@@ -190,7 +191,7 @@ function invitationStatusBody(status: string) {
 }
 
 function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(DISPLAY_LOCALE, {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(new Date(value))

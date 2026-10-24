@@ -11,6 +11,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { InlineNotice, InlineState } from '@/ui/feature-ui'
+import { DISPLAY_LOCALE } from '@/ui/display-utils'
 import { AiErrorNotice } from './AiErrorNotice'
 
 type IssueSummaryDrawerProps = {
@@ -187,7 +188,7 @@ function IssueSummaryContentView({
   return (
     <article className="ai-summary-content">
       <section className="ai-summary-lead">
-        <span>Generated {new Date(suggestion.createdAt).toLocaleString()}</span>
+        <span>Generated {new Date(suggestion.createdAt).toLocaleString(DISPLAY_LOCALE)}</span>
         <p>{content.summary}</p>
       </section>
       {suggestion.metadata.contextTruncated || content.sourceStats.contextTruncated ? (

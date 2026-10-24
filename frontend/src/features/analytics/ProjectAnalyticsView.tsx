@@ -13,6 +13,7 @@ import type {
   AnalyticsRangeDays,
   AnalyticsStatusCategory,
 } from '@/api/analytics-api'
+import { DISPLAY_LOCALE } from '@/ui/display-utils'
 
 const RANGE_OPTIONS: AnalyticsRangeDays[] = [7, 30, 90]
 const STATUS_LABELS: Record<AnalyticsStatusCategory, string> = {
@@ -320,18 +321,18 @@ function assigneeKey(item: AnalyticsAssigneeDistribution) {
 }
 
 function formatNumber(value: number) {
-  return new Intl.NumberFormat().format(value)
+  return new Intl.NumberFormat(DISPLAY_LOCALE).format(value)
 }
 
 function formatPercent(value: number) {
-  return new Intl.NumberFormat(undefined, {
+  return new Intl.NumberFormat(DISPLAY_LOCALE, {
     style: 'percent',
     maximumFractionDigits: 1,
   }).format(value)
 }
 
 function formatUtcDate(value: string, long = false) {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(DISPLAY_LOCALE, {
     month: long ? 'short' : 'numeric',
     day: 'numeric',
     timeZone: 'UTC',
