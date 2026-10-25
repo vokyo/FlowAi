@@ -175,6 +175,20 @@ describe('AgentRunPanel', () => {
     expect(screen.getByRole('button', { name: 'Approve and create 2 issues' })).toBeDisabled()
   })
 
+  it('says there is nothing to create when a version only reuses existing issues', async () => {
+    vi.mocked(getAgentRun).mockResolvedValue(run({
+      versions: [version(1, {
+        approvable: false,
+        rejectionReason: 'This version only reuses existing issues and has no new task to create',
+        plan: { ...plan, items: [] },
+      })],
+    }))
+    renderPanel()
+
+    expect(await screen.findByRole('button', { name: 'No new issues to create' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /Approve and create 0/ })).not.toBeInTheDocument()
+  })
+
   it('shows replaced versions without letting them be revised or approved', async () => {
     vi.mocked(getAgentRun).mockResolvedValue(run({ latestVersion: 2, versions: [version(1), version(2)] }))
     renderPanel()

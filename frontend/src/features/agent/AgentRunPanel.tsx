@@ -109,6 +109,10 @@ export function AgentRunPanel({ workspaceId, projectId, runId, available, onClos
     agentQueryKeys.stats(workspaceId, runId, shown.version),
   )
   const newIssueCount = shown.plan.items.length
+  // A version that only reuses existing issues is not approvable, and its button says why.
+  const approveLabel = newIssueCount === 0
+    ? 'No new issues to create'
+    : newIssueCount === 1 ? 'Approve and create 1 issue' : `Approve and create ${newIssueCount} issues`
 
   return (
     <section className="agent-panel" aria-labelledby="agent-run-title">
@@ -229,7 +233,7 @@ export function AgentRunPanel({ workspaceId, projectId, runId, available, onClos
               onClick={() => approveMutation.mutate({ version: shown.version, contentHash: shown.contentHash })}
             >
               {approveMutation.isPending ? <Loader2 className="auth-spin" aria-hidden="true" /> : <Check aria-hidden="true" />}
-              {newIssueCount === 1 ? 'Approve and create 1 issue' : `Approve and create ${newIssueCount} issues`}
+              {approveLabel}
             </Button>
           </div>
           {approveMutation.error ? <AgentErrorNotice error={approveMutation.error} /> : null}
