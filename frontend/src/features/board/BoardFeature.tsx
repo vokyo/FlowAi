@@ -27,7 +27,7 @@ import {
 import {CSS} from '@dnd-kit/utilities'
 import {zodResolver} from '@hookform/resolvers/zod'
 import {useForm, useWatch} from 'react-hook-form'
-import {CalendarDays, GripVertical, Loader2, Maximize2, MessageSquare, Plus, Star, UserCircle, X,} from 'lucide-react'
+import {GripVertical, Loader2, Maximize2, Plus, X,} from 'lucide-react'
 import {Button} from '@/components/ui/button'
 import type {CursorPage} from '@/api/pagination'
 import {type BoardColumn, type IssueSummary, type ProjectBoard, type ProjectWorkflowState,} from '@/api/work-api'
@@ -49,8 +49,8 @@ import {
   type QuickCreateIssueFormValues,
   type QuickCreateIssueMutationVariables,
 } from '@/domain/project-model'
-import {formatDateOnly, getErrorMessage} from '@/ui/display-utils'
-import {ErrorState, InlineNotice, LabelBadge, PriorityBadge, StatusIcon,} from '@/ui/feature-ui'
+import {getErrorMessage} from '@/ui/display-utils'
+import {ErrorState, InlineNotice, IssueFacts, LabelBadge, StatusIcon,} from '@/ui/feature-ui'
 import {useBoardColumnPagination} from './useBoardColumnPagination'
 
 type KanbanDragData = {
@@ -740,28 +740,7 @@ function KanbanIssueCardContent({issue}: { issue: IssueSummary }) {
           ))}
         </span>
       ) : null}
-      <span className="kanban-card-meta">
-        <PriorityBadge priority={issue.priority}/>
-        <span title={issue.assignee?.email ?? 'Unassigned'}>
-          <UserCircle aria-hidden="true"/>
-          {issue.assignee ? issue.assignee.displayName || issue.assignee.email : 'Unassigned'}
-        </span>
-        {issue.dueDate ? (
-          <span>
-            <CalendarDays aria-hidden="true"/>
-            {formatDateOnly(issue.dueDate)}
-          </span>
-        ) : null}
-        {issue.watched ? (
-          <span>
-            <Star aria-hidden="true" fill="currentColor"/>
-          </span>
-        ) : null}
-        <span>
-          <MessageSquare aria-hidden="true"/>
-          {issue.commentCount ?? 0}
-        </span>
-      </span>
+      <IssueFacts issue={issue} className="kanban-card-meta"/>
     </span>
   )
 }

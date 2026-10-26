@@ -1,10 +1,11 @@
 import { useRef, type CSSProperties, type ReactNode } from 'react'
-import { Building2, Flag, X } from 'lucide-react'
+import { Building2, CalendarDays, Flag, MessageSquare, Star, UserCircle, X } from 'lucide-react'
 import { LABEL_COLORS } from '@/ui/label-colors'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
-import type { IssuePriority, IssueStatus, ProjectLabel } from '@/api/work-api'
+import type { IssuePriority, IssueStatus, IssueSummary, ProjectLabel } from '@/api/work-api'
 import {
+  formatDateOnly,
   formatPriority,
   getErrorMessage,
   getProjectMemberMutationErrorMessage,
@@ -117,6 +118,52 @@ export function PriorityBadge({ priority }: { priority?: IssuePriority | null })
       <Flag aria-hidden="true" />{formatPriority(priority)}
     </span>
   )
+}
+
+/**
+ * What a board card or list row says about an issue beyond its title — priority,
+ * assignee, due date, watched, comments — limited to the facts that are set.
+ * "No priority", "Unassigned" and a 0 comment count on every card made empty
+ * values the loudest thing on the board, and hid the ones that mattered.
+ * Renders nothing at all when no fact is set.
+ */
+export function IssueFacts({
+  issue,
+  className,
+  factClassName,
+}: {
+  issue: IssueSummary
+  className: string
+  factClassName?: string
+}) {
+  const facts = [
+    issue.priority ? <PriorityBadge key="priority" priority={issue.priority} /> : null,
+    issue.assignee ? (
+      <span key="assignee" className={factClassName} title={issue.assignee.email}>
+        <UserCircle aria-hidden="true" />
+        {issue.assignee.displayName || issue.assignee.email}
+      </span>
+    ) : null,
+    issue.dueDate ? (
+      <span key="due" className={factClassName}>
+        <CalendarDays aria-hidden="true" />
+        {formatDateOnly(issue.dueDate)}
+      </span>
+    ) : null,
+    issue.watched ? (
+      <span key="watched" className={factClassName}>
+        <Star aria-hidden="true" fill="currentColor" />
+      </span>
+    ) : null,
+    issue.commentCount ? (
+      <span key="comments" className={factClassName}>
+        <MessageSquare aria-hidden="true" />
+        {issue.commentCount}
+      </span>
+    ) : null,
+  ].filter(Boolean)
+
+  return facts.length > 0 ? <span className={className}>{facts}</span> : null
 }
 
 export function LabelBadge({ label }: { label: ProjectLabel }) {

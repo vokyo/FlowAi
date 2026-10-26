@@ -12,7 +12,6 @@ import {
   LogOut,
   Mail,
   MoreHorizontal,
-  PanelRight,
   Plus,
   Settings,
   UserCircle,
@@ -155,10 +154,7 @@ export function WorkspaceSidebar({
 
       <nav className="sidebar-section" aria-label="Views">
         <div className="sidebar-section-header">
-          <span>
-            <PanelRight aria-hidden="true" />
-            Views
-          </span>
+          <span>Views</span>
         </div>
         <div className="sidebar-list sidebar-view-list">
           <Button
@@ -285,7 +281,6 @@ export function WorkspaceSidebar({
             ) : (
               <ChevronRight aria-hidden="true" />
             )}
-            <FolderKanban aria-hidden="true" />
             Projects
           </Button>
           <span className="sidebar-section-actions">

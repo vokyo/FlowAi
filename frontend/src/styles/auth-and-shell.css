@@ -534,15 +534,16 @@ button.workspace-switcher:focus-visible {
   min-width: 0;
 }
 
+/* Group labels in sentence case: "VIEWS" and "PROJECTS" in tracked bold caps,
+   each with its own icon, shouted louder than the items they group. */
 .sidebar-section-header {
   justify-content: space-between;
   gap: 8px;
   color: var(--md-on-surface-variant);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
   padding: 0 12px 4px;
-  text-transform: uppercase;
 }
 
 .sidebar-section-header-interactive {
@@ -566,7 +567,7 @@ button.workspace-switcher:focus-visible {
   color: inherit;
   font: inherit;
   font-size: inherit;
-  font-weight: 700;
+  font-weight: inherit;
   letter-spacing: inherit;
   gap: 6px;
   padding: 0;
@@ -822,21 +823,26 @@ button.workspace-switcher:focus-visible {
 }
 
 /* The header is a flex row, so the title block shrinks to whatever the actions
-   leave it. Without a basis, `overflow-wrap: anywhere` then breaks a long URL
-   into a one-fragment-per-line column and the description alone pushes the
-   board below the fold. Take the free space, and clamp to two lines. */
+   leave it. Without a basis, `overflow-wrap: anywhere` breaks a long title or
+   description into a one-fragment-per-line column. Take the free space. */
 .content-header > div {
   flex: 1 1 auto;
 }
 
-/* Targeted by class, not by structure: BreadcrumbLine is also a <p> in this
-   block, and giving it `display: -webkit-box` drops its flex gap. */
-.content-header-description {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+/* A count, not a control: plain text beside the view switch rather than one
+   more bordered pill in a row of buttons. */
+.content-header-count {
+  color: var(--md-on-surface-variant);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.content-header-menu-count {
+  margin-left: auto;
+  color: var(--md-on-surface-variant);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .breadcrumb-line {

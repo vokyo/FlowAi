@@ -1,21 +1,26 @@
 import { lazy, Suspense, useMemo } from 'react'
 import {
-  CalendarDays,
   Circle,
   CircleDot,
   FolderKanban,
   LayoutList,
   Loader2,
-  MessageSquare,
+  MoreHorizontal,
   Plus,
   Search,
-  Settings, Star,
-  UserCircle,
+  Settings,
   Users,
 } from 'lucide-react'
 import type { AuthUser, AuthWorkspace } from '@/api/auth-api'
 import type { CursorPage } from '@/api/pagination'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import type {
   IssuePriority,
   IssueSummary,
@@ -39,14 +44,14 @@ import {
   type QuickCreateIssueMutationVariables,
 } from '@/domain/project-model'
 import type { IssueViewMode } from '@/routing/route-utils'
-import { formatDateOnly, statusForIcon } from '@/ui/display-utils'
+import { statusForIcon } from '@/ui/display-utils'
 import {
   BreadcrumbLine,
   EmptyState,
   ErrorState,
   InlineState,
+  IssueFacts,
   LabelBadge,
-  PriorityBadge,
   StatusIcon,
 } from '@/ui/feature-ui'
 import { ProjectEmptyState } from './ProjectEmptyState'
@@ -192,16 +197,17 @@ export function IssueListFeature({
           <BreadcrumbLine
             items={[currentWorkspace?.name ?? 'Workspace', selectedProject?.name ?? 'Issues']}
           />
-          <h1>{selectedProject?.name ?? (hasProjects ? 'Choose a project' : 'Projects')}</h1>
-          {/* Clamped to two lines in CSS; the title carries the full text so a
-              truncated description is still readable on hover. */}
-          {selectedProject?.description ? (
-            <p className="content-header-description" title={selectedProject.description}>
-              {selectedProject.description}
-            </p>
-          ) : null}
+          {/* The description used to sit under the title, two lines of it on
+              every visit, pushing the board down. It is edited in project
+              settings and still readable here on hover. */}
+          <h1 title={selectedProject?.description ?? undefined}>
+            {selectedProject?.name ?? (hasProjects ? 'Choose a project' : 'Projects')}
+          </h1>
         </div>
         <div className="content-header-actions">
+          {selectedProject ? (
+            <span className="content-header-count">{visibleIssueCount} issues</span>
+          ) : null}
           {selectedProject ? (
             <div className="issue-view-switch" role="group" aria-label="Issue view">
               <Button
@@ -226,50 +232,48 @@ export function IssueListFeature({
               </Button>
             </div>
           ) : null}
+          {/* Workflow states, members and settings are visited, not used on
+              every screen, so they share one menu: as four bordered buttons
+              beside the view switch they wrapped the header onto a second row
+              and competed with New issue, the one action that matters here. */}
           {selectedProject ? (
-            <span className="app-pill">
-              {issueViewMode === 'BOARD' ? (
-                <FolderKanban aria-hidden="true" />
-              ) : (
-                <LayoutList aria-hidden="true" />
-              )}
-              {visibleIssueCount} issues
-            </span>
-          ) : null}
-          {selectedProject ? (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onOpenProjectWorkflow}
-              aria-label="Open workflow states"
-            >
-              <CircleDot aria-hidden="true" />
-              {projectWorkflowStates.length} statuses
-            </Button>
-          ) : null}
-          {selectedProject ? (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onOpenProjectMembers}
-              disabled={isLoadingProjectMembers}
-              aria-label="Open project members"
-            >
-              <Users aria-hidden="true" />
-              {isLoadingProjectMembers ? 'Members' : `${projectMembers.length} members`}
-            </Button>
-          ) : null}
-          {selectedProject ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              onClick={onOpenProjectSettings}
-              aria-label={`Settings for ${selectedProject.name}`}
-              title="Project settings"
-            >
-              <Settings aria-hidden="true" />
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  aria-label="Project actions"
+                  title="Project actions"
+                >
+                  <MoreHorizontal aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuItem onSelect={onOpenProjectWorkflow}>
+                  <CircleDot aria-hidden="true" />
+                  Workflow states
+                  <span className="content-header-menu-count">
+                    {projectWorkflowStates.length}
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={onOpenProjectMembers}
+                  disabled={isLoadingProjectMembers}
+                >
+                  <Users aria-hidden="true" />
+                  Members
+                  {isLoadingProjectMembers ? null : (
+                    <span className="content-header-menu-count">{projectMembers.length}</span>
+                  )}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={onOpenProjectSettings}>
+                  <Settings aria-hidden="true" />
+                  Project settings
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           ) : null}
           <Button
             type="button"
@@ -569,30 +573,9 @@ function IssueRow({
         ) : null}
       </span>
       {/* Rows are grouped by workflow state, so the section header above already
-          names the status every row in it carries. Keep this in step with
-          KanbanIssueCardContent, which shows the same four facts. */}
-      <span className="issue-row-meta">
-        <PriorityBadge priority={issue.priority} />
-        <span className="issue-comment-count">
-          <UserCircle aria-hidden="true" />
-          {issue.assignee ? issue.assignee.displayName || issue.assignee.email : 'Unassigned'}
-        </span>
-        {issue.dueDate ? (
-          <span className="issue-comment-count">
-            <CalendarDays aria-hidden="true" />
-            {formatDateOnly(issue.dueDate)}
-          </span>
-        ) : null}
-        {issue.watched ? (
-          <span className="issue-comment-count">
-            <Star aria-hidden="true" fill="currentColor" />
-          </span>
-        ) : null}
-        <span className="issue-comment-count">
-          <MessageSquare aria-hidden="true" />
-          {issue.commentCount ?? 0}
-        </span>
-      </span>
+          names the status every row in it carries. The board card renders the
+          same IssueFacts. */}
+      <IssueFacts issue={issue} className="issue-row-meta" factClassName="issue-comment-count" />
     </button>
   )
 }

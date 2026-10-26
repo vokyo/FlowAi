@@ -65,13 +65,14 @@
 
   .content-header,
   .detail-content-header,
-  .content-header-actions,
   .issue-title-display,
   .comment-meta {
     align-items: stretch;
     flex-direction: column;
   }
 
+  /* A wrapping row, not a column: with the project actions in one menu there
+     are few enough controls to share a line, where a column gave each its own. */
   .content-header-actions {
     justify-content: flex-start;
   }

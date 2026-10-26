@@ -207,13 +207,14 @@
   animation: kanban-loading-pulse 1.2s ease-in-out infinite alternate;
 }
 
-/* White card, hairline edge, on the recessed lane (tokens in index.css). */
+/* White card, hairline edge, on the recessed lane (tokens in index.css). Its
+   height follows its content: with unset facts no longer printed, a fixed
+   minimum left short cards with an empty band at the bottom. */
 .kanban-card {
   position: relative;
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
-  min-height: 94px;
   overflow: hidden;
   border: 0;
   border-radius: var(--md-shape-md);
@@ -244,9 +245,8 @@
    10px padding on each side. */
 .kanban-card-overlay {
   width: 276px;
-  grid-template-columns: minmax(0, 1fr);
   opacity: 0.98;
-  padding: 10px;
+  padding: 12px;
   pointer-events: none;
   box-shadow: 0 0 0 1px var(--hairline), var(--elevation-4);
 }
@@ -266,15 +266,45 @@
   font: inherit;
 }
 
+/* The grip floats over the card's top-right corner instead of owning a 28px
+   column down the left of every card. With a mouse it appears on hover or
+   focus — a grip on every card at once was noise. Touch screens have no
+   hover, so there it stays visible. */
 .kanban-drag-handle {
+  position: absolute;
+  z-index: 1;
+  top: 6px;
+  right: 6px;
   display: grid;
-  width: 28px;
-  min-height: 100%;
+  width: 24px;
+  height: 28px;
   cursor: grab;
-  place-items: start center;
+  place-items: center;
+  border-radius: var(--md-shape-sm);
   color: var(--md-on-surface-variant);
-  padding: 14px 0 0;
   touch-action: none;
+  transition: opacity var(--md-duration-short) var(--md-easing),
+    background-color var(--md-duration-short) var(--md-easing);
+}
+
+.kanban-drag-handle:hover {
+  background: color-mix(in oklab, var(--md-on-surface), transparent 94%);
+}
+
+@media (hover: hover) {
+  .kanban-drag-handle {
+    opacity: 0;
+  }
+
+  .kanban-card:hover .kanban-drag-handle,
+  .kanban-card:focus-within .kanban-drag-handle {
+    opacity: 1;
+  }
+
+  /* Not for the cards the overlay passes over mid-drag. */
+  .kanban-board-region[data-dragging='true'] .kanban-card:hover .kanban-drag-handle {
+    opacity: 0;
+  }
 }
 
 .kanban-drag-handle:active {
@@ -297,7 +327,7 @@
   min-width: 0;
   cursor: pointer;
   text-align: left;
-  padding: 12px 12px 12px 0;
+  padding: 12px;
 }
 
 .kanban-card-content {
@@ -312,6 +342,8 @@
   font-size: 13px;
   font-weight: 600;
   line-height: 1.4;
+  /* Clear of the grip in the top-right corner. */
+  padding-right: 20px;
 }
 
 .kanban-card .label-badge,
