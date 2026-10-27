@@ -154,8 +154,11 @@
     padding: 12px;
   }
 
+  /* Narrower sides and bottom only. The 66px top set at 920px is the room the
+     fixed navigation button needs; overriding it here put the button on top
+     of every page's breadcrumb. */
   .content-page {
-    padding: 14px;
+    padding: 66px 14px 14px;
   }
 
   /* Page titles are already 22px; only the issue title needs to come down. */
