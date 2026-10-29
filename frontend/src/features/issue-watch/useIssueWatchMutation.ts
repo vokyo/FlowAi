@@ -15,8 +15,9 @@ export function useIssueWatchMutation(workspaceId: string | null) {
     mutationFn: ({ issueId, watched }: WatchVariables) =>
       watched ? unwatchIssue(issueId) : watchIssue(issueId),
 
-    onMutate: ({ issueId, watched }) => {
+    onMutate: async ({ issueId, watched }) => {
       const key = queryKeys.issue(workspaceId, issueId)
+      await queryClient.cancelQueries({ queryKey: key })
       const previous = queryClient.getQueryData<IssueDetail>(key)
 
       queryClient.setQueryData<IssueDetail>(key, (old) => old && {
