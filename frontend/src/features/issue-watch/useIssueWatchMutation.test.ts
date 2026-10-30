@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider, type InfiniteData } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { createElement, type ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CursorPage } from '@/api/pagination'
 import {
@@ -71,9 +71,8 @@ function seededClient() {
 
 function renderWatchMutation(queryClient: QueryClient) {
   return renderHook(() => useIssueWatchMutation('workspace-1'), {
-    wrapper: ({ children }: { children: ReactNode }) => (
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    ),
+    wrapper: ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children),
   })
 }
 
