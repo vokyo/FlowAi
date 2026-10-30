@@ -33,11 +33,14 @@ export function useIssueWatchMutation(workspaceId: string | null) {
       queryClient.setQueryData(queryKeys.issue(workspaceId, issueId), context?.previous)
     },
 
-    onSuccess: async (_, variables) => {
+    onSuccess: async (state, variables) => {
+      queryClient.setQueryData<IssueDetail>(queryKeys.issue(workspaceId, variables.issueId), (old) => old && {
+        ...old,
+        watched: state.watched,
+        watcherCount: state.watcherCount,
+      })
+
       await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.issue(workspaceId, variables.issueId),
-        }),
         queryClient.invalidateQueries({
           queryKey: queryKeys.issues(workspaceId, variables.projectId),
         }),
